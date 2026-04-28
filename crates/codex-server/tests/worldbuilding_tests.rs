@@ -39,7 +39,7 @@ async fn setup(temp_dir: &TempDir) -> (web::Data<AppState>, String) {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: EntityTypeRegistry::new(),
         relation_type_registry: RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let vault_dir = temp_dir.path().join("vault");

@@ -112,15 +112,18 @@ impl ReindexService {
         // Log to reindex_log
         let _ = sqlx::query(
             r#"
-            INSERT INTO reindex_log (vault_id, started_at, finished_at, files_indexed, errors)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO reindex_log (vault_id, completed_at, file_count, duration_ms)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(vault_id) DO UPDATE SET
+                completed_at = excluded.completed_at,
+                file_count = excluded.file_count,
+                duration_ms = excluded.duration_ms
             "#,
         )
         .bind(vault_id)
-        .bind(start.to_rfc3339())
         .bind(Utc::now().to_rfc3339())
         .bind(indexed_count as i64)
-        .bind((error_count + rel_errors) as i64)
+        .bind(elapsed)
         .execute(db.pool())
         .await;
 

@@ -22,6 +22,18 @@ pub struct AuthenticatedUser {
     pub username: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct AuthenticatedUserClaims {
+    pub auth_method: String,
+    pub token_id: String,
+    pub token_type: String,
+    pub totp_verified: bool,
+}
+
+fn default_totp_verified() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RequiredVaultRole {
     Read,
@@ -57,9 +69,15 @@ pub struct AuthMiddlewareService<S> {
 struct Claims {
     sub: String,
     username: String,
+    #[serde(default)]
+    auth_method: String,
     token_type: String,
     exp: i64,
     iat: i64,
+    #[serde(default)]
+    jti: String,
+    #[serde(default = "default_totp_verified")]
+    totp_verified: bool,
 }
 
 impl<S, B> Service<ServiceRequest> for AuthMiddlewareService<S>
@@ -258,6 +276,12 @@ where
             user_id: claims.sub.clone(),
             username: claims.username.clone(),
         };
+        let claims_for_request = AuthenticatedUserClaims {
+            auth_method: claims.auth_method.clone(),
+            token_id: claims.jti.clone(),
+            token_type: claims.token_type.clone(),
+            totp_verified: claims.totp_verified,
+        };
 
         let state = req.app_data::<actix_web::web::Data<AppState>>().cloned();
         let required_vault_role = required_vault_role(&req);
@@ -266,6 +290,14 @@ where
             let req = req;
 
             if let Some(state) = state.as_ref() {
+                if !claims_for_request.totp_verified && !is_totp_login_exempt_path(req.path()) {
+                    let response = HttpResponse::Forbidden().json(serde_json::json!({
+                        "error": "TOTP_VERIFICATION_REQUIRED",
+                        "message": "A TOTP code or backup code is required before continuing"
+                    }));
+                    return Ok(req.into_response(response).map_into_right_body());
+                }
+
                 if !is_password_change_exempt_path(req.path()) {
                     match state.db.user_must_change_password(&user.user_id).await {
                         Ok(true) => {
@@ -322,6 +354,7 @@ where
             }
 
             req.extensions_mut().insert(UserId(user.user_id.clone()));
+            req.extensions_mut().insert(claims_for_request);
             req.extensions_mut().insert(user);
             let fut = service.call(req);
             Ok(fut.await?.map_into_left_body())
@@ -437,4 +470,8 @@ fn is_password_change_exempt_path(path: &str) -> bool {
         path,
         "/api/auth/me" | "/api/auth/logout" | "/api/auth/change-password"
     )
+}
+
+fn is_totp_login_exempt_path(path: &str) -> bool {
+    matches!(path, "/api/auth/totp/login-verify" | "/api/auth/logout")
 }

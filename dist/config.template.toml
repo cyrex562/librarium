@@ -3,6 +3,4 @@ host = "127.0.0.1"
 port = 8080
 
 [auth]
-enabled = true
-bootstrap_admin_username = "admin"
-bootstrap_admin_password = "admin"
+enabled = false

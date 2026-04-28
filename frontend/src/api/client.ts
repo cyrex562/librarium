@@ -10,6 +10,7 @@ import type {
     UserPreferences,
     UploadSessionResponse,
     LoginResponse,
+    TotpLoginVerifyResponse,
     AuthenticatedUserProfile,
     GroupInfo,
     GroupMember,
@@ -89,7 +90,8 @@ async function request<T>(
             const isAuthLifecycleRequest =
                 path === '/api/auth/login' ||
                 path === '/api/auth/refresh' ||
-                path === '/api/auth/logout';
+                path === '/api/auth/logout' ||
+                path === '/api/auth/totp/login-verify';
 
             try {
                 if (!isAuthLifecycleRequest) {
@@ -185,11 +187,11 @@ export const apiRenameFile = (
     vaultId: string,
     from: string,
     to: string,
-    strategy: 'fail' | 'overwrite' | 'rename' = 'fail',
+    strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
 ): Promise<{ new_path: string }> =>
     request(`/api/vaults/${vaultId}/rename`, {
         method: 'POST',
-        body: JSON.stringify({ from, to, strategy }),
+        body: JSON.stringify({ from, to, strategy: strategy === 'rename' ? 'autorename' : strategy }),
     });
 
 // ── Raw / Assets ─────────────────────────────────────────────────────────────
@@ -217,7 +219,7 @@ export const apiSearch = (
         `/api/vaults/${vaultId}/search?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`,
     );
 
-export const apiReindex = (vaultId: string): Promise<{ indexed_files: number }> =>
+export const apiReindex = (vaultId: string): Promise<{ message: string; vault_id: string }> =>
     request(`/api/vaults/${vaultId}/reindex`, { method: 'POST' });
 
 // ── ML (outline + organization suggestions, suggest-only) ───────────────────
@@ -459,8 +461,17 @@ export const apiRefreshToken = (refreshToken: string): Promise<LoginResponse> =>
         body: JSON.stringify({ refresh_token: refreshToken }),
     });
 
-export const apiLogout = (): Promise<void> =>
-    request('/api/auth/logout', { method: 'POST' });
+export const apiLogout = (refreshToken?: string | null): Promise<void> =>
+    request('/api/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: refreshToken ?? undefined }),
+    });
+
+export const apiVerifyTotpLogin = (code: string): Promise<TotpLoginVerifyResponse> =>
+    request('/api/auth/totp/login-verify', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+    });
 
 export const apiMe = (): Promise<AuthenticatedUserProfile> =>
     request('/api/auth/me');
@@ -598,8 +609,7 @@ export const apiGetEntityRelations = (vaultId: string, entityId: string): Promis
 export const apiGetGraph = (vaultId: string): Promise<GraphData> =>
     request(`/api/vaults/${vaultId}/graph`);
 
-export const apiTriggerReindex = (vaultId: string): Promise<{ reindexed: number }> =>
-    request(`/api/vaults/${vaultId}/reindex`, { method: 'POST' });
+export const apiTriggerReindex = apiReindex;
 
 export const apiListLabels = (): Promise<{ labels: Array<{ name: string; description?: string }> }> =>
     request('/api/plugins/labels');

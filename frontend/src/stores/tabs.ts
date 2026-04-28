@@ -98,6 +98,27 @@ export const useTabsStore = defineStore('tabs', () => {
         });
     }
 
+    function closeTabs(tabIds: string[]) {
+        tabIds.forEach((tabId) => closeTab(tabId));
+    }
+
+    function tabIdsInPane(paneId: string): string[] {
+        return tabsForPane(paneId).map((tab) => tab.id);
+    }
+
+    function tabIdsToRight(paneId: string, tabId: string): string[] {
+        const paneTabs = tabsForPane(paneId);
+        const index = paneTabs.findIndex((tab) => tab.id === tabId);
+        if (index < 0) return [];
+        return paneTabs.slice(index + 1).map((tab) => tab.id);
+    }
+
+    function tabIdsExcept(paneId: string, tabId: string): string[] {
+        return tabsForPane(paneId)
+            .filter((tab) => tab.id !== tabId)
+            .map((tab) => tab.id);
+    }
+
     function activateTab(tabId: string, paneId?: string) {
         const tab = tabs.value.get(tabId);
         if (!tab) return;
@@ -247,7 +268,11 @@ export const useTabsStore = defineStore('tabs', () => {
         openTab,
         openGraphTab,
         closeTab,
+        closeTabs,
         closeAllTabs,
+        tabIdsInPane,
+        tabIdsToRight,
+        tabIdsExcept,
         activateTab,
         updateTabContent,
         markTabClean,

@@ -55,7 +55,7 @@ async fn preferences_are_scoped_per_authenticated_user() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let mut config = AppConfig::default();

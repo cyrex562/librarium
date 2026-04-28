@@ -145,7 +145,7 @@ const createFields = computed<FieldSchema[]>(() => {
 });
 
 const canCreate = computed(
-    () => !!selectedTypeId.value && !!fileName.value.trim(),
+    () => !!vaultsStore.activeVaultId && !!selectedTypeId.value && !!fileName.value.trim(),
 );
 
 watch(model, (open) => {

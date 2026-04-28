@@ -21,9 +21,9 @@ pub use codex_types::{
     GroupInfo, GroupMember, InviteInfo, MlUndoReceipt, NoteOutlineResponse, OrganizationSuggestion,
     OrganizationSuggestionKind, OrganizationSuggestionsResponse, OutlineSection, PagedSearchResult,
     ReverseAction, SearchMatch, SearchResult, SessionInfo, ShareVaultWithGroupRequest,
-    ShareVaultWithUserRequest, TotpEnrollResponse, TotpVerifyRequest, UndoMlActionResponse,
-    UpdateFileRequest, UploadSessionResponse, UserPreferences, Vault, VaultRole, VaultShareEntry,
-    VaultShareList, WsMessage,
+    ShareVaultWithUserRequest, TotpEnrollResponse, TotpLoginVerifyResponse, TotpVerifyRequest,
+    UndoMlActionResponse, UpdateFileRequest, UploadSessionResponse, UserPreferences, Vault,
+    VaultRole, VaultShareEntry, VaultShareList, WsMessage,
 };
 
 #[derive(Debug, Clone, FromRow)]

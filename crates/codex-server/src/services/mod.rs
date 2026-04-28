@@ -28,7 +28,7 @@ pub use label_service::{Label, LabelService};
 pub use markdown_service::{MarkdownParser, MarkdownService, RenderOptions};
 pub use ml_service::MlService;
 pub use plugin_api::{Command, Event, EventBus, EventType, PluginApi, PluginStorage};
-pub use plugin_service::{PluginService, resolve_plugins_dir};
+pub use plugin_service::{resolve_plugins_dir, PluginService};
 pub use reindex_service::ReindexService;
 pub use relation_service::{Relation, RelationService};
 pub use schema_service::{EntityTypeRegistry, RelationTypeRegistry, SchemaService};

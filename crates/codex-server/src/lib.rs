@@ -57,8 +57,19 @@ async fn serve_embedded_file(path: web::Path<String>) -> WebResult<HttpResponse>
                 .content_type(mime_type.as_ref())
                 .body(content.data.into_owned()))
         }
+        None if is_spa_route(file_path) => match Assets::get("index.html") {
+            Some(content) => Ok(HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .body(content.data.into_owned())),
+            None => Ok(HttpResponse::NotFound().body("404 Not Found")),
+        },
         None => Ok(HttpResponse::NotFound().body("404 Not Found")),
     }
+}
+
+#[cfg(not(debug_assertions))]
+fn is_spa_route(path: &str) -> bool {
+    !path.starts_with("api/") && !path.contains('.')
 }
 
 #[cfg(not(debug_assertions))]
@@ -464,13 +475,13 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
             .configure(routes::preferences::configure)
             .configure(routes::entities::configure)
             .configure(routes::plugins::configure)
-            .configure(configure_static)
             .configure(routes::bookmarks::configure)
             .configure(routes::tags::configure)
             .configure(routes::api_keys::configure)
             .configure(routes::totp::configure)
             .configure(routes::invitations::configure)
             .configure(routes::oidc::configure)
+            .configure(configure_static)
     })
     .shutdown_timeout(10);
 

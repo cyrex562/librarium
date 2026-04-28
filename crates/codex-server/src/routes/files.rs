@@ -535,6 +535,7 @@ async fn rename_file(
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "from": from,
         "to": new_path,
+        "new_path": new_path,
     })))
 }
 
@@ -1028,6 +1029,8 @@ struct ImportArchiveQuery {
     /// Archive type: "zip", "tar", or "tar.gz" / "tgz".
     #[serde(default)]
     archive_type: String,
+    #[serde(default)]
+    conflict: ConflictStrategy,
 }
 
 /// Derive a conflict-renamed path by appending a timestamp (and optional serial) before the
@@ -1236,19 +1239,25 @@ async fn import_archive(
             if zf.is_dir() {
                 continue;
             }
-            let raw_name = zf.name().to_string();
-            // Sanitize: reject absolute paths or path traversal.
-            if raw_name.starts_with('/') || raw_name.contains("..") {
+            let Some(safe_name) = zf.enclosed_name().map(|path| path.to_path_buf()) else {
                 continue;
-            }
-            let dest = target_dir.join(&raw_name);
+            };
+            let dest = target_dir.join(&safe_name);
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let final_dest = if dest.exists() {
-                conflict_rename(&dest)
-            } else {
-                dest
+            let final_dest = match (dest.exists(), query.conflict) {
+                (true, ConflictStrategy::Fail) => {
+                    return Err(AppError::Conflict(format!(
+                        "Archive entry already exists: {}",
+                        dest.strip_prefix(&vault.path)
+                            .unwrap_or(&dest)
+                            .to_string_lossy()
+                    )));
+                }
+                (true, ConflictStrategy::Overwrite) => dest,
+                (true, ConflictStrategy::RenameWithTimestamp) => conflict_rename(&dest),
+                (false, _) => dest,
             };
             let mut out = std::fs::File::create(&final_dest)?;
             std::io::copy(&mut zf, &mut out)?;
@@ -1279,7 +1288,7 @@ async fn import_archive(
                 .path()
                 .map_err(|e| AppError::InternalError(format!("Tar path error: {}", e)))?
                 .into_owned();
-            if entry.header().entry_type().is_dir() {
+            if !entry.header().entry_type().is_file() {
                 continue;
             }
             let raw_name = entry_path.to_string_lossy().to_string();
@@ -1290,10 +1299,18 @@ async fn import_archive(
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let final_dest = if dest.exists() {
-                conflict_rename(&dest)
-            } else {
-                dest
+            let final_dest = match (dest.exists(), query.conflict) {
+                (true, ConflictStrategy::Fail) => {
+                    return Err(AppError::Conflict(format!(
+                        "Archive entry already exists: {}",
+                        dest.strip_prefix(&vault.path)
+                            .unwrap_or(&dest)
+                            .to_string_lossy()
+                    )));
+                }
+                (true, ConflictStrategy::Overwrite) => dest,
+                (true, ConflictStrategy::RenameWithTimestamp) => conflict_rename(&dest),
+                (false, _) => dest,
             };
             entry
                 .unpack(&final_dest)

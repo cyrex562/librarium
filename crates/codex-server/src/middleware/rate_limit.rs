@@ -17,6 +17,7 @@ use std::time::Instant;
 /// Configured via environment variables or defaults:
 /// - `RATE_LIMIT_REQUESTS`: max requests per window for **IP** buckets (default 120)
 /// - `RATE_LIMIT_USER_REQUESTS`: max requests per window for **user** buckets (default 300)
+/// - `RATE_LIMIT_UPLOAD_REQUESTS`: max upload requests per window (default 2000)
 /// - `RATE_LIMIT_WINDOW_SECS`: shared window size in seconds (default 60)
 pub struct RateLimitMiddleware;
 
@@ -40,6 +41,10 @@ where
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(300u64);
+        let max_upload_requests = std::env::var("RATE_LIMIT_UPLOAD_REQUESTS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2000u64);
         let window_secs = std::env::var("RATE_LIMIT_WINDOW_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -50,6 +55,7 @@ where
             buckets: Rc::new(Mutex::new(HashMap::new())),
             max_requests,
             max_user_requests,
+            max_upload_requests,
             window_secs,
         }))
     }
@@ -65,6 +71,7 @@ pub struct RateLimitService<S> {
     buckets: Rc<Mutex<HashMap<String, BucketEntry>>>,
     max_requests: u64,
     max_user_requests: u64,
+    max_upload_requests: u64,
     window_secs: u64,
 }
 
@@ -97,15 +104,27 @@ where
         // RefCell double-borrow panic when the else branch calls
         // `req.connection_info()` (which calls extensions_mut internally).
         let maybe_user_id = req.extensions().get::<UserId>().cloned();
+        let is_upload_request = is_upload_path(&path);
         let (key, max) = if let Some(user_id) = maybe_user_id {
-            (format!("user:{}", user_id.0), self.max_user_requests)
+            if is_upload_request {
+                (
+                    format!("upload:user:{}", user_id.0),
+                    self.max_upload_requests,
+                )
+            } else {
+                (format!("user:{}", user_id.0), self.max_user_requests)
+            }
         } else {
             let ip = req
                 .connection_info()
                 .peer_addr()
                 .unwrap_or("unknown")
                 .to_string();
-            (format!("ip:{}", ip), self.max_requests)
+            if is_upload_request {
+                (format!("upload:ip:{}", ip), self.max_upload_requests)
+            } else {
+                (format!("ip:{}", ip), self.max_requests)
+            }
         };
 
         let now = Instant::now();
@@ -141,5 +160,98 @@ where
 
         let fut = self.service.call(req);
         Box::pin(async move { Ok(fut.await?.map_into_left_body()) })
+    }
+}
+
+fn is_upload_path(path: &str) -> bool {
+    path.starts_with("/api/vaults/")
+        && (path.ends_with("/upload") || path.contains("/upload-sessions"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RateLimitMiddleware;
+    use actix_web::{http::StatusCode, test, web, App, HttpResponse};
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct RateLimitEnvGuard;
+
+    impl RateLimitEnvGuard {
+        fn set(requests: u64, user_requests: u64, upload_requests: u64, window_secs: u64) -> Self {
+            std::env::set_var("RATE_LIMIT_REQUESTS", requests.to_string());
+            std::env::set_var("RATE_LIMIT_USER_REQUESTS", user_requests.to_string());
+            std::env::set_var("RATE_LIMIT_UPLOAD_REQUESTS", upload_requests.to_string());
+            std::env::set_var("RATE_LIMIT_WINDOW_SECS", window_secs.to_string());
+            Self
+        }
+    }
+
+    impl Drop for RateLimitEnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("RATE_LIMIT_REQUESTS");
+            std::env::remove_var("RATE_LIMIT_USER_REQUESTS");
+            std::env::remove_var("RATE_LIMIT_UPLOAD_REQUESTS");
+            std::env::remove_var("RATE_LIMIT_WINDOW_SECS");
+        }
+    }
+
+    #[actix_web::test]
+    async fn upload_requests_use_separate_higher_bucket() {
+        let _lock = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _env = RateLimitEnvGuard::set(2, 2, 4, 60);
+
+        let app = test::init_service(
+            App::new()
+                .wrap(RateLimitMiddleware)
+                .default_service(web::to(|| async { HttpResponse::Ok().finish() })),
+        )
+        .await;
+
+        for _ in 0..4 {
+            let req = test::TestRequest::put()
+                .uri("/api/vaults/vault-1/upload-sessions/session-1")
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        let req = test::TestRequest::put()
+            .uri("/api/vaults/vault-1/upload-sessions/session-1")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[actix_web::test]
+    async fn upload_requests_do_not_consume_general_api_bucket() {
+        let _lock = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _env = RateLimitEnvGuard::set(2, 2, 4, 60);
+
+        let app = test::init_service(
+            App::new()
+                .wrap(RateLimitMiddleware)
+                .default_service(web::to(|| async { HttpResponse::Ok().finish() })),
+        )
+        .await;
+
+        for _ in 0..4 {
+            let req = test::TestRequest::post()
+                .uri("/api/vaults/vault-1/upload-sessions")
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        for _ in 0..2 {
+            let req = test::TestRequest::get().uri("/api/files").to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        let req = test::TestRequest::get().uri("/api/files").to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 }

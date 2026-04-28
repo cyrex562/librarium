@@ -7,7 +7,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Build Backend
-FROM rust:1.86-slim-bookworm AS backend-builder
+FROM rust:1.88-slim-bookworm AS backend-builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev gcc && rm -rf /var/lib/apt/lists/*
 COPY . .
@@ -47,4 +47,4 @@ VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/api/health || exit 1
 
-CMD ["./codex", "--config", "/data/config.toml"]
+CMD ["./codex", "--config", "/app/config.toml"]

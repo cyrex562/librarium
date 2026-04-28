@@ -3,7 +3,7 @@ use crate::models::{PagedSearchResult, SearchMatch, SearchResult};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tantivy::collector::TopDocs;
 use tantivy::query::{AllQuery, QueryParser};
 use tantivy::schema::Value as TantivyValue;
@@ -150,6 +150,7 @@ struct VaultIndex {
 #[derive(Clone)]
 pub struct SearchIndex {
     vaults: Arc<RwLock<HashMap<String, VaultIndex>>>,
+    write_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     /// `None` → in-RAM index (test mode). `Some(path)` → disk MmapDirectory.
     base_dir: Option<PathBuf>,
 }
@@ -161,15 +162,29 @@ impl SearchIndex {
 
         #[cfg(not(test))]
         let base_dir: Option<PathBuf> = {
-            let dir = PathBuf::from("./data/indices");
+            let dir = std::env::var("CODEX_INDEX_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("./data/indices"));
             std::fs::create_dir_all(&dir).ok();
             Some(dir)
         };
 
         Self {
             vaults: Arc::new(RwLock::new(HashMap::new())),
+            write_locks: Arc::new(Mutex::new(HashMap::new())),
             base_dir,
         }
+    }
+
+    fn writer_lock_for(&self, vault_id: &str) -> AppResult<Arc<Mutex<()>>> {
+        let mut locks = self
+            .write_locks
+            .lock()
+            .map_err(|_| AppError::InternalError("Writer lock registry error".to_string()))?;
+        Ok(locks
+            .entry(vault_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
     }
 
     fn open_index(&self, vault_id: &str, schema: Schema) -> AppResult<Index> {
@@ -195,6 +210,11 @@ impl SearchIndex {
 
     /// Index all markdown files in a vault. Returns the count of indexed files.
     pub fn index_vault(&self, vault_id: &str, vault_path: &str) -> AppResult<usize> {
+        let writer_lock = self.writer_lock_for(vault_id)?;
+        let _writer_guard = writer_lock
+            .lock()
+            .map_err(|_| AppError::InternalError("Writer lock error".to_string()))?;
+
         let (schema, fields) = build_schema();
         let index = self.open_index(vault_id, schema)?;
 
@@ -275,6 +295,11 @@ impl SearchIndex {
 
     /// Update (or insert) a single file in the index.
     pub fn update_file(&self, vault_id: &str, file_path: &str, content: String) -> AppResult<()> {
+        let writer_lock = self.writer_lock_for(vault_id)?;
+        let _writer_guard = writer_lock
+            .lock()
+            .map_err(|_| AppError::InternalError("Writer lock error".to_string()))?;
+
         let vaults = self
             .vaults
             .read()
@@ -321,6 +346,11 @@ impl SearchIndex {
 
     /// Remove a single file from the index.
     pub fn remove_file(&self, vault_id: &str, file_path: &str) -> AppResult<()> {
+        let writer_lock = self.writer_lock_for(vault_id)?;
+        let _writer_guard = writer_lock
+            .lock()
+            .map_err(|_| AppError::InternalError("Writer lock error".to_string()))?;
+
         let vaults = self
             .vaults
             .read()
@@ -355,6 +385,13 @@ impl SearchIndex {
             .write()
             .map_err(|_| AppError::InternalError("Lock error".to_string()))?;
         vaults.remove(vault_id);
+        drop(vaults);
+
+        let mut write_locks = self
+            .write_locks
+            .lock()
+            .map_err(|_| AppError::InternalError("Writer lock registry error".to_string()))?;
+        write_locks.remove(vault_id);
         Ok(())
     }
 
@@ -870,6 +907,39 @@ mod tests {
             .results;
         assert_eq!(results_after.len(), 1);
         assert_eq!(results_after[0].path, "Note.md");
+    }
+
+    #[test]
+    fn test_concurrent_file_updates_share_one_writer() {
+        use std::thread;
+
+        let temp = create_test_vault();
+        let vault_path = temp.path().to_str().unwrap();
+        let index = SearchIndex::new();
+        index.index_vault("test-vault", vault_path).unwrap();
+
+        let handles: Vec<_> = (0..16)
+            .map(|i| {
+                let index = index.clone();
+                thread::spawn(move || {
+                    index.update_file(
+                        "test-vault",
+                        &format!("Imported {i}.md"),
+                        format!("# Imported {i}\n\nconcurrent-import-token-{i}"),
+                    )
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+
+        let results = index
+            .search("test-vault", "concurrent", 1, 50)
+            .unwrap()
+            .results;
+        assert_eq!(results.len(), 16);
     }
 
     #[test]

@@ -19,6 +19,7 @@
               variant="tonal"
               color="primary"
               :text="`New ${entityType.name}`"
+              :disabled="!hasActiveVault"
               @click="openNewEntityDialog(entityType.id)"
             />
           </div>
@@ -63,6 +64,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { apiListEntityTypes, apiListPlugins, apiTogglePlugin } from '@/api/client';
 import type { EntityTypeSchema } from '@/api/types';
+import { useVaultsStore } from '@/stores/vaults';
 import NewEntityDialog from './NewEntityDialog.vue';
 
 interface Plugin {
@@ -95,6 +97,8 @@ const entityTypes = ref<EntityTypeSchema[]>([]);
 const loading = ref(false);
 const newEntityDialogOpen = ref(false);
 const selectedEntityTypeId = ref<string | null>(null);
+const vaultsStore = useVaultsStore();
+const hasActiveVault = computed(() => !!vaultsStore.activeVaultId);
 
 const worldbuildingTypes = computed(() =>
   entityTypes.value.filter((entityType) => entityType.plugin_id.toLowerCase().includes('worldbuilding')),
@@ -134,6 +138,7 @@ function close() {
 }
 
 async function openNewEntityDialog(typeId: string) {
+  if (!hasActiveVault.value) return;
   selectedEntityTypeId.value = typeId;
   close();
   await nextTick();

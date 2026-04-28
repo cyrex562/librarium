@@ -31,6 +31,90 @@ test.describe('Auth and password UX flows', () => {
         await expect(page.getByText('Select a vault to start.')).toBeVisible();
     });
 
+    test('shows the TOTP challenge after password login and completes sign-in', async ({ page }) => {
+        await page.route('**/api/auth/login', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    access_token: 'pending-access-token',
+                    refresh_token: 'pending-refresh-token',
+                    expires_in: 3600,
+                    totp_required: true,
+                }),
+            });
+        });
+
+        await page.route('**/api/auth/totp/login-verify', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    access_token: 'verified-access-token',
+                    refresh_token: 'verified-refresh-token',
+                    expires_in: 3600,
+                }),
+            });
+        });
+
+        await installCommonAppMocks(page, {
+            profile: { ...defaultProfile, username: 'mfa-user' },
+            vaults: [],
+        });
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('mfa-user');
+        await page.getByLabel('Password').fill('correct-horse-battery-staple');
+        await page.getByRole('button', { name: 'Sign In' }).click();
+
+        await expect(page).toHaveURL(/\/login/);
+        await expect(page.getByLabel('Verification Code')).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Verify Code' })).toBeVisible();
+
+        await page.getByLabel('Verification Code').fill('123456');
+        await page.getByRole('button', { name: 'Verify Code' }).click();
+
+        await expect(page).toHaveURL('/');
+        await expect(page.getByText('Select a vault to start.')).toBeVisible();
+    });
+
+    test('shows an error for an invalid TOTP verification code', async ({ page }) => {
+        await page.route('**/api/auth/login', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    access_token: 'pending-access-token',
+                    refresh_token: 'pending-refresh-token',
+                    expires_in: 3600,
+                    totp_required: true,
+                }),
+            });
+        });
+
+        await page.route('**/api/auth/totp/login-verify', async (route) => {
+            await route.fulfill({
+                status: 401,
+                contentType: 'application/json',
+                body: JSON.stringify({ message: 'Invalid verification code' }),
+            });
+        });
+
+        await page.goto('/login');
+        await page.getByLabel('Username').fill('mfa-user');
+        await page.getByLabel('Password').fill('correct-horse-battery-staple');
+        await page.getByRole('button', { name: 'Sign In' }).click();
+
+        await expect(page.getByLabel('Verification Code')).toBeVisible();
+        await page.getByLabel('Verification Code').fill('000000');
+        await page.getByRole('button', { name: 'Verify Code' }).click();
+
+        await expect(page).toHaveURL(/\/login/);
+        await expect(page.getByText('Invalid verification code')).toBeVisible();
+        await expect(page.getByLabel('Verification Code')).toBeVisible();
+    });
+
     test('completes forced password-change flow and returns to app', async ({ page }) => {
         await seedAuthTokens(page);
 

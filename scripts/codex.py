@@ -93,6 +93,9 @@ class DeploymentTarget:
     ip_address: str
     http_port: int
     app_dir: str
+    deployment: str = "systemd"
+    ssh_config: str | None = None
+    ssh_identity_file: str | None = None
 
     @property
     def ssh_destination(self) -> str:
@@ -121,6 +124,10 @@ class DeploymentTarget:
     @property
     def systemd_unit_path(self) -> str:
         return f"/etc/systemd/system/{SERVICE_NAME}.service"
+
+    @property
+    def backups_dir(self) -> str:
+        return f"{self.shared_dir}/backups"
 
 
 @dataclass
@@ -217,6 +224,15 @@ def shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def ssh_args(target: DeploymentTarget, *, scp: bool = False) -> list[str]:
+    args = ["-P" if scp else "-p", str(target.ssh_port)]
+    if target.ssh_config:
+        args.extend(["-F", target.ssh_config])
+    if target.ssh_identity_file:
+        args.extend(["-i", str(Path(target.ssh_identity_file).expanduser())])
+    return args
+
+
 def ssh_cmd(
     target: DeploymentTarget,
     command: str,
@@ -224,7 +240,7 @@ def ssh_cmd(
     capture: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     return run_cmd(
-        ["ssh", "-p", str(target.ssh_port), target.ssh_destination, f"bash -lc {shell_quote(command)}"],
+        ["ssh", *ssh_args(target), target.ssh_destination, f"bash -lc {shell_quote(command)}"],
         cwd=REPO_ROOT,
         capture=capture,
     )
@@ -232,7 +248,7 @@ def ssh_cmd(
 
 def scp_upload(target: DeploymentTarget, local: Path, remote: str) -> None:
     run_cmd(
-        ["scp", "-P", str(target.ssh_port), str(local), f"{target.ssh_destination}:{remote}"],
+        ["scp", *ssh_args(target, scp=True), str(local), f"{target.ssh_destination}:{remote}"],
         cwd=REPO_ROOT,
     )
 
@@ -260,6 +276,9 @@ def load_targets(targets_file: Path = TARGETS_FILE) -> dict[str, DeploymentTarge
             ip_address=raw["ip_address"],
             http_port=int(raw.get("http_port", 8080)),
             app_dir=raw["app_dir"],
+            deployment=raw.get("deployment", "systemd"),
+            ssh_config=raw.get("ssh_config"),
+            ssh_identity_file=raw.get("ssh_identity_file"),
         )
         for name, raw in data.items()
     }
@@ -600,6 +619,175 @@ def _remote_readlink(target: DeploymentTarget, path: str) -> str:
     return r.stdout.strip()
 
 
+def _remote_compose_command(target: DeploymentTarget, args: str, *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    compose_script = textwrap.dedent(f"""
+        set -euo pipefail
+        cd {shell_quote(target.app_dir)}
+        if docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+            docker compose {args}
+        elif docker info >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1; then
+            docker-compose {args}
+        elif sudo -n docker info >/dev/null 2>&1 && sudo -n docker compose version >/dev/null 2>&1; then
+            sudo docker compose {args}
+        elif command -v docker-compose >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1 && sudo -n docker-compose version >/dev/null 2>&1; then
+            sudo docker-compose {args}
+        else
+            echo "docker compose is not available to {target.ssh_user}; install Docker Compose or allow passwordless sudo for docker" >&2
+            exit 1
+        fi
+    """).strip()
+    return ssh_cmd(target, compose_script, capture=capture)
+
+
+def create_remote_backup(
+    target: DeploymentTarget,
+    *,
+    label: str = "manual",
+    stop_services: bool = True,
+    restart_after: bool = True,
+) -> str:
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-") or "manual"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_name = f"codex-backup-{timestamp}-{safe_label}.tar.gz"
+    backup_path = f"{target.backups_dir}/{backup_name}"
+    systemd_services = " ".join(shell_quote(s) for s in _SERVICE_CANDIDATES)
+
+    step("Creating remote backup")
+    backup_script = textwrap.dedent(f"""
+        set -euo pipefail
+        mkdir -p {shell_quote(target.backups_dir)}
+        cd {shell_quote(target.app_dir)}
+
+        stopped_docker=0
+        stopped_systemd=""
+        if [ {1 if stop_services else 0} -eq 1 ]; then
+            if [ -f docker-compose.yml ]; then
+                if docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+                    docker compose stop codex >/dev/null 2>&1 && stopped_docker=1 || true
+                elif docker info >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1; then
+                    docker-compose stop codex >/dev/null 2>&1 && stopped_docker=1 || true
+                elif sudo -n docker info >/dev/null 2>&1 && sudo -n docker compose version >/dev/null 2>&1; then
+                    sudo docker compose stop codex >/dev/null 2>&1 && stopped_docker=1 || true
+                elif command -v docker-compose >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1 && sudo -n docker-compose version >/dev/null 2>&1; then
+                    sudo docker-compose stop codex >/dev/null 2>&1 && stopped_docker=1 || true
+                fi
+            fi
+            for svc in {systemd_services}; do
+                if systemctl is-active "$svc" >/dev/null 2>&1; then
+                    sudo systemctl stop "$svc"
+                    stopped_systemd="$stopped_systemd $svc"
+                fi
+            done
+        fi
+
+        items=()
+        [ -d shared ] && items+=(shared)
+        [ -f docker-compose.yml ] && items+=(docker-compose.yml)
+        [ -L current ] && items+=(current)
+        if [ ${{#items[@]}} -eq 0 ]; then
+            echo "No deployment data found under {target.app_dir}" >&2
+            exit 1
+        fi
+        tar --exclude='shared/backups' --exclude='shared/indices' -czf {shell_quote(backup_path)} -C {shell_quote(target.app_dir)} "${{items[@]}}"
+        chmod 600 {shell_quote(backup_path)}
+
+        if [ {1 if restart_after else 0} -eq 1 ]; then
+            for svc in $stopped_systemd; do
+                sudo systemctl start "$svc" || true
+            done
+            if [ "$stopped_docker" -eq 1 ]; then
+                if docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then docker compose up -d codex >/dev/null 2>&1 || true
+                elif docker info >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1; then docker-compose up -d codex >/dev/null 2>&1 || true
+                elif sudo -n docker info >/dev/null 2>&1 && sudo -n docker compose version >/dev/null 2>&1; then sudo docker compose up -d codex >/dev/null 2>&1 || true
+                elif command -v docker-compose >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1 && sudo -n docker-compose version >/dev/null 2>&1; then sudo docker-compose up -d codex >/dev/null 2>&1 || true
+                fi
+            fi
+        fi
+        echo {shell_quote(backup_path)}
+    """).strip()
+    r = ssh_cmd(target, backup_script, capture=True)
+    created = r.stdout.strip().splitlines()[-1]
+    ok(f"Backup created: {created}")
+    return created
+
+
+def ensure_docker_compose_file(target: DeploymentTarget) -> bool:
+    step("Ensuring Docker Compose config")
+    compose = textwrap.dedent(f"""
+        services:
+          codex:
+            build:
+              context: ./current
+              dockerfile: Dockerfile
+            image: codex:{target.name}
+            container_name: codex-{target.name}
+            ports:
+              - "{target.http_port}:8080"
+            volumes:
+              - ./shared:/data
+              - ./shared/config.toml:/app/config.toml:ro
+            environment:
+              CODEX__SERVER__HOST: "0.0.0.0"
+              CODEX__SERVER__PORT: "8080"
+              CODEX__DATABASE__PATH: "/data/codex.db"
+              CODEX__VAULT__BASE_DIR: "/data/vaults"
+              CODEX_INDEX_DIR: "/data/indices"
+              RUST_LOG: "info,codex=info,actix_web=info"
+              RATE_LIMIT_REQUESTS: "120"
+            restart: unless-stopped
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+              interval: 30s
+              timeout: 5s
+              start_period: 10s
+              retries: 3
+    """).strip() + "\n"
+
+    remote_path = f"{target.app_dir}/docker-compose.yml"
+    local_hash = hashlib.sha256(compose.encode()).hexdigest()
+    if _remote_sha(target, remote_path) == local_hash:
+        info("Docker Compose config already up to date")
+        return False
+
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as f:
+        f.write(compose)
+        tmp = Path(f.name)
+    try:
+        remote_tmp = f"{target.tmp_dir}/docker-compose.yml"
+        scp_upload(target, tmp, remote_tmp)
+        ssh_cmd(target, f"mv {shell_quote(remote_tmp)} {shell_quote(remote_path)}")
+    finally:
+        tmp.unlink(missing_ok=True)
+    ok("Docker Compose config updated")
+    return True
+
+
+def upload_source_release(target: DeploymentTarget) -> str:
+    step("Uploading source release")
+    build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    release_dir = f"{target.releases_dir}/source-{build_id}"
+    archive = DIST_DIR / f"source-{build_id}.tar.gz"
+    remote_archive = f"{target.tmp_dir}/{archive.name}"
+
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    _create_source_archive(archive)
+    try:
+        scp_upload(target, archive, remote_archive)
+        ssh_cmd(
+            target,
+            " && ".join([
+                f"mkdir -p {shell_quote(release_dir)}",
+                f"tar -xzf {shell_quote(remote_archive)} -C {shell_quote(release_dir)}",
+                f"rm -f {shell_quote(remote_archive)}",
+                f"ln -sfn {shell_quote(release_dir)} {shell_quote(target.current_dir)}",
+            ]),
+        )
+    finally:
+        archive.unlink(missing_ok=True)
+    ok(f"Source release uploaded: {release_dir}")
+    return release_dir
+
+
 def upload_release(target: DeploymentTarget, artifacts: BuildArtifacts) -> bool:
     release_dir = f"{target.releases_dir}/{artifacts.release_id}"
     release_bin = f"{release_dir}/{BIN_NAME}"
@@ -840,6 +1028,46 @@ def deploy_to_target(target: DeploymentTarget, artifacts: BuildArtifacts) -> Dep
     )
 
 
+def deploy_to_docker_target(target: DeploymentTarget, *, skip_backup: bool = False) -> DeployResult:
+    ensure_tool("ssh")
+    ensure_tool("scp")
+    ensure_remote_layout(target)
+
+    if skip_backup:
+        warn("Skipping pre-deploy backup because --skip-backup was set")
+    else:
+        create_remote_backup(target, label="pre-deploy", stop_services=True, restart_after=False)
+
+    upload_source_release(target)
+    config_created, config_updated, gen_user, gen_pass = ensure_remote_config(target)
+    compose_updated = ensure_docker_compose_file(target)
+
+    step("Starting Docker deployment")
+    ssh_cmd(
+        target,
+        " ; ".join([
+            f"sudo systemctl disable --now {shell_quote(s)} >/dev/null 2>&1 || true"
+            for s in _SERVICE_CANDIDATES
+        ]),
+    )
+    _remote_compose_command(target, "up -d --build codex")
+    ok("Docker Compose deployment running")
+
+    healthy = healthcheck(target)
+    return DeployResult(
+        release_uploaded=True,
+        release_activated=True,
+        config_created=config_created,
+        config_updated=config_updated,
+        unit_updated=compose_updated,
+        service_restarted=True,
+        service_enabled=True,
+        healthcheck_ok=healthy,
+        generated_admin_username=gen_user,
+        generated_admin_password=gen_pass,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Configure helpers
 # ---------------------------------------------------------------------------
@@ -958,7 +1186,7 @@ def run_preflight(target: DeploymentTarget, *, remote_build: bool = False) -> li
 
     tool_chk("ssh")
     tool_chk("scp")
-    if not remote_build:
+    if target.deployment != "docker" and not remote_build:
         tool_chk("npm")
         tool_chk("cargo")
         if platform.system().lower() != "linux":
@@ -979,13 +1207,26 @@ def run_preflight(target: DeploymentTarget, *, remote_build: bool = False) -> li
         chk("remote:ssh", False, str(e))
         return checks
 
-    for name, probe in [
+    remote_checks = [
         ("bash", "command -v bash"),
         ("tar", "command -v tar"),
-        ("systemctl", "command -v systemctl"),
-        ("cargo", "command -v cargo"),
-        ("npm", "command -v npm"),
-    ]:
+    ]
+    if target.deployment == "docker":
+        remote_checks.extend([
+            ("docker", "command -v docker"),
+            (
+                "docker-compose",
+                "(docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1) || (docker info >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1) || (sudo -n docker info >/dev/null 2>&1 && sudo -n docker compose version >/dev/null 2>&1) || (command -v docker-compose >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1 && sudo -n docker-compose version >/dev/null 2>&1)",
+            ),
+        ])
+    else:
+        remote_checks.extend([
+            ("systemctl", "command -v systemctl"),
+            ("cargo", "command -v cargo"),
+            ("npm", "command -v npm"),
+        ])
+
+    for name, probe in remote_checks:
         try:
             ssh_cmd(target, probe, capture=True)
             chk(f"remote:{name}", True, "available")
@@ -1311,12 +1552,14 @@ def local_install_cmd(
 @click.option("--build-first", is_flag=True, help="Build before deploying")
 @click.option("--remote-build", is_flag=True, help="With --build-first: build on the remote VM")
 @click.option("--skip-support", is_flag=True, help="Skip supporting crate builds")
+@click.option("--skip-backup", is_flag=True, help="For Docker targets: skip the pre-deploy remote backup")
 @click.option("--targets-file", type=click.Path(path_type=Path), default=TARGETS_FILE, show_default=True)
 def deploy(
     target_name: str | None,
     build_first: bool,
     remote_build: bool,
     skip_support: bool,
+    skip_backup: bool,
     targets_file: Path,
 ) -> None:
     """Deploy Codex server to a remote target.
@@ -1327,12 +1570,16 @@ def deploy(
         targets = load_targets(targets_file)
         target = pick_target(target_name, targets)
 
-        if build_first:
+        if target.deployment == "docker":
+            if build_first or remote_build or skip_support:
+                warn("Docker deployment builds from uploaded source on the VM; --build-first/--remote-build/--skip-support are ignored")
+            result = deploy_to_docker_target(target, skip_backup=skip_backup)
+        elif build_first:
             artifacts = assemble_dist(target, remote_build=remote_build, skip_support=skip_support)
+            result = deploy_to_target(target, artifacts)
         else:
             artifacts = load_existing_artifacts(target)
-
-        result = deploy_to_target(target, artifacts)
+            result = deploy_to_target(target, artifacts)
 
         table = Table(title="Deploy summary", box=box.SIMPLE_HEAVY)
         table.add_column("Step")
@@ -1342,7 +1589,7 @@ def deploy(
             ("Release activated", result.release_activated),
             ("Config created", result.config_created),
             ("Config updated", result.config_updated),
-            ("Systemd unit updated", result.unit_updated),
+            ("Service definition updated", result.unit_updated),
             ("Service restarted", result.service_restarted),
             ("Service enabled", result.service_enabled),
             ("Health check", result.healthcheck_ok),
@@ -1715,14 +1962,45 @@ def targets(targets_file: Path) -> None:
         table.add_column("SSH")
         table.add_column("URL")
         table.add_column("App dir")
+        table.add_column("Deployment")
         for t in all_targets.values():
             table.add_row(
                 t.name,
                 f"{t.ssh_user}@{t.ssh_host}:{t.ssh_port}",
                 f"http://{t.ip_address}:{t.http_port}",
                 t.app_dir,
+                t.deployment,
             )
         console.print(table)
+    except CodexError as e:
+        fail(str(e))
+        raise SystemExit(1)
+
+
+# ── backup ───────────────────────────────────────────────────────────────────
+
+@cli.command()
+@click.argument("target_name", metavar="TARGET", required=False)
+@click.option("--label", default="manual", show_default=True, help="Label to include in the backup filename")
+@click.option("--no-stop", is_flag=True, help="Do not stop services while creating the backup")
+@click.option("--targets-file", type=click.Path(path_type=Path), default=TARGETS_FILE, show_default=True)
+def backup(
+    target_name: str | None,
+    label: str,
+    no_stop: bool,
+    targets_file: Path,
+) -> None:
+    """Create a remote backup of persistent deployment data."""
+    try:
+        all_targets = load_targets(targets_file)
+        target = pick_target(target_name, all_targets)
+        path = create_remote_backup(
+            target,
+            label=label,
+            stop_services=not no_stop,
+            restart_after=not no_stop,
+        )
+        console.print(Panel(f"[bold]Backup:[/bold] {path}", title="[green]Remote backup complete[/green]", border_style="green"))
     except CodexError as e:
         fail(str(e))
         raise SystemExit(1)
@@ -1745,31 +2023,43 @@ def status(
         target = pick_target(target_name, all_targets)
         base_url = f"http://{target.ip_address}:{target.http_port}"
 
-        # ── systemd service state (via SSH) ──────────────────────────────
+        # ── service state (via SSH) ──────────────────────────────────────
         service_active = service_sub = service_pid = service_since = "—"
         service_ok = False
-        try:
-            service_name_found = detect_service_name(target)
+        service_name_found = SERVICE_NAME
+        if target.deployment == "docker":
+            service_name_found = "docker compose"
+            try:
+                r3 = _remote_compose_command(target, "ps codex", capture=True)
+                service_active = "active" if "running" in r3.stdout.lower() or "up" in r3.stdout.lower() else "inactive"
+                service_sub = "container"
+                service_pid = "docker"
+                service_since = "see docker compose ps"
+                service_ok = service_active == "active"
+            except CodexError:
+                service_active = "unreachable"
+        else:
+            try:
+                service_name_found = detect_service_name(target)
 
-            r3 = ssh_cmd(
-                target,
-                f"systemctl show {shell_quote(service_name_found)} "
-                "--property=ActiveState,SubState,MainPID,ExecMainStartTimestamp --no-pager",
-                capture=True,
-            )
-            service_props: dict[str, str] = {}
-            for line in r3.stdout.splitlines():
-                if "=" in line:
-                    k, _, v = line.partition("=")
-                    service_props[k.strip()] = v.strip()
-            service_active = service_props.get("ActiveState", "unknown")
-            service_sub = service_props.get("SubState", "unknown")
-            service_pid = service_props.get("MainPID", "unknown")
-            service_since = service_props.get("ExecMainStartTimestamp", "unknown")
-            service_ok = service_active == "active"
-        except CodexError:
-            service_active = "unreachable"
-            service_name_found = SERVICE_NAME
+                r3 = ssh_cmd(
+                    target,
+                    f"systemctl show {shell_quote(service_name_found)} "
+                    "--property=ActiveState,SubState,MainPID,ExecMainStartTimestamp --no-pager",
+                    capture=True,
+                )
+                service_props: dict[str, str] = {}
+                for line in r3.stdout.splitlines():
+                    if "=" in line:
+                        k, _, v = line.partition("=")
+                        service_props[k.strip()] = v.strip()
+                service_active = service_props.get("ActiveState", "unknown")
+                service_sub = service_props.get("SubState", "unknown")
+                service_pid = service_props.get("MainPID", "unknown")
+                service_since = service_props.get("ExecMainStartTimestamp", "unknown")
+                service_ok = service_active == "active"
+            except CodexError:
+                service_active = "unreachable"
 
         # ── HTTP helpers ──────────────────────────────────────────────────
         def http_get(path: str) -> tuple[int, dict]:
@@ -1883,6 +2173,11 @@ def logs(
     try:
         all_targets = load_targets(targets_file)
         target = pick_target(target_name, all_targets)
+
+        if target.deployment == "docker":
+            follow_flag = "-f" if follow else ""
+            _remote_compose_command(target, f"logs {follow_flag} --tail {lines} codex")
+            return
 
         # Detect active service name via shared helper
         try:

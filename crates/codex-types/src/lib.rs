@@ -101,6 +101,14 @@ pub struct TotpVerifyRequest {
     pub code: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TotpLoginVerifyResponse {
+    pub success: bool,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: u64,
+}
+
 // ── Invitation types ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

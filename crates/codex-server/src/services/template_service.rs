@@ -247,7 +247,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_template_returns_error_for_unknown_type() {
         let registry = crate::services::schema_service::EntityTypeRegistry::new();
-        let result = TemplateService::get_template(&registry, "ghost_type", "").await;
+        let result = TemplateService::get_template(&registry, "ghost_type", Path::new("")).await;
         assert!(result.is_err(), "missing entity type should return error");
     }
 
@@ -268,9 +268,10 @@ mod tests {
         };
         registry.register(schema).await;
 
-        let content = TemplateService::get_template(&registry, "character", "/nonexistent/dir")
-            .await
-            .expect("should return generated fallback");
+        let content =
+            TemplateService::get_template(&registry, "character", Path::new("/nonexistent/dir"))
+                .await
+                .expect("should return generated fallback");
         assert!(
             content.contains("codex_type:"),
             "fallback should include type field"
@@ -305,10 +306,9 @@ mod tests {
         };
         registry.register(schema).await;
 
-        let content =
-            TemplateService::get_template(&registry, "character", temp.path().to_str().unwrap())
-                .await
-                .expect("should read template from disk");
+        let content = TemplateService::get_template(&registry, "character", temp.path())
+            .await
+            .expect("should read template from disk");
         assert_eq!(content, tmpl_content);
     }
 }

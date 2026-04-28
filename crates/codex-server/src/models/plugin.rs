@@ -102,6 +102,7 @@ pub enum PluginCapability {
     Storage,
 
     /// Modify UI (add ribbons, status bar items, etc.)
+    #[serde(rename = "modify_ui", alias = "modify_u_i")]
     ModifyUI,
 
     /// Register commands

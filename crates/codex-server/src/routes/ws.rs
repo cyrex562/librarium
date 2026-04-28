@@ -83,6 +83,22 @@ async fn websocket(
 
                 // General-purpose WS messages (e.g. ReindexComplete)
                 Ok(ws_msg) = ws_rx.recv() => {
+                    if auth_enabled {
+                        let Some(current_user) = &current_user else {
+                            continue;
+                        };
+
+                        match &ws_msg {
+                            crate::models::WsMessage::ReindexComplete { vault_id, .. } => {
+                                match state.db.get_vault_role_for_user(vault_id, &current_user.user_id).await {
+                                    Ok(Some(_)) => {}
+                                    _ => continue,
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
                     if let Ok(json) = serde_json::to_string(&ws_msg) {
                         if session.text(json).await.is_err() {
                             break;

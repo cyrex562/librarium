@@ -10,6 +10,7 @@
         <v-alert v-if="error" type="error" class="mb-4" closable data-testid="login-error-alert" @click:close="error = ''">{{ error }}</v-alert>
 
         <v-text-field
+          v-if="!authStore.pendingTotp"
           v-model="username"
           label="Username"
           prepend-inner-icon="mdi-account-outline"
@@ -18,6 +19,7 @@
           @keyup.enter="login"
         />
         <v-text-field
+          v-if="!authStore.pendingTotp"
           v-model="password"
           label="Password"
           type="password"
@@ -25,10 +27,18 @@
           data-testid="login-password-input"
           @keyup.enter="login"
         />
+        <v-text-field
+          v-if="authStore.pendingTotp"
+          v-model="verificationCode"
+          label="Verification Code"
+          prepend-inner-icon="mdi-shield-key-outline"
+          data-testid="login-totp-input"
+          @keyup.enter="login"
+        />
       </v-card-text>
 
       <v-card-actions class="px-4 pb-4">
-        <v-btn block color="primary" :loading="loading" data-testid="login-submit-btn" @click="login">Sign In</v-btn>
+        <v-btn block color="primary" :loading="loading" data-testid="login-submit-btn" @click="login">{{ authStore.pendingTotp ? 'Verify Code' : 'Sign In' }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-container>
@@ -44,15 +54,22 @@ const authStore = useAuthStore();
 
 const username = ref('');
 const password = ref('');
+const verificationCode = ref('');
 const loading = ref(false);
 const error = ref('');
 
 async function login() {
-  if (!username.value || !password.value) return;
+  if (!authStore.pendingTotp && (!username.value || !password.value)) return;
+  if (authStore.pendingTotp && !verificationCode.value) return;
   loading.value = true;
   error.value = '';
   try {
-    await authStore.login(username.value, password.value);
+    if (authStore.pendingTotp) {
+      await authStore.completeTotpLogin(verificationCode.value);
+    } else {
+      await authStore.login(username.value, password.value);
+    }
+    if (authStore.pendingTotp) return;
     const redirect = typeof router.currentRoute.value.query.redirect === 'string'
       ? router.currentRoute.value.query.redirect
       : '/';

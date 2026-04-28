@@ -31,7 +31,7 @@ async fn setup(temp_dir: &TempDir) -> (web::Data<AppState>, String) {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: EntityTypeRegistry::new(),
         relation_type_registry: RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let vault_dir = temp_dir.path().join("vault");
@@ -62,6 +62,49 @@ async fn test_list_entity_types_empty_registry() {
     let body: serde_json::Value = test::read_body_json(resp).await;
     assert!(body["entity_types"].is_array());
     assert_eq!(body["entity_types"].as_array().unwrap().len(), 0);
+}
+
+#[actix_web::test]
+async fn test_get_entity_rejects_cross_vault_entity_id() {
+    let temp = TempDir::new().unwrap();
+    let (state, vault_id) = setup(&temp).await;
+
+    let other_vault_dir = temp.path().join("other-vault");
+    std::fs::create_dir_all(&other_vault_dir).unwrap();
+    let other_vault = state
+        .db
+        .create_vault(
+            "Other Vault".into(),
+            other_vault_dir.to_string_lossy().into(),
+        )
+        .await
+        .unwrap();
+
+    let note_content = "---\ncodex_type: character\nname: Hero\n---\n# Hero\n";
+    std::fs::write(other_vault_dir.join("hero.md"), note_content).unwrap();
+    ReindexService::reindex_vault(
+        &state.db,
+        &other_vault.id,
+        other_vault_dir.to_str().unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let entities = codex::services::entity_service::EntityService::list_all_in_vault(
+        &state.db,
+        &other_vault.id,
+    )
+    .await
+    .unwrap();
+    let entity_id = entities[0].id.clone();
+
+    let app = test::init_service(App::new().app_data(state).configure(entities::configure)).await;
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/vaults/{}/entities/{}", vault_id, entity_id))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status().as_u16(), 404);
 }
 
 #[actix_web::test]

@@ -328,6 +328,14 @@ export interface LoginResponse {
     access_token: string;
     refresh_token: string;
     expires_in: number; // seconds
+    totp_required?: boolean;
+}
+
+export interface TotpLoginVerifyResponse {
+    success: boolean;
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
 }
 
 export type VaultRole = 'owner' | 'editor' | 'viewer';

@@ -6,13 +6,14 @@ use argon2::{
 use codex::config::AppConfig;
 use codex::db::Database;
 use codex::middleware::AuthMiddleware;
-use codex::routes::{api_keys, auth, files, vaults, AppState};
+use codex::routes::{api_keys, auth, files, totp, vaults, AppState};
 use codex::services::{MarkdownParser, SearchIndex};
 use codex::watcher::FileWatcher;
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::{broadcast, Mutex};
+use totp_rs::{Algorithm, Secret, TOTP};
 
 fn password_hash(password: &str) -> String {
     let salt = SaltString::generate(&mut OsRng);
@@ -52,7 +53,7 @@ async fn verify_api_keys_and_totp() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let mut config = AppConfig::default();
@@ -66,6 +67,7 @@ async fn verify_api_keys_and_totp() {
             .app_data(config.clone())
             .wrap(AuthMiddleware)
             .configure(auth::configure)
+            .configure(totp::configure)
             .configure(api_keys::configure),
     )
     .await;
@@ -136,6 +138,95 @@ async fn verify_api_keys_and_totp() {
         .to_request();
     let bad_me_resp = test::call_service(&app, bad_me_req).await;
     assert_eq!(bad_me_resp.status().as_u16(), 401);
+
+    // 6. Enroll TOTP
+    let enroll_req = test::TestRequest::post()
+        .uri("/api/auth/totp/enroll")
+        .insert_header((header::AUTHORIZATION, auth_header.clone()))
+        .to_request();
+    let enroll_resp = test::call_service(&app, enroll_req).await;
+    assert!(enroll_resp.status().is_success());
+    let enroll_body: serde_json::Value = test::read_body_json(enroll_resp).await;
+    let secret = enroll_body["secret"].as_str().unwrap().to_string();
+    let secret_bytes = Secret::Encoded(secret.clone()).to_bytes().unwrap();
+    let totp = TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,
+        30,
+        secret_bytes,
+        Some("ObsidianHost".to_string()),
+        "admin".to_string(),
+    )
+    .unwrap();
+    let current_code = totp.generate_current().unwrap();
+
+    let verify_enroll_req = test::TestRequest::post()
+        .uri("/api/auth/totp/verify")
+        .insert_header((header::AUTHORIZATION, auth_header.clone()))
+        .set_json(json!({ "code": current_code }))
+        .to_request();
+    let verify_enroll_resp = test::call_service(&app, verify_enroll_req).await;
+    assert!(verify_enroll_resp.status().is_success());
+
+    // 7. Logout should revoke the refresh session.
+    let logout_req = test::TestRequest::post()
+        .uri("/api/auth/logout")
+        .insert_header((header::AUTHORIZATION, auth_header.clone()))
+        .set_json(json!({ "refresh_token": login_body["refresh_token"] }))
+        .to_request();
+    let logout_resp = test::call_service(&app, logout_req).await;
+    assert!(logout_resp.status().is_success());
+
+    let refresh_after_logout_req = test::TestRequest::post()
+        .uri("/api/auth/refresh")
+        .set_json(json!({ "refresh_token": login_body["refresh_token"] }))
+        .to_request();
+    let refresh_after_logout_resp = test::call_service(&app, refresh_after_logout_req).await;
+    assert_eq!(refresh_after_logout_resp.status().as_u16(), 401);
+
+    // 8. Logging in with TOTP enabled should require second-factor completion.
+    let totp_login_req = test::TestRequest::post()
+        .uri("/api/auth/login")
+        .set_json(json!({ "username": "admin", "password": "hunter2" }))
+        .to_request();
+    let totp_login_resp = test::call_service(&app, totp_login_req).await;
+    assert!(totp_login_resp.status().is_success());
+    let totp_login_body: serde_json::Value = test::read_body_json(totp_login_resp).await;
+    assert_eq!(totp_login_body["totp_required"].as_bool(), Some(true));
+    let pending_access = totp_login_body["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let pending_auth_header = format!("Bearer {pending_access}");
+
+    let me_with_pending_req = test::TestRequest::get()
+        .uri("/api/auth/me")
+        .insert_header((header::AUTHORIZATION, pending_auth_header.clone()))
+        .to_request();
+    let me_with_pending_resp = test::call_service(&app, me_with_pending_req).await;
+    assert_eq!(me_with_pending_resp.status().as_u16(), 403);
+
+    let current_code = totp.generate_current().unwrap();
+    let verify_login_req = test::TestRequest::post()
+        .uri("/api/auth/totp/login-verify")
+        .insert_header((header::AUTHORIZATION, pending_auth_header))
+        .set_json(json!({ "code": current_code }))
+        .to_request();
+    let verify_login_resp = test::call_service(&app, verify_login_req).await;
+    assert!(verify_login_resp.status().is_success());
+    let verify_login_body: serde_json::Value = test::read_body_json(verify_login_resp).await;
+    let verified_auth_header = format!(
+        "Bearer {}",
+        verify_login_body["access_token"].as_str().unwrap()
+    );
+
+    let me_after_totp_req = test::TestRequest::get()
+        .uri("/api/auth/me")
+        .insert_header((header::AUTHORIZATION, verified_auth_header))
+        .to_request();
+    let me_after_totp_resp = test::call_service(&app, me_after_totp_req).await;
+    assert!(me_after_totp_resp.status().is_success());
 }
 
 #[actix_web::test]
@@ -170,7 +261,7 @@ async fn test_public_vault_allows_anonymous_reads() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let mut config = AppConfig::default();

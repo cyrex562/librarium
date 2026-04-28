@@ -2,7 +2,7 @@ use crate::config::AppConfig;
 use crate::error::{AppError, AppResult};
 use crate::routes::vaults::AppState;
 use crate::services::oidc_provider;
-use actix_web::{get, web, HttpResponse};
+use actix_web::{cookie::Cookie, get, web, HttpRequest, HttpResponse};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
@@ -31,12 +31,18 @@ async fn oidc_authorize(config: web::Data<AppConfig>) -> AppResult<HttpResponse>
     let state_token = generate_state_token();
     let authorize_url = oidc_provider::build_authorize_url(&discovery, &config.auth, &state_token)?;
 
-    Ok(
-        HttpResponse::Ok().json(oidc_provider::OidcAuthorizeResponse {
+    let cookie = Cookie::build("codex_oidc_state", state_token.clone())
+        .path("/")
+        .http_only(true)
+        .same_site(actix_web::cookie::SameSite::Lax)
+        .finish();
+
+    Ok(HttpResponse::Ok()
+        .cookie(cookie)
+        .json(oidc_provider::OidcAuthorizeResponse {
             authorize_url,
             state: state_token,
-        }),
-    )
+        }))
 }
 
 /// Step 2: OIDC callback after the user authenticates with the provider.
@@ -46,6 +52,7 @@ async fn oidc_authorize(config: web::Data<AppConfig>) -> AppResult<HttpResponse>
 async fn oidc_callback(
     state: web::Data<AppState>,
     config: web::Data<AppConfig>,
+    req: HttpRequest,
     query: web::Query<OidcCallbackQuery>,
 ) -> AppResult<HttpResponse> {
     let issuer = config
@@ -64,6 +71,17 @@ async fn oidc_callback(
         .code
         .as_deref()
         .ok_or_else(|| AppError::InvalidInput("Missing authorization code".to_string()))?;
+    let returned_state = query
+        .state
+        .as_deref()
+        .ok_or_else(|| AppError::InvalidInput("Missing OIDC state".to_string()))?;
+    let expected_state = req
+        .cookie("codex_oidc_state")
+        .map(|cookie| cookie.value().to_string())
+        .ok_or_else(|| AppError::Unauthorized("Missing OIDC state cookie".to_string()))?;
+    if returned_state != expected_state {
+        return Err(AppError::Unauthorized("Invalid OIDC state".to_string()));
+    }
 
     // Exchange code for tokens.
     let discovery = oidc_provider::fetch_discovery(issuer).await?;
@@ -129,7 +147,14 @@ async fn oidc_callback(
         .create_session(&refresh_jti, &user_id, refresh_exp)
         .await;
 
-    Ok(HttpResponse::Ok().json(response))
+    let clear_cookie = Cookie::build("codex_oidc_state", "")
+        .path("/")
+        .http_only(true)
+        .same_site(actix_web::cookie::SameSite::Lax)
+        .max_age(actix_web::cookie::time::Duration::seconds(0))
+        .finish();
+
+    Ok(HttpResponse::Ok().cookie(clear_cookie).json(response))
 }
 
 #[derive(Debug, serde::Deserialize)]

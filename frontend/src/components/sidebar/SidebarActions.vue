@@ -5,6 +5,7 @@
       size="small"
       density="compact"
       title="Graph view"
+      :disabled="!hasActiveVault"
       @click="openGraph"
     />
     <v-btn
@@ -12,6 +13,7 @@
       size="small"
       density="compact"
       title="New entity"
+      :disabled="!hasActiveVault"
       @click="newEntityDialog = true"
     />
     <v-btn
@@ -19,6 +21,7 @@
       size="small"
       density="compact"
       title="New note"
+      :disabled="!hasActiveVault"
       @click="newNote"
     />
     <v-btn
@@ -26,6 +29,7 @@
       size="small"
       density="compact"
       title="New folder"
+      :disabled="!hasActiveVault"
       @click="newFolder"
     />
     <v-btn
@@ -34,6 +38,7 @@
       density="compact"
       title="Refresh file tree"
       :loading="filesStore.loading"
+      :disabled="!hasActiveVault"
       @click="refresh"
     />
     <v-btn
@@ -41,6 +46,7 @@
       size="small"
       density="compact"
       title="Insert template"
+      :disabled="!hasActiveVault"
       @click="uiStore.openTemplateSelector()"
     />
     <v-btn
@@ -48,7 +54,17 @@
       size="small"
       density="compact"
       title="Import files or folders"
+      :disabled="!hasActiveVault"
       @click="uiStore.openImportDialog()"
+    />
+    <v-btn
+      icon="mdi-checkbox-marked-outline"
+      size="small"
+      density="compact"
+      title="Select multiple files and folders"
+      :disabled="!hasActiveVault"
+      :color="filesStore.selectionMode ? 'primary' : undefined"
+      @click="filesStore.toggleSelectionMode()"
     />
     <v-menu>
       <template #activator="{ props: menuProps }">
@@ -57,6 +73,7 @@
           size="small"
           density="compact"
           title="Export vault or folder"
+          :disabled="!hasActiveVault"
           v-bind="menuProps"
         />
       </template>
@@ -71,6 +88,7 @@
       size="small"
       density="compact"
       title="Open random note"
+      :disabled="!hasActiveVault"
       @click="openRandomNote"
     />
     <v-btn
@@ -78,6 +96,7 @@
       size="small"
       density="compact"
       title="Open daily note"
+      :disabled="!hasActiveVault"
       @click="openDailyNote"
     />
     <v-spacer />
@@ -88,6 +107,7 @@
       title="Sort A→Z"
       @click="sort = 'asc'"
       :color="sort === 'asc' ? 'primary' : undefined"
+      :disabled="!hasActiveVault"
     />
     <v-btn
       icon="mdi-sort-alphabetical-descending"
@@ -96,6 +116,7 @@
       title="Sort Z→A"
       @click="sort = 'desc'"
       :color="sort === 'desc' ? 'primary' : undefined"
+      :disabled="!hasActiveVault"
     />
   </div>
 
@@ -187,6 +208,7 @@ const newFolderName = ref('');
 const newEntityDialog = ref(false);
 const newEntityDialogInitialTypeId = ref<string | null>(null);
 const newEntityDialogInitialFileName = ref('');
+const hasActiveVault = computed(() => !!vaultsStore.activeVaultId);
 
 const noteTemplateItems = computed(() => [
   { title: 'Regular note', value: '' },
@@ -212,6 +234,7 @@ function openGraph() {
 provide('fileTreeSort', sort);
 
 function newNote() {
+  if (!vaultsStore.activeVaultId) return;
   newNoteName.value = '';
   newNoteTemplateId.value = '';
   newNoteDialog.value = true;
@@ -253,6 +276,7 @@ async function loadEntityTypes() {
 }
 
 function newFolder() {
+  if (!vaultsStore.activeVaultId) return;
   newFolderName.value = '';
   newFolderDialog.value = true;
 }

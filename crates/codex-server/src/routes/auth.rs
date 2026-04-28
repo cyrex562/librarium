@@ -1,6 +1,6 @@
 use crate::config::AppConfig;
 use crate::error::{AppError, AppResult};
-use crate::middleware::AuthenticatedUser;
+use crate::middleware::{AuthenticatedUser, AuthenticatedUserClaims};
 use crate::models::AuthenticatedUserProfile;
 use crate::models::ChangePasswordRequest;
 use crate::routes::vaults::AppState;
@@ -41,6 +41,15 @@ pub struct LogoutResponse {
     pub success: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LogoutRequest {
+    pub refresh_token: Option<String>,
+}
+
+fn default_totp_verified() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: String,
@@ -51,6 +60,8 @@ struct Claims {
     iat: i64,
     /// JWT ID — uniquely identifies this token for session tracking.
     jti: String,
+    #[serde(default = "default_totp_verified")]
+    totp_verified: bool,
 }
 
 #[post("/api/auth/login")]
@@ -76,6 +87,7 @@ async fn login(
         &principal.username,
         &principal.auth_method,
         &config.auth,
+        !principal.totp_required,
     )?;
     response.totp_required = principal.totp_required;
 
@@ -114,6 +126,7 @@ async fn refresh_access_token(
         &old_claims.username,
         &old_claims.auth_method,
         &config.auth,
+        old_claims.totp_verified,
     )?;
 
     let _ = state
@@ -125,8 +138,34 @@ async fn refresh_access_token(
 }
 
 #[post("/api/auth/logout")]
-async fn logout() -> AppResult<HttpResponse> {
-    // Short-lived JWT strategy for now (no server-side token revocation table yet).
+async fn logout(
+    state: web::Data<AppState>,
+    config: web::Data<AppConfig>,
+    req: HttpRequest,
+    body: Option<web::Json<LogoutRequest>>,
+) -> AppResult<HttpResponse> {
+    let user = req
+        .extensions()
+        .get::<AuthenticatedUser>()
+        .cloned()
+        .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))?;
+
+    let refresh_token = body
+        .as_ref()
+        .and_then(|payload| payload.refresh_token.as_deref())
+        .map(str::trim)
+        .filter(|token| !token.is_empty());
+
+    if let Some(refresh_token) = refresh_token {
+        let claims = decode_token(refresh_token, &config.auth.jwt_secret)?;
+        if claims.token_type != "refresh" || claims.sub != user.user_id {
+            return Err(AppError::Unauthorized("Invalid refresh token".to_string()));
+        }
+        state.db.revoke_session(&claims.jti).await?;
+    } else {
+        let _ = state.db.revoke_all_sessions(&user.user_id).await?;
+    }
+
     Ok(HttpResponse::Ok().json(LogoutResponse { success: true }))
 }
 
@@ -227,7 +266,7 @@ pub fn issue_tokens_public(
     auth_method: &str,
     auth_cfg: &crate::config::AuthConfig,
 ) -> AppResult<(LoginResponse, String, chrono::DateTime<Utc>)> {
-    issue_tokens(user_id, username, auth_method, auth_cfg)
+    issue_tokens(user_id, username, auth_method, auth_cfg, true)
 }
 
 fn issue_tokens(
@@ -235,6 +274,7 @@ fn issue_tokens(
     username: &str,
     auth_method: &str,
     auth_cfg: &crate::config::AuthConfig,
+    totp_verified: bool,
 ) -> AppResult<(LoginResponse, String, chrono::DateTime<Utc>)> {
     let secret = effective_jwt_secret(auth_cfg);
     let now = Utc::now().timestamp();
@@ -251,6 +291,7 @@ fn issue_tokens(
         iat: now,
         exp: now + auth_cfg.access_token_ttl as i64,
         jti: access_jti,
+        totp_verified,
     };
 
     let refresh_claims = Claims {
@@ -261,6 +302,7 @@ fn issue_tokens(
         iat: now,
         exp: refresh_exp,
         jti: refresh_jti.clone(),
+        totp_verified,
     };
 
     let access_token = encode(
@@ -285,7 +327,7 @@ fn issue_tokens(
             access_token,
             refresh_token: refresh_jwt,
             expires_in: auth_cfg.access_token_ttl,
-            totp_required: false,
+            totp_required: !totp_verified,
         },
         refresh_jti,
         refresh_expires_at,
@@ -318,6 +360,20 @@ fn effective_jwt_secret(auth_cfg: &crate::config::AuthConfig) -> String {
     } else {
         auth_cfg.jwt_secret.clone()
     }
+}
+
+pub fn issue_verified_tokens_for_user(
+    user: &AuthenticatedUser,
+    claims: &AuthenticatedUserClaims,
+    auth_cfg: &crate::config::AuthConfig,
+) -> AppResult<(LoginResponse, String, chrono::DateTime<Utc>)> {
+    issue_tokens(
+        &user.user_id,
+        &user.username,
+        &claims.auth_method,
+        auth_cfg,
+        true,
+    )
 }
 
 /// List active sessions for the authenticated user.

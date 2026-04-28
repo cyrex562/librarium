@@ -353,6 +353,23 @@ pub struct CodexPaths {
 }
 
 impl AppConfig {
+    /// Load defaults plus CODEX__* environment overrides.
+    ///
+    /// This is used when a configured TOML file is absent so container
+    /// deployments can still be driven entirely by environment variables.
+    pub fn load_from_env_or_default() -> anyhow::Result<Self> {
+        let cfg = config::Config::builder()
+            .add_source(config::File::from_str(
+                &serde_json::to_string(&AppConfig::default()).unwrap(),
+                config::FileFormat::Json,
+            ))
+            .add_source(config::Environment::with_prefix("CODEX").separator("__"))
+            .build()
+            .context("Failed to load configuration from environment")?;
+        cfg.try_deserialize()
+            .context("Failed to parse configuration from environment")
+    }
+
     /// Load from an explicit file path (standalone server / `--config` flag).
     ///
     /// Returns a descriptive error if the file is missing or cannot be parsed.

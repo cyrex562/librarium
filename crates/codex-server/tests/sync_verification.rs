@@ -53,7 +53,7 @@ async fn verify_etag_optimistic_locking_and_change_log() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let mut config = AppConfig::default();

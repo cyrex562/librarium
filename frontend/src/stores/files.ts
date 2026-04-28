@@ -48,6 +48,19 @@ function dirname(filePath: string): string {
     return idx >= 0 ? normalized.slice(0, idx) : '';
 }
 
+function basename(filePath: string): string {
+    const normalized = normalizePath(filePath);
+    const idx = normalized.lastIndexOf('/');
+    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+}
+
+function walkNodes(nodes: FileNode[], visit: (node: FileNode) => void): void {
+    for (const node of nodes) {
+        visit(node);
+        if (node.children) walkNodes(node.children, visit);
+    }
+}
+
 function isArchiveFile(filename: string): boolean {
     const lower = filename.toLowerCase();
     return lower.endsWith('.zip') || lower.endsWith('.tar') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz');
@@ -69,6 +82,9 @@ export const useFilesStore = defineStore('files', () => {
     const recentFiles = ref<string[]>([]);
     const loading = ref(false);
     const error = ref<string | null>(null);
+    const selectionMode = ref(false);
+    const selectedPaths = ref<Set<string>>(new Set());
+    const lastSelectionAnchorPath = ref<string | null>(null);
 
     async function loadTree(vaultId: string) {
         loading.value = true;
@@ -119,11 +135,29 @@ export const useFilesStore = defineStore('files', () => {
         vaultId: string,
         from: string,
         to: string,
-        strategy: 'fail' | 'overwrite' | 'rename' = 'fail',
+        strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
     ): Promise<string> {
         const result = await apiRenameFile(vaultId, from, to, strategy);
         await loadTree(vaultId);
         return result.new_path;
+    }
+
+    async function moveFiles(
+        vaultId: string,
+        moves: Array<{ from: string; to: string }>,
+        strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
+    ): Promise<Array<{ from: string; to: string }>> {
+        const completed: Array<{ from: string; to: string }> = [];
+        try {
+            for (const move of moves) {
+                const result = await apiRenameFile(vaultId, move.from, move.to, strategy);
+                completed.push({ from: move.from, to: result.new_path });
+            }
+            return completed;
+        } finally {
+            await loadTree(vaultId);
+            clearSelection();
+        }
     }
 
     async function getRandomNote(vaultId: string): Promise<string> {
@@ -319,6 +353,120 @@ export const useFilesStore = defineStore('files', () => {
         triggerBlobDownload(blob, paths.length === 1 ? `${paths[0].split('/').pop() ?? 'download'}.tar.gz` : `${paths.length}_files.tar.gz`);
     }
 
+    function setSelectionMode(enabled: boolean) {
+        selectionMode.value = enabled;
+        if (!enabled) clearSelection();
+    }
+
+    function toggleSelectionMode() {
+        setSelectionMode(!selectionMode.value);
+    }
+
+    function selectPath(path: string) {
+        selectedPaths.value = new Set([...selectedPaths.value, path]);
+        lastSelectionAnchorPath.value = path;
+    }
+
+    function deselectPath(path: string) {
+        const next = new Set(selectedPaths.value);
+        next.delete(path);
+        selectedPaths.value = next;
+        lastSelectionAnchorPath.value = path;
+    }
+
+    function toggleSelectedPath(path: string) {
+        if (selectedPaths.value.has(path)) {
+            deselectPath(path);
+            return;
+        }
+        selectPath(path);
+    }
+
+    function clearSelection() {
+        selectedPaths.value = new Set();
+        lastSelectionAnchorPath.value = null;
+    }
+
+    function isSelected(path: string) {
+        return selectedPaths.value.has(path);
+    }
+
+    function selectedNodes(): FileNode[] {
+        const selected: FileNode[] = [];
+        walkNodes(tree.value, (node) => {
+            if (selectedPaths.value.has(node.path)) selected.push(node);
+        });
+        return selected;
+    }
+
+    function selectedTopLevelNodes(): FileNode[] {
+        return selectedNodes().filter((node) => {
+            for (const path of selectedPaths.value) {
+                if (path !== node.path && node.path.startsWith(`${path}/`)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+
+    function selectPathRange(orderedPaths: string[], targetPath: string) {
+        const anchorPath = lastSelectionAnchorPath.value;
+        if (!anchorPath) {
+            selectPath(targetPath);
+            return;
+        }
+
+        const anchorIndex = orderedPaths.indexOf(anchorPath);
+        const targetIndex = orderedPaths.indexOf(targetPath);
+        if (anchorIndex < 0 || targetIndex < 0) {
+            selectPath(targetPath);
+            return;
+        }
+
+        const start = Math.min(anchorIndex, targetIndex);
+        const end = Math.max(anchorIndex, targetIndex);
+        selectedPaths.value = new Set([
+            ...selectedPaths.value,
+            ...orderedPaths.slice(start, end + 1),
+        ]);
+    }
+
+    function handleSelectionClick(
+        path: string,
+        orderedPaths: string[],
+        options: { range?: boolean; toggle?: boolean } = {},
+    ) {
+        selectionMode.value = true;
+        if (options.range) {
+            selectPathRange(orderedPaths, path);
+            return;
+        }
+
+        if (options.toggle || selectionMode.value) {
+            toggleSelectedPath(path);
+            return;
+        }
+
+        selectedPaths.value = new Set([path]);
+        lastSelectionAnchorPath.value = path;
+    }
+
+    function destinationExists(path: string) {
+        let exists = false;
+        walkNodes(tree.value, (node) => {
+            if (node.path === path) exists = true;
+        });
+        return exists;
+    }
+
+    function buildMoveTargets(paths: string[], destinationDirectory: string) {
+        return paths.map((from) => ({
+            from,
+            to: normalizePath(`${destinationDirectory}/${basename(from)}`),
+        }));
+    }
+
     return {
         tree,
         recentFiles,
@@ -331,6 +479,7 @@ export const useFilesStore = defineStore('files', () => {
         deleteFile,
         createDirectory,
         renameFile,
+        moveFiles,
         getRandomNote,
         getDailyNote,
         loadRecentFiles,
@@ -338,5 +487,21 @@ export const useFilesStore = defineStore('files', () => {
         importCandidates,
         downloadAsZip,
         downloadAsTar,
+        selectionMode,
+        selectedPaths,
+        lastSelectionAnchorPath,
+        setSelectionMode,
+        toggleSelectionMode,
+        selectPath,
+        deselectPath,
+        toggleSelectedPath,
+        clearSelection,
+        selectPathRange,
+        handleSelectionClick,
+        isSelected,
+        selectedNodes,
+        selectedTopLevelNodes,
+        destinationExists,
+        buildMoveTargets,
     };
 });

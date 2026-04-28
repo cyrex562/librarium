@@ -9,6 +9,7 @@
       class="tab-item d-flex align-center"
       :class="{ 'tab-active': tab.id === activeTabId }"
       @click="tabsStore.activateTab(tab.id)"
+      @contextmenu.prevent="openTabMenu($event, tab.id)"
       @mousedown.middle.prevent="requestCloseTab(tab.id)"
     >
       <v-icon :icon="tabIcon(tab)" size="14" class="mr-1" />
@@ -45,11 +46,35 @@
         @click="tabsStore.closePane(paneId)"
       />
     </div>
+
+    <v-menu v-model="tabMenuOpen" :style="{ top: tabMenuY + 'px', left: tabMenuX + 'px' }" style="position: fixed;">
+      <v-list density="compact" min-width="180">
+        <v-list-item title="Close" prepend-icon="mdi-close" @click="closeContextTab" />
+        <v-list-item
+          title="Close to the right"
+          prepend-icon="mdi-arrow-collapse-right"
+          :disabled="contextTabIdsToRight.length === 0"
+          @click="closeTabsToRight"
+        />
+        <v-list-item
+          title="Close other tabs"
+          prepend-icon="mdi-close-box-outline"
+          :disabled="contextOtherTabIds.length === 0"
+          @click="closeOtherTabs"
+        />
+        <v-list-item
+          title="Close all in pane"
+          prepend-icon="mdi-close-box-multiple-outline"
+          :disabled="tabs.length === 0"
+          @click="closeAllTabsInPane"
+        />
+      </v-list>
+    </v-menu>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useTabsStore } from '@/stores/tabs';
 import type { Tab } from '@/api/types';
 
@@ -61,6 +86,16 @@ const activeTabId = computed(() => {
   const pane = tabsStore.panes.find(p => p.id === props.paneId);
   return pane?.activeTabId;
 });
+const tabMenuOpen = ref(false);
+const tabMenuX = ref(0);
+const tabMenuY = ref(0);
+const contextTabId = ref<string | null>(null);
+const contextTabIdsToRight = computed(() => (
+  contextTabId.value ? tabsStore.tabIdsToRight(props.paneId, contextTabId.value) : []
+));
+const contextOtherTabIds = computed(() => (
+  contextTabId.value ? tabsStore.tabIdsExcept(props.paneId, contextTabId.value) : []
+));
 
 function requestCloseTab(tabId: string) {
   const tab = tabsStore.tabs.get(tabId);
@@ -69,6 +104,43 @@ function requestCloseTab(tabId: string) {
     return;
   }
   tabsStore.closeTab(tabId);
+}
+
+function requestCloseTabs(tabIds: string[]) {
+  const closeable: string[] = [];
+  for (const tabId of tabIds) {
+    const tab = tabsStore.tabs.get(tabId);
+    if (!tab) continue;
+    if (tab.isDirty && !confirm(`Close \"${tab.fileName}\" without saving?`)) {
+      continue;
+    }
+    closeable.push(tabId);
+  }
+  tabsStore.closeTabs(closeable);
+}
+
+function openTabMenu(event: MouseEvent, tabId: string) {
+  tabMenuX.value = event.clientX;
+  tabMenuY.value = event.clientY;
+  contextTabId.value = tabId;
+  tabMenuOpen.value = true;
+}
+
+function closeContextTab() {
+  if (!contextTabId.value) return;
+  requestCloseTab(contextTabId.value);
+}
+
+function closeTabsToRight() {
+  requestCloseTabs(contextTabIdsToRight.value);
+}
+
+function closeOtherTabs() {
+  requestCloseTabs(contextOtherTabIds.value);
+}
+
+function closeAllTabsInPane() {
+  requestCloseTabs(tabsStore.tabIdsInPane(props.paneId));
 }
 
 function tabIcon(tab: Tab): string {

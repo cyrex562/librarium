@@ -86,10 +86,11 @@ async fn list_entities(
 }
 
 async fn get_entity(path: web::Path<(String, String)>, state: web::Data<AppState>) -> HttpResponse {
-    let (_vault_id, entity_id) = path.into_inner();
+    let (vault_id, entity_id) = path.into_inner();
 
     match EntityService::get(&state.db, &entity_id).await {
-        Ok(Some(entity)) => HttpResponse::Ok().json(entity),
+        Ok(Some(entity)) if entity.vault_id == vault_id => HttpResponse::Ok().json(entity),
+        Ok(Some(_)) => HttpResponse::NotFound().json(json!({ "error": "Entity not found" })),
         Ok(None) => HttpResponse::NotFound().json(json!({ "error": "Entity not found" })),
         Err(e) => {
             tracing::error!("get_entity error: {e}");
@@ -105,7 +106,7 @@ async fn get_entity_relations(
     let (vault_id, entity_id) = path.into_inner();
 
     match EntityService::get(&state.db, &entity_id).await {
-        Ok(Some(entity)) => {
+        Ok(Some(entity)) if entity.vault_id == vault_id => {
             match build_entity_relations_payload(&state, &vault_id, &entity).await {
                 Ok(relations) => HttpResponse::Ok().json(json!({ "relations": relations })),
                 Err(e) => {
@@ -114,6 +115,7 @@ async fn get_entity_relations(
                 }
             }
         }
+        Ok(Some(_)) => HttpResponse::NotFound().json(json!({ "error": "Entity not found" })),
         Ok(None) => HttpResponse::NotFound().json(json!({ "error": "Entity not found" })),
         Err(e) => {
             tracing::error!("get_entity_relations entity lookup error: {e}");
@@ -191,12 +193,17 @@ async fn trigger_reindex(path: web::Path<String>, state: web::Data<AppState>) ->
     // Spawn async so we return immediately (reindex can be slow)
     let db = state.db.clone();
     let ws_tx = state.ws_broadcaster.clone();
+    let search_index = state.search_index.clone();
     let vid = vault_id.clone();
     let vpath = vault.path.clone();
     tokio::spawn(async move {
         let start = std::time::Instant::now();
-        match ReindexService::reindex_vault(&db, &vid, &vpath).await {
-            Ok(file_count) => {
+        let search_result = search_index.index_vault(&vid, &vpath);
+        match (
+            search_result,
+            ReindexService::reindex_vault(&db, &vid, &vpath).await,
+        ) {
+            (Ok(search_count), Ok(file_count)) => {
                 let duration_ms = start.elapsed().as_millis() as i64;
                 let msg = crate::models::WsMessage::ReindexComplete {
                     vault_id: vid.clone(),
@@ -205,10 +212,13 @@ async fn trigger_reindex(path: web::Path<String>, state: web::Data<AppState>) ->
                 };
                 let _ = ws_tx.send(msg);
                 tracing::info!(
-                    "Reindex complete for vault {vid}: {file_count} files in {duration_ms}ms"
+                    "Reindex complete for vault {vid}: search indexed {search_count} files, entity reindex processed {file_count} files in {duration_ms}ms"
                 );
             }
-            Err(e) => {
+            (Err(e), _) => {
+                tracing::error!("Search reindex failed for vault {vid}: {e}");
+            }
+            (_, Err(e)) => {
                 tracing::error!("Background reindex failed for vault {vid}: {e}");
             }
         }
@@ -346,6 +356,7 @@ async fn build_entity_relations_payload(
                 "target_entity_id": relation.to_entity_id,
                 "target_path": target_path,
                 "relation_type": relation.relation_type,
+                "direction": relation.direction,
                 "label": relation.relation_type,
                 "directed": true,
                 "metadata": metadata,

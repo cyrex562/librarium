@@ -28,7 +28,15 @@
     <div style="flex: 1; overflow-y: auto; overflow-x: hidden;">
       <FileTree v-if="vaultsStore.activeVaultId" />
       <div v-else class="pa-4 text-secondary text-caption text-center">
-        Select a vault to start.
+        <div class="mb-2">Create or select a vault to start.</div>
+        <v-btn
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-database-plus-outline"
+          @click="vaultManagerOpen = true"
+        >
+          Manage vaults
+        </v-btn>
       </div>
 
       <template v-if="vaultsStore.activeVaultId && activeMdContent !== null">
@@ -189,18 +197,21 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
 
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+    if (!vaultsStore.activeVaultId) return;
     e.preventDefault();
     searchOpen.value = true;
     return;
   }
 
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && ['p', 'k'].includes(e.key.toLowerCase())) {
+    if (!vaultsStore.activeVaultId) return;
     e.preventDefault();
     quickSwitcherOpen.value = true;
   }
 }
 
 function openTagSearch(query: string) {
+  if (!vaultsStore.activeVaultId) return;
   searchInitialQuery.value = query;
   searchOpen.value = true;
 }

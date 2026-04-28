@@ -1,6 +1,6 @@
 use crate::error::{AppError, AppResult};
-use crate::middleware::AuthenticatedUser;
-use crate::models::{TotpEnrollResponse, TotpVerifyRequest};
+use crate::middleware::{AuthenticatedUser, AuthenticatedUserClaims};
+use crate::models::{TotpEnrollResponse, TotpLoginVerifyResponse, TotpVerifyRequest};
 use crate::routes::vaults::AppState;
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse};
 use rand::Rng;
@@ -124,6 +124,76 @@ async fn totp_verify(
     Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true, "totp_enabled": true })))
 }
 
+#[post("/api/auth/totp/login-verify")]
+async fn totp_login_verify(
+    state: web::Data<AppState>,
+    config: web::Data<crate::config::AppConfig>,
+    req: HttpRequest,
+    body: web::Json<TotpVerifyRequest>,
+) -> AppResult<HttpResponse> {
+    let user = require_user(&req)?;
+    let claims = req
+        .extensions()
+        .get::<AuthenticatedUserClaims>()
+        .cloned()
+        .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))?;
+
+    if claims.totp_verified {
+        return Err(AppError::Conflict(
+            "TOTP login is already complete".to_string(),
+        ));
+    }
+
+    let (enabled, secret_opt, _) = state.db.get_totp_state(&user.user_id).await?;
+    if !enabled {
+        return Err(AppError::Conflict(
+            "TOTP is not enabled for this account".to_string(),
+        ));
+    }
+
+    let code = body.code.trim();
+    if code.is_empty() {
+        return Err(AppError::InvalidInput("TOTP code is required".to_string()));
+    }
+
+    let mut verified = false;
+    if let Some(secret) = secret_opt {
+        let totp = build_totp(&secret, &user.username)?;
+        verified = totp.check_current(code).unwrap_or(false);
+    }
+
+    if !verified {
+        verified = state.db.consume_backup_code(&user.user_id, code).await?;
+    }
+
+    if !verified {
+        return Err(AppError::Unauthorized(
+            "Invalid TOTP code or backup code".to_string(),
+        ));
+    }
+
+    if claims.token_type == "refresh" && !claims.token_id.is_empty() {
+        state.db.revoke_session(&claims.token_id).await?;
+    } else {
+        let _ = state.db.revoke_all_sessions(&user.user_id).await?;
+    }
+
+    let (response, refresh_jti, refresh_exp) =
+        crate::routes::auth::issue_verified_tokens_for_user(&user, &claims, &config.auth)?;
+
+    state
+        .db
+        .create_session(&refresh_jti, &user.user_id, refresh_exp)
+        .await?;
+
+    Ok(HttpResponse::Ok().json(TotpLoginVerifyResponse {
+        success: true,
+        access_token: response.access_token,
+        refresh_token: response.refresh_token,
+        expires_in: response.expires_in,
+    }))
+}
+
 /// Disable TOTP 2FA.
 #[post("/api/auth/totp/disable")]
 async fn totp_disable(state: web::Data<AppState>, req: HttpRequest) -> AppResult<HttpResponse> {
@@ -157,6 +227,7 @@ async fn totp_status(state: web::Data<AppState>, req: HttpRequest) -> AppResult<
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(totp_enroll)
         .service(totp_verify)
+        .service(totp_login_verify)
         .service(totp_disable)
         .service(totp_status);
 }

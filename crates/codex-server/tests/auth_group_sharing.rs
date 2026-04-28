@@ -56,7 +56,7 @@ async fn username_login_group_membership_and_vault_sharing_work() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let mut config = AppConfig::default();

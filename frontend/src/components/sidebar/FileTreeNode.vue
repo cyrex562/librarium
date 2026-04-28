@@ -3,7 +3,7 @@
     <!-- Row -->
     <div
       class="file-tree-node d-flex align-center"
-      :class="{ active: isActive, hovering: hovering, 'import-drop-target': importDragOver, 'move-drop-target': moveDragOver }"
+      :class="{ active: isActive, hovering: hovering, selected: isSelected, 'import-drop-target': importDragOver, 'move-drop-target': moveDragOver }"
       :style="{ paddingLeft: depth * 16 + 8 + 'px' }"
       draggable="true"
       @click="onClick"
@@ -17,6 +17,14 @@
       @dragleave.prevent="onDragLeave"
       @drop.prevent="onDrop"
     >
+      <v-checkbox-btn
+        v-if="filesStore.selectionMode"
+        :model-value="isSelected"
+        density="compact"
+        class="mr-1"
+        @click.stop="onSelectionClick"
+      />
+
       <!-- Expand chevron for dirs -->
       <v-icon
         v-if="node.is_directory"
@@ -58,7 +66,7 @@
         @keyup.enter="confirmRename"
         @keyup.esc="editing = false"
         @blur="editing = false"
-        @click.stop
+      @click.stop
       />
 
       <v-spacer />
@@ -126,7 +134,7 @@ import { useTabsStore } from '@/stores/tabs';
 import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { createImportCandidatesFromDataTransfer, hasFilePayload, parentDirectory } from '@/utils/importEntries';
-import { getFileTreeDragPayload, setFileTreeDragPayload } from '@/utils/fileTreeDrag';
+import { getFileTreeDragItems, getFileTreeDragPayload, setFileTreeDragPayload } from '@/utils/fileTreeDrag';
 
 const props = defineProps<{ node: FileNode; depth: number }>();
 
@@ -147,6 +155,7 @@ const importDragOver = ref(false);
 const moveDragOver = ref(false);
 
 const sort = inject<Ref<'asc' | 'desc'>>('fileTreeSort', ref('asc'));
+const selectionOrder = inject<Ref<string[]>>('fileTreeSelectionOrder', ref([]));
 
 const sortedChildren = computed(() => {
   if (!props.node.children) return [];
@@ -162,6 +171,7 @@ const isActive = computed(() => {
   const activeTab = tabsStore.activeTab;
   return activeTab?.filePath === props.node.path;
 });
+const isSelected = computed(() => filesStore.isSelected(props.node.path));
 
 const fileIcon = computed(() => {
   if (props.node.is_directory) return 'mdi-folder-outline';
@@ -178,12 +188,28 @@ const fileIcon = computed(() => {
 const resolvedIcon = computed(() => prefsStore.getIcon(props.node.path) ?? fileIcon.value);
 const isMdiIcon = computed(() => resolvedIcon.value.startsWith('mdi-'));
 
-async function onClick() {
+async function onClick(event: MouseEvent) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey || filesStore.selectionMode) {
+    handleSelectionInput(event);
+    return;
+  }
+
   if (props.node.is_directory) {
     await openFolderNote();
   } else {
     openFile();
   }
+}
+
+function onSelectionClick(event: MouseEvent) {
+  handleSelectionInput(event);
+}
+
+function handleSelectionInput(event: MouseEvent) {
+  filesStore.handleSelectionClick(props.node.path, selectionOrder.value, {
+    range: event.shiftKey,
+    toggle: event.ctrlKey || event.metaKey || filesStore.selectionMode,
+  });
 }
 
 function toggleExpanded() {
@@ -354,6 +380,10 @@ function isInvalidMoveSource(sourcePath: string) {
   return destinationDirectory === sourcePath || destinationDirectory.startsWith(`${sourcePath}/`);
 }
 
+function isInvalidMoveSources(sourcePaths: string[]) {
+  return sourcePaths.some((sourcePath) => isInvalidMoveSource(sourcePath));
+}
+
 function clearDropState() {
   importDragOver.value = false;
   moveDragOver.value = false;
@@ -361,10 +391,24 @@ function clearDropState() {
 
 function onDragStart(e: DragEvent) {
   if (!e.dataTransfer) return;
+  const selectedNodes = filesStore.selectionMode && filesStore.isSelected(props.node.path)
+    ? filesStore.selectedTopLevelNodes()
+    : [];
+  const items = selectedNodes.length > 0
+    ? selectedNodes.map((node) => ({
+      path: node.path,
+      name: node.name,
+      isDirectory: node.is_directory,
+    }))
+    : [{
+      path: props.node.path,
+      name: props.node.name,
+      isDirectory: props.node.is_directory,
+    }];
+
   setFileTreeDragPayload(e.dataTransfer, {
-    path: props.node.path,
-    name: props.node.name,
-    isDirectory: props.node.is_directory,
+    ...items[0],
+    items,
   });
 }
 
@@ -376,7 +420,8 @@ function onDragEnter(e: DragEvent) {
   e.stopPropagation();
   const internalPayload = getFileTreeDragPayload(e.dataTransfer);
   if (internalPayload) {
-    moveDragOver.value = !isInvalidMoveSource(internalPayload.path);
+    const sourcePaths = getFileTreeDragItems(internalPayload).map((item) => item.path);
+    moveDragOver.value = !isInvalidMoveSources(sourcePaths);
     importDragOver.value = false;
     return;
   }
@@ -389,7 +434,8 @@ function onDragOver(e: DragEvent) {
   e.stopPropagation();
   const internalPayload = getFileTreeDragPayload(e.dataTransfer);
   if (internalPayload) {
-    const invalid = isInvalidMoveSource(internalPayload.path);
+    const sourcePaths = getFileTreeDragItems(internalPayload).map((item) => item.path);
+    const invalid = isInvalidMoveSources(sourcePaths);
     moveDragOver.value = !invalid;
     importDragOver.value = false;
     if (e.dataTransfer) {
@@ -410,32 +456,67 @@ function onDragLeave(e: DragEvent) {
   clearDropState();
 }
 
-async function moveDraggedNode(sourcePath: string) {
+function chooseConflictStrategy(conflictingNames: string[]): 'skip' | 'overwrite' | 'rename' | 'cancel' {
+  const choice = prompt(
+    [
+      `${conflictingNames.length} item${conflictingNames.length === 1 ? '' : 's'} already exist in the target location.`,
+      'Choose the default behavior: skip, overwrite, rename, or cancel.',
+      `Conflicts: ${conflictingNames.slice(0, 8).join(', ')}${conflictingNames.length > 8 ? ', ...' : ''}`,
+    ].join('\n'),
+    'skip',
+  );
+  const normalized = choice?.trim().toLowerCase();
+  if (!normalized || normalized === 'cancel' || normalized === 'c') return 'cancel';
+  if (normalized === 'skip' || normalized === 's') return 'skip';
+  if (normalized === 'overwrite' || normalized === 'o') return 'overwrite';
+  if (normalized === 'rename' || normalized === 'r' || normalized === 'autorename') return 'rename';
+  alert('Move cancelled: expected skip, overwrite, rename, or cancel.');
+  return 'cancel';
+}
+
+async function moveDraggedNodes(sourcePaths: string[]) {
   const vaultId = vaultsStore.activeVaultId;
   if (!vaultId) return;
 
-  if (isInvalidMoveSource(sourcePath)) {
+  if (isInvalidMoveSources(sourcePaths)) {
     alert('You cannot move a folder into itself or one of its descendants.');
     return;
   }
 
   const destinationDirectory = moveTargetPath();
-  const nextPath = destinationDirectory ? `${destinationDirectory}/${basename(sourcePath)}` : basename(sourcePath);
-  if (nextPath === sourcePath) {
+  let moves = filesStore
+    .buildMoveTargets(sourcePaths, destinationDirectory)
+    .filter((move) => move.to !== move.from);
+  if (moves.length === 0) {
     return;
   }
 
+  let strategy: 'fail' | 'overwrite' | 'rename' = 'fail';
+  const conflicts = moves.filter((move) => filesStore.destinationExists(move.to));
+  if (conflicts.length > 0) {
+    const conflictStrategy = chooseConflictStrategy(conflicts.map((move) => basename(move.from)));
+    if (conflictStrategy === 'cancel') return;
+    if (conflictStrategy === 'skip') {
+      moves = moves.filter((move) => !filesStore.destinationExists(move.to));
+      if (moves.length === 0) return;
+    } else {
+      strategy = conflictStrategy;
+    }
+  }
+
   try {
-    const renamedPath = await filesStore.renameFile(vaultId, sourcePath, nextPath);
-    tabsStore.remapTabPaths(sourcePath, renamedPath);
-    prefsStore.remapPathIcon(sourcePath, renamedPath);
+    const completed = await filesStore.moveFiles(vaultId, moves, strategy);
+    completed.forEach((move) => {
+      tabsStore.remapTabPaths(move.from, move.to);
+      prefsStore.remapPathIcon(move.from, move.to);
+    });
     await prefsStore.save();
     if (props.node.is_directory) {
       expanded.value = true;
     }
   } catch (error) {
     if (error instanceof ApiError && error.status === 409) {
-      alert(`A file or folder named "${basename(sourcePath)}" already exists in the target location.`);
+      alert('A file or folder already exists in the target location.');
       return;
     }
     throw error;
@@ -447,7 +528,7 @@ async function onDrop(e: DragEvent) {
   const internalPayload = getFileTreeDragPayload(e.dataTransfer);
   if (internalPayload) {
     clearDropState();
-    await moveDraggedNode(internalPayload.path);
+    await moveDraggedNodes(getFileTreeDragItems(internalPayload).map((item) => item.path));
     return;
   }
 
@@ -487,6 +568,9 @@ async function exportAsTar() {
 }
 .file-tree-node.active {
   background: rgba(var(--v-theme-primary), 0.18);
+}
+.file-tree-node.selected {
+  background: rgba(var(--v-theme-primary), 0.14);
 }
 .file-tree-node.import-drop-target {
   background: rgba(var(--v-theme-primary), 0.12);

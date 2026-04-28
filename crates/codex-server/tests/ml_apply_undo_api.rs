@@ -48,7 +48,7 @@ async fn apply_tag_and_undo_restores_file_and_receipt_is_single_use() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let app = test::init_service(App::new().app_data(state.clone()).configure(ml::configure)).await;
@@ -143,7 +143,7 @@ async fn apply_move_and_undo_restores_original_path() {
         document_parser: Arc::new(MarkdownParser),
         entity_type_registry: codex::services::EntityTypeRegistry::new(),
         relation_type_registry: codex::services::RelationTypeRegistry::new(),
-        plugins_dir: String::new(),
+        plugins_dir: std::path::PathBuf::new(),
     });
 
     let app = test::init_service(App::new().app_data(state.clone()).configure(ml::configure)).await;
@@ -224,7 +224,7 @@ async fn undo_receipt_persists_across_app_reinitialization() {
             document_parser: Arc::new(MarkdownParser),
             entity_type_registry: codex::services::EntityTypeRegistry::new(),
             relation_type_registry: codex::services::RelationTypeRegistry::new(),
-            plugins_dir: String::new(),
+            plugins_dir: std::path::PathBuf::new(),
         });
 
         let app =
@@ -272,7 +272,7 @@ async fn undo_receipt_persists_across_app_reinitialization() {
             document_parser: Arc::new(MarkdownParser),
             entity_type_registry: codex::services::EntityTypeRegistry::new(),
             relation_type_registry: codex::services::RelationTypeRegistry::new(),
-            plugins_dir: String::new(),
+            plugins_dir: std::path::PathBuf::new(),
         });
 
         let app =

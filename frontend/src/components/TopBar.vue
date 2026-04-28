@@ -26,6 +26,7 @@
         density="compact"
         title="Search (Ctrl+Shift+F)"
         data-testid="topbar-search-btn"
+        :disabled="!hasActiveVault"
         @click="emit('open-search')"
       />
       <v-btn
@@ -109,6 +110,7 @@ const { connected, disconnect } = useWebSocket(false);
 const dirtyCount = computed(() => tabsStore.dirtyTabs.length);
 const wsConnected = computed(() => connected.value);
 const username = computed(() => authStore.profile?.username ?? 'Account');
+const hasActiveVault = computed(() => !!vaultsStore.activeVaultId);
 
 function toggleTheme() {
   prefsStore.set('theme', prefsStore.prefs.theme === 'dark' ? 'light' : 'dark');
@@ -129,4 +131,3 @@ async function signOut() {
   await router.replace('/login');
 }
 </script>
-
