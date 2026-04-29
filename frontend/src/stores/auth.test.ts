@@ -126,6 +126,25 @@ describe('useAuthStore', () => {
         expect(localStorage.getItem('obsidian_access_token')).toBe('refreshed-access');
     });
 
+    it('coalesces concurrent stale-token refresh attempts', async () => {
+        localStorage.setItem('obsidian_access_token', 'stale-access');
+        localStorage.setItem('obsidian_refresh_token', 'refresh-token');
+        localStorage.setItem('obsidian_token_expires_at', '1');
+
+        vi.mocked(apiRefreshToken).mockResolvedValueOnce({
+            access_token: 'fresh-access',
+            refresh_token: 'fresh-refresh',
+            expires_in: 3600,
+            totp_required: false,
+        });
+
+        const store = useAuthStore();
+        await Promise.all([store.ensureFresh(), store.ensureFresh(), store.ensureFresh()]);
+
+        expect(apiRefreshToken).toHaveBeenCalledTimes(1);
+        expect(store.accessToken).toBe('fresh-access');
+    });
+
     it('loads the profile immediately for a non-TOTP login', async () => {
         vi.mocked(apiLogin).mockResolvedValueOnce({
             access_token: 'access-token',

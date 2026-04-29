@@ -218,11 +218,13 @@ export interface ImportProgress {
 export interface ImportResultItem {
     path: string;
     filename: string;
-    size: number;
+    size?: number;
+    skipped?: boolean;
 }
 
 export interface ImportResult {
     uploaded: ImportResultItem[];
+    skipped: ImportResultItem[];
     directoryCount: number;
     totalBytes: number;
 }

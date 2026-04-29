@@ -42,6 +42,14 @@
       @click="refresh"
     />
     <v-btn
+      icon="mdi-collapse-all-outline"
+      size="small"
+      density="compact"
+      title="Collapse all folders"
+      :disabled="!hasActiveVault"
+      @click="filesStore.collapseAllFolders()"
+    />
+    <v-btn
       icon="mdi-file-document-plus-outline"
       size="small"
       density="compact"
@@ -65,6 +73,16 @@
       :disabled="!hasActiveVault"
       :color="filesStore.selectionMode ? 'primary' : undefined"
       @click="filesStore.toggleSelectionMode()"
+    />
+    <v-btn
+      v-if="filesStore.selectionMode"
+      icon="mdi-delete-outline"
+      size="small"
+      density="compact"
+      color="error"
+      title="Delete selected files and folders"
+      :disabled="selectedCount === 0"
+      @click="deleteSelected"
     />
     <v-menu>
       <template #activator="{ props: menuProps }">
@@ -190,12 +208,14 @@ import { useVaultsStore } from '@/stores/vaults';
 import { useFilesStore } from '@/stores/files';
 import { useTabsStore } from '@/stores/tabs';
 import { useUiStore } from '@/stores/ui';
+import { usePreferencesStore } from '@/stores/preferences';
 import NewEntityDialog from '@/components/modals/NewEntityDialog.vue';
 
 const vaultsStore = useVaultsStore();
 const filesStore = useFilesStore();
 const tabsStore = useTabsStore();
 const uiStore = useUiStore();
+const prefsStore = usePreferencesStore();
 
 const sort = ref<'asc' | 'desc'>('asc');
 const newNoteDialog = ref(false);
@@ -209,6 +229,8 @@ const newEntityDialog = ref(false);
 const newEntityDialogInitialTypeId = ref<string | null>(null);
 const newEntityDialogInitialFileName = ref('');
 const hasActiveVault = computed(() => !!vaultsStore.activeVaultId);
+const selectedTopLevelNodes = computed(() => filesStore.selectedTopLevelNodes());
+const selectedCount = computed(() => selectedTopLevelNodes.value.length);
 
 const noteTemplateItems = computed(() => [
   { title: 'Regular note', value: '' },
@@ -291,6 +313,27 @@ async function confirmNewFolder() {
 async function refresh() {
   const vaultId = vaultsStore.activeVaultId;
   if (vaultId) await filesStore.loadTree(vaultId);
+}
+
+async function deleteSelected() {
+  const vaultId = vaultsStore.activeVaultId;
+  const nodes = selectedTopLevelNodes.value;
+  if (!vaultId || nodes.length === 0) return;
+
+  const names = nodes.map((node) => node.name);
+  const preview = names.slice(0, 8).join(', ');
+  const suffix = names.length > 8 ? ', ...' : '';
+  if (!confirm(`Delete ${nodes.length} selected item${nodes.length === 1 ? '' : 's'}?\n\n${preview}${suffix}`)) {
+    return;
+  }
+
+  const paths = nodes.map((node) => node.path);
+  for (const path of paths) {
+    tabsStore.closeTabsByPath(path);
+    prefsStore.clearIconsUnderPath(path);
+  }
+  await prefsStore.save();
+  await filesStore.deleteFiles(vaultId, paths);
 }
 
 async function openRandomNote() {

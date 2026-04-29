@@ -15,6 +15,7 @@ export const useAuthStore = defineStore('auth', () => {
     const pendingTotp = ref(localStorage.getItem(PENDING_TOTP_KEY) === 'true');
     const profile = ref<AuthenticatedUserProfile | null>(null);
     const loadingProfile = ref(false);
+    let refreshPromise: Promise<void> | null = null;
 
     const isAuthenticated = computed(() => !!accessToken.value && !pendingTotp.value);
     const isExpired = computed(() => Date.now() > expiresAt.value - 60_000); // 60s margin
@@ -91,7 +92,10 @@ export const useAuthStore = defineStore('auth', () => {
     // Call before any authenticated request to ensure the token is still valid.
     async function ensureFresh() {
         if (accessToken.value && isExpired.value) {
-            await refresh();
+            refreshPromise ??= refresh().finally(() => {
+                refreshPromise = null;
+            });
+            await refreshPromise;
         }
     }
 

@@ -51,4 +51,40 @@ test.describe('File tree navigation', () => {
         await folderRow.click();
         await expect(page.getByText('nested_note.md')).toBeVisible();
     });
+
+    test('collapses all open folders from the sidebar action', async ({ page }) => {
+        await seedAuthTokens(page);
+        await seedActiveVault(page, defaultVault.id);
+
+        await installCommonAppMocks(page, {
+            profile: defaultProfile,
+            vaults: [defaultVault],
+            treeByVaultId: {
+                [defaultVault.id]: [
+                    {
+                        name: 'Projects',
+                        path: 'Projects',
+                        is_directory: true,
+                        modified: new Date().toISOString(),
+                        children: [
+                            {
+                                name: 'Roadmap.md',
+                                path: 'Projects/Roadmap.md',
+                                is_directory: false,
+                                modified: new Date().toISOString(),
+                            },
+                        ],
+                    },
+                ],
+            },
+        });
+
+        await page.goto('/');
+        await expect(page.getByText('Roadmap.md')).toBeVisible();
+
+        await page.locator('button[title="Collapse all folders"]').click();
+
+        await expect(page.getByText('Projects')).toBeVisible();
+        await expect(page.getByText('Roadmap.md')).not.toBeVisible();
+    });
 });

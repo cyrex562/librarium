@@ -14,8 +14,8 @@ const obsidianDark = {
         'surface-light': '#1a1a1a',   // panels
         'on-background': '#e5e7eb',   // --text-primary
         'on-surface': '#e5e7eb',
-        primary: '#8b5cf6',     // --accent-color (Violet 500)
-        'primary-darken-1': '#6d28d9',
+        primary: '#5b83f5',     // --accent-color (periwinkle blue)
+        'primary-darken-1': '#272cd9',
         secondary: '#9ca3af',   // --text-secondary
         'secondary-darken-1': '#6b7280',
         error: '#ef4444',
@@ -36,8 +36,8 @@ const obsidianLight = {
         'surface-light': '#f8f9fa',
         'on-background': '#111827',
         'on-surface': '#111827',
-        primary: '#7c3aed',     // Violet 600
-        'primary-darken-1': '#6d28d9',
+        primary: '#2363de',     // strong blue
+        'primary-darken-1': '#272cd9',
         secondary: '#4b5563',
         'secondary-darken-1': '#374151',
         error: '#ef4444',

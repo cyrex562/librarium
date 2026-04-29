@@ -124,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, inject } from 'vue';
+import { ref, computed, inject, watch } from 'vue';
 import type { Ref } from 'vue';
 import type { FileNode } from '@/api/types';
 import { ApiError } from '@/api/client';
@@ -156,6 +156,15 @@ const moveDragOver = ref(false);
 
 const sort = inject<Ref<'asc' | 'desc'>>('fileTreeSort', ref('asc'));
 const selectionOrder = inject<Ref<string[]>>('fileTreeSelectionOrder', ref([]));
+
+watch(
+  () => filesStore.collapseAllFoldersVersion,
+  () => {
+    if (props.node.is_directory) {
+      expanded.value = false;
+    }
+  },
+);
 
 const sortedChildren = computed(() => {
   if (!props.node.children) return [];

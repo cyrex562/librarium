@@ -143,6 +143,202 @@ async fn setup_app() -> (
 }
 
 #[actix_web::test]
+async fn upload_session_accepts_frontend_chunk_size() {
+    let (_temp_dir, app, token, _vault_dir, vault_id) = setup_app().await;
+
+    let create_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{vault_id}/upload-sessions"))
+        .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+        .set_json(json!({
+            "filename": "large.md",
+            "total_size": 300 * 1024,
+            "path": ""
+        }))
+        .to_request();
+    let create_resp = test::call_service(&app, create_req).await;
+    assert!(create_resp.status().is_success());
+    let create_body: serde_json::Value = test::read_body_json(create_resp).await;
+    let session_id = create_body["session_id"].as_str().unwrap();
+
+    let chunk = vec![b'a'; 300 * 1024];
+    let upload_req = test::TestRequest::put()
+        .uri(&format!(
+            "/api/vaults/{vault_id}/upload-sessions/{session_id}"
+        ))
+        .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+        .set_payload(chunk)
+        .to_request();
+    let upload_resp = test::call_service(&app, upload_req).await;
+    let status = upload_resp.status();
+    let body: serde_json::Value = test::read_body_json(upload_resp).await;
+
+    assert!(
+        status.is_success(),
+        "expected upload chunk to be accepted, got {status}: {body}"
+    );
+    assert_eq!(body["uploaded_bytes"], 300 * 1024);
+}
+
+#[actix_web::test]
+async fn upload_sessions_accept_many_files() {
+    let (_temp_dir, app, token, vault_dir, vault_id) = setup_app().await;
+    let auth = format!("Bearer {token}");
+
+    for i in 0..2000 {
+        let filename = format!("file-{i:04}.txt");
+        let content = format!("content {i}");
+        let create_req = test::TestRequest::post()
+            .uri(&format!("/api/vaults/{vault_id}/upload-sessions"))
+            .insert_header((header::AUTHORIZATION, auth.clone()))
+            .set_json(json!({
+                "filename": filename,
+                "total_size": content.len(),
+                "path": "bulk"
+            }))
+            .to_request();
+        let create_resp = test::call_service(&app, create_req).await;
+        assert!(
+            create_resp.status().is_success(),
+            "failed to create upload session for file {i}"
+        );
+        let create_body: serde_json::Value = test::read_body_json(create_resp).await;
+        let session_id = create_body["session_id"].as_str().unwrap();
+
+        let upload_req = test::TestRequest::put()
+            .uri(&format!(
+                "/api/vaults/{vault_id}/upload-sessions/{session_id}"
+            ))
+            .insert_header((header::AUTHORIZATION, auth.clone()))
+            .set_payload(content)
+            .to_request();
+        let upload_resp = test::call_service(&app, upload_req).await;
+        assert!(
+            upload_resp.status().is_success(),
+            "failed to upload chunk for file {i}"
+        );
+
+        let finish_req = test::TestRequest::post()
+            .uri(&format!(
+                "/api/vaults/{vault_id}/upload-sessions/{session_id}/finish"
+            ))
+            .insert_header((header::AUTHORIZATION, auth.clone()))
+            .set_json(json!({
+                "filename": filename,
+                "path": "bulk",
+                "conflict": "fail"
+            }))
+            .to_request();
+        let finish_resp = test::call_service(&app, finish_req).await;
+        assert!(
+            finish_resp.status().is_success(),
+            "failed to finish upload session for file {i}"
+        );
+    }
+
+    let bulk_dir = vault_dir.join("bulk");
+    assert_eq!(std::fs::read_dir(&bulk_dir).unwrap().count(), 2000);
+    assert_eq!(
+        std::fs::read_to_string(bulk_dir.join("file-0168.txt")).unwrap(),
+        "content 168"
+    );
+    assert_eq!(
+        std::fs::read_to_string(bulk_dir.join("file-1999.txt")).unwrap(),
+        "content 1999"
+    );
+}
+
+#[actix_web::test]
+async fn upload_session_skip_conflict_reports_skipped_file() {
+    let (_temp_dir, app, token, vault_dir, vault_id) = setup_app().await;
+    std::fs::write(vault_dir.join("existing.md"), "old content").unwrap();
+
+    let create_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{vault_id}/upload-sessions"))
+        .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+        .set_json(json!({
+            "filename": "existing.md",
+            "total_size": 11,
+            "path": ""
+        }))
+        .to_request();
+    let create_resp = test::call_service(&app, create_req).await;
+    assert!(create_resp.status().is_success());
+    let create_body: serde_json::Value = test::read_body_json(create_resp).await;
+    let session_id = create_body["session_id"].as_str().unwrap();
+
+    let upload_req = test::TestRequest::put()
+        .uri(&format!(
+            "/api/vaults/{vault_id}/upload-sessions/{session_id}"
+        ))
+        .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+        .set_payload("new content")
+        .to_request();
+    let upload_resp = test::call_service(&app, upload_req).await;
+    assert!(upload_resp.status().is_success());
+
+    let finish_req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/vaults/{vault_id}/upload-sessions/{session_id}/finish"
+        ))
+        .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+        .set_json(json!({
+            "filename": "existing.md",
+            "path": "",
+            "conflict": "skip"
+        }))
+        .to_request();
+    let finish_resp = test::call_service(&app, finish_req).await;
+    assert!(finish_resp.status().is_success());
+    let body: serde_json::Value = test::read_body_json(finish_resp).await;
+
+    assert_eq!(body["path"], "existing.md");
+    assert_eq!(body["filename"], "existing.md");
+    assert_eq!(body["skipped"], true);
+    assert_eq!(
+        std::fs::read_to_string(vault_dir.join("existing.md")).unwrap(),
+        "old content"
+    );
+    assert!(!vault_dir
+        .join(".obsidian/uploads")
+        .join(session_id)
+        .exists());
+}
+
+#[actix_web::test]
+async fn import_archive_conflict_skip_reports_skipped_entries() {
+    let (_temp_dir, app, token, vault_dir, vault_id) = setup_app().await;
+    std::fs::write(vault_dir.join("existing.md"), "old content").unwrap();
+
+    let archive = build_zip(&[
+        ("existing.md", b"new content"),
+        ("new.md", b"fresh content"),
+    ]);
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/vaults/{vault_id}/import-archive?archive_type=zip&conflict=skip"
+        ))
+        .insert_header((header::AUTHORIZATION, format!("Bearer {token}")))
+        .set_payload(archive)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert!(resp.status().is_success());
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["count"], 1);
+    assert_eq!(body["extracted"][0], "new.md");
+    assert_eq!(body["skipped_count"], 1);
+    assert_eq!(body["skipped"][0], "existing.md");
+    assert_eq!(
+        std::fs::read_to_string(vault_dir.join("existing.md")).unwrap(),
+        "old content"
+    );
+    assert_eq!(
+        std::fs::read_to_string(vault_dir.join("new.md")).unwrap(),
+        "fresh content"
+    );
+}
+
+#[actix_web::test]
 async fn import_archive_conflict_fail_rejects_existing_file() {
     let (_temp_dir, app, token, vault_dir, vault_id) = setup_app().await;
     std::fs::write(vault_dir.join("existing.md"), "old content").unwrap();

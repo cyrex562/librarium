@@ -37,4 +37,42 @@ test.describe('File tree context menu actions', () => {
 
         await expect(page.locator('.file-tree-node', { hasText: 'renamed.md' })).toHaveCount(0);
     });
+
+    test('deletes multiple selected file tree items from the toolbar', async ({ page }) => {
+        await seedAuthTokens(page);
+        await seedActiveVault(page, defaultVault.id);
+        await installCommonAppMocks(page, {
+            profile: defaultProfile,
+            vaults: [defaultVault],
+            treeByVaultId: {
+                [defaultVault.id]: [
+                    { name: 'alpha.md', path: 'alpha.md', is_directory: false, modified: new Date().toISOString() },
+                    { name: 'beta.md', path: 'beta.md', is_directory: false, modified: new Date().toISOString() },
+                    { name: 'gamma.md', path: 'gamma.md', is_directory: false, modified: new Date().toISOString() },
+                ],
+            },
+            fileContentsByVaultId: {
+                [defaultVault.id]: {
+                    'alpha.md': '# Alpha',
+                    'beta.md': '# Beta',
+                    'gamma.md': '# Gamma',
+                },
+            },
+        });
+
+        await page.goto('/');
+        await page.getByTitle('Select multiple files and folders').click();
+        await page.locator('.file-tree-node', { hasText: 'alpha.md' }).first().click();
+        await page.locator('.file-tree-node', { hasText: 'beta.md' }).first().click();
+
+        page.once('dialog', async (dialog) => {
+            expect(dialog.message()).toContain('Delete 2 selected items?');
+            await dialog.accept();
+        });
+        await page.getByTitle('Delete selected files and folders').click();
+
+        await expect(page.locator('.file-tree-node', { hasText: 'alpha.md' })).toHaveCount(0);
+        await expect(page.locator('.file-tree-node', { hasText: 'beta.md' })).toHaveCount(0);
+        await expect(page.locator('.file-tree-node', { hasText: 'gamma.md' })).toBeVisible();
+    });
 });

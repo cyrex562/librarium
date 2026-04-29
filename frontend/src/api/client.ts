@@ -53,10 +53,46 @@ export class ApiError extends Error {
     }
 }
 
+function requestPath(url: string): string {
+    return url.startsWith('http') ? new URL(url).pathname : url.split('?')[0];
+}
+
+function isAuthLifecyclePath(path: string): boolean {
+    return path === '/api/auth/login' ||
+        path === '/api/auth/refresh' ||
+        path === '/api/auth/logout' ||
+        path === '/api/auth/totp/login-verify';
+}
+
+async function ensureFreshForRequest(url: string) {
+    if (isAuthLifecyclePath(requestPath(url))) return;
+    try {
+        const auth = useAuthStore();
+        await auth.ensureFresh();
+    } catch {
+        // Let the request proceed; the 401 handler below owns logout/redirect.
+    }
+}
+
+async function handleUnauthorized(url: string) {
+    if (isAuthLifecyclePath(requestPath(url))) return;
+    try {
+        const auth = useAuthStore();
+        await auth.logout();
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+        }
+    } catch {
+        // Ignore errors during logout/redirect
+    }
+}
+
 async function request<T>(
     url: string,
     options: RequestInit = {},
 ): Promise<T> {
+    await ensureFreshForRequest(url);
+
     let authHeader: Record<string, string> = {};
     try {
         const auth = useAuthStore();
@@ -84,27 +120,7 @@ async function request<T>(
 
         // Handle authentication expiration
         if (response.status === 401) {
-            const path = url.startsWith('http')
-                ? new URL(url).pathname
-                : url;
-            const isAuthLifecycleRequest =
-                path === '/api/auth/login' ||
-                path === '/api/auth/refresh' ||
-                path === '/api/auth/logout' ||
-                path === '/api/auth/totp/login-verify';
-
-            try {
-                if (!isAuthLifecycleRequest) {
-                    const auth = useAuthStore();
-                    await auth.logout();
-                    // Redirect to login page
-                    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-                        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-                    }
-                }
-            } catch {
-                // Ignore errors during logout/redirect
-            }
+            await handleUnauthorized(url);
         }
 
         throw new ApiError(response.status, message, body);
@@ -121,7 +137,8 @@ async function request<T>(
     return text as unknown as T;
 }
 
-function getAuthHeaders(): Record<string, string> {
+async function getAuthHeaders(url: string): Promise<Record<string, string>> {
+    await ensureFreshForRequest(url);
     try {
         const auth = useAuthStore();
         if (auth.accessToken) {
@@ -351,20 +368,23 @@ export const apiUploadChunk = (
     vaultId: string,
     sessionId: string,
     chunk: Blob,
-): Promise<{ uploaded_bytes: number }> =>
-    fetch(`/api/vaults/${vaultId}/upload-sessions/${sessionId}`, {
+): Promise<{ uploaded_bytes: number }> => {
+    const url = `/api/vaults/${vaultId}/upload-sessions/${sessionId}`;
+    return getAuthHeaders(url).then((authHeaders) => fetch(url, {
         method: 'PUT',
-        headers: getAuthHeaders(),
+        headers: authHeaders,
         body: chunk,
-    }).then(async (r) => {
+    })).then(async (r) => {
         if (!r.ok) {
             let body: unknown;
             try { body = await r.json(); } catch { /* empty */ }
             const message = (body as { error?: string })?.error ?? `HTTP ${r.status}`;
+            if (r.status === 401) await handleUnauthorized(url);
             throw new ApiError(r.status, message, body);
         }
         return r.json();
     });
+};
 
 export const apiGetUploadSessionStatus = (
     vaultId: string,
@@ -377,7 +397,7 @@ export const apiFinishUploadSession = (
     sessionId: string,
     filename: string,
     path = '',
-    conflict: 'fail' | 'overwrite' | 'rename_with_timestamp' = 'rename_with_timestamp',
+    conflict: 'fail' | 'overwrite' | 'skip' | 'rename_with_timestamp' = 'rename_with_timestamp',
 ): Promise<ImportResultItem> =>
     request(`/api/vaults/${vaultId}/upload-sessions/${sessionId}/finish`, {
         method: 'POST',
@@ -387,46 +407,55 @@ export const apiFinishUploadSession = (
 export const apiDownloadFileUrl = (vaultId: string, filePath: string): string =>
     `/api/vaults/${vaultId}/download/${filePath}`;
 
-export const apiDownloadZip = (vaultId: string, paths: string[]): Promise<Blob> =>
-    fetch(`/api/vaults/${vaultId}/download-zip`, {
+export const apiDownloadZip = async (vaultId: string, paths: string[]): Promise<Blob> => {
+    const url = `/api/vaults/${vaultId}/download-zip`;
+    return fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders(url)) },
         body: JSON.stringify({ paths }),
-    }).then((r) => {
+    }).then(async (r) => {
+        if (r.status === 401) await handleUnauthorized(url);
         if (!r.ok) throw new ApiError(r.status, 'Failed to download zip');
         return r.blob();
     });
+};
 
-export const apiDownloadTar = (vaultId: string, paths: string[]): Promise<Blob> =>
-    fetch(`/api/vaults/${vaultId}/download-tar`, {
+export const apiDownloadTar = async (vaultId: string, paths: string[]): Promise<Blob> => {
+    const url = `/api/vaults/${vaultId}/download-tar`;
+    return fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders(url)) },
         body: JSON.stringify({ paths }),
-    }).then((r) => {
+    }).then(async (r) => {
+        if (r.status === 401) await handleUnauthorized(url);
         if (!r.ok) throw new ApiError(r.status, 'Failed to download tar');
         return r.blob();
     });
+};
 
 export const apiImportArchive = (
     vaultId: string,
     archiveFile: File,
     targetPath = '',
-): Promise<{ extracted: string[]; count: number }> => {
+    conflict: 'fail' | 'overwrite' | 'skip' | 'rename_with_timestamp' = 'rename_with_timestamp',
+): Promise<{ extracted: string[]; count: number; skipped: string[]; skipped_count: number }> => {
     const archiveType = archiveFile.name.endsWith('.tar.gz') || archiveFile.name.endsWith('.tgz')
         ? 'tar.gz'
         : archiveFile.name.endsWith('.tar')
             ? 'tar'
             : 'zip';
-    const params = new URLSearchParams({ path: targetPath, archive_type: archiveType });
-    return fetch(`/api/vaults/${vaultId}/import-archive?${params}`, {
+    const params = new URLSearchParams({ path: targetPath, archive_type: archiveType, conflict });
+    const url = `/api/vaults/${vaultId}/import-archive?${params}`;
+    return getAuthHeaders(url).then((authHeaders) => fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', ...getAuthHeaders() },
+        headers: { 'Content-Type': 'application/octet-stream', ...authHeaders },
         body: archiveFile,
-    }).then(async (r) => {
+    })).then(async (r) => {
         if (!r.ok) {
             let body: unknown;
             try { body = await r.json(); } catch { /* empty */ }
             const message = (body as { error?: string })?.error ?? `HTTP ${r.status}`;
+            if (r.status === 401) await handleUnauthorized(url);
             throw new ApiError(r.status, message, body);
         }
         return r.json();

@@ -85,6 +85,7 @@ export const useFilesStore = defineStore('files', () => {
     const selectionMode = ref(false);
     const selectedPaths = ref<Set<string>>(new Set());
     const lastSelectionAnchorPath = ref<string | null>(null);
+    const collapseAllFoldersVersion = ref(0);
 
     async function loadTree(vaultId: string) {
         loading.value = true;
@@ -123,6 +124,14 @@ export const useFilesStore = defineStore('files', () => {
 
     async function deleteFile(vaultId: string, filePath: string) {
         await apiDeleteFile(vaultId, filePath);
+        await loadTree(vaultId);
+    }
+
+    async function deleteFiles(vaultId: string, paths: string[]) {
+        for (const path of paths) {
+            await apiDeleteFile(vaultId, path);
+        }
+        clearSelection();
         await loadTree(vaultId);
     }
 
@@ -205,8 +214,10 @@ export const useFilesStore = defineStore('files', () => {
         candidate: ImportCandidate,
         targetDirectory: string,
         onProgress?: (uploadedBytes: number) => void,
-        conflict: 'fail' | 'overwrite' | 'rename_with_timestamp' = 'rename_with_timestamp',
+        conflict: 'fail' | 'overwrite' | 'skip' | 'rename_with_timestamp' = 'rename_with_timestamp',
+        signal?: AbortSignal,
     ): Promise<ImportResultItem> {
+        throwIfAborted(signal);
         const session = await apiCreateUploadSession(
             vaultId,
             candidate.file.name,
@@ -218,6 +229,7 @@ export const useFilesStore = defineStore('files', () => {
         let uploadedBytes = 0;
 
         while (uploadedBytes < candidate.file.size) {
+            throwIfAborted(signal);
             const end = Math.min(uploadedBytes + chunkSize, candidate.file.size);
             const chunk = candidate.file.slice(uploadedBytes, end);
             const response = await apiUploadChunk(vaultId, session.session_id, chunk);
@@ -225,6 +237,7 @@ export const useFilesStore = defineStore('files', () => {
             onProgress?.(uploadedBytes);
         }
 
+        throwIfAborted(signal);
         return apiFinishUploadSession(
             vaultId,
             session.session_id,
@@ -234,12 +247,19 @@ export const useFilesStore = defineStore('files', () => {
         );
     }
 
+    function throwIfAborted(signal?: AbortSignal) {
+        if (signal?.aborted) {
+            throw new DOMException('Import canceled.', 'AbortError');
+        }
+    }
+
     async function importCandidates(
         vaultId: string,
         candidates: ImportCandidate[],
         targetPath = '',
         onProgress?: (progress: ImportProgress) => void,
-        conflict: 'fail' | 'overwrite' | 'rename_with_timestamp' = 'rename_with_timestamp',
+        conflict: 'fail' | 'overwrite' | 'skip' | 'rename_with_timestamp' = 'rename_with_timestamp',
+        signal?: AbortSignal,
     ): Promise<ImportResult> {
         const normalizedTarget = normalizePath(targetPath);
 
@@ -250,6 +270,7 @@ export const useFilesStore = defineStore('files', () => {
         const totalFiles = candidates.length;
         const totalBytes = candidates.reduce((sum, candidate) => sum + candidate.file.size, 0);
         const uploaded: ImportResultItem[] = [];
+        const skipped: ImportResultItem[] = [];
         let completedFiles = 0;
         let baseUploadedBytes = 0;
 
@@ -260,85 +281,98 @@ export const useFilesStore = defineStore('files', () => {
             uploadedBytes: 0,
         });
 
-        // ── 1. Extract archives via the dedicated endpoint ───────────────────
-        for (const candidate of archiveCandidates) {
-            const currentFile = candidate.relativePath;
-            onProgress?.({
-                totalFiles,
-                completedFiles,
-                totalBytes,
-                uploadedBytes: baseUploadedBytes,
-                currentFile,
-            });
-
-            const result = await apiImportArchive(vaultId, candidate.file, normalizedTarget);
-            // Represent each extracted path as a pseudo-result item
-            for (const extractedPath of result.extracted) {
-                uploaded.push({ path: extractedPath, filename: extractedPath.split('/').pop() ?? '', size: 0 });
-            }
-            completedFiles += 1;
-            baseUploadedBytes += candidate.file.size;
-            onProgress?.({
-                totalFiles,
-                completedFiles,
-                totalBytes,
-                uploadedBytes: baseUploadedBytes,
-            });
-        }
-
-        // ── 2. Pre-create directories for regular files ──────────────────────
-        const directories = new Set<string>();
-        for (const candidate of regularCandidates) {
-            const relativeDir = dirname(candidate.relativePath);
-            const destinationDir = joinPath(normalizedTarget, relativeDir);
-            if (destinationDir) {
-                const segments = destinationDir.split('/');
-                for (let i = 0; i < segments.length; i += 1) {
-                    directories.add(segments.slice(0, i + 1).join('/'));
-                }
-            }
-        }
-
-        const orderedDirectories = [...directories].sort((a, b) => a.split('/').length - b.split('/').length);
-        for (const directory of orderedDirectories) {
-            await createDirectoryIfMissing(vaultId, directory);
-        }
-
-        // ── 3. Upload regular files ──────────────────────────────────────────
-        for (const candidate of regularCandidates) {
-            const relativeDir = dirname(candidate.relativePath);
-            const destinationDir = joinPath(normalizedTarget, relativeDir);
-            const currentFile = candidate.relativePath;
-
-            const result = await uploadCandidateFile(vaultId, candidate, destinationDir, (fileUploadedBytes) => {
+        try {
+            // ── 1. Extract archives via the dedicated endpoint ───────────────────
+            for (const candidate of archiveCandidates) {
+                throwIfAborted(signal);
+                const currentFile = candidate.relativePath;
                 onProgress?.({
                     totalFiles,
                     completedFiles,
                     totalBytes,
-                    uploadedBytes: baseUploadedBytes + fileUploadedBytes,
+                    uploadedBytes: baseUploadedBytes,
                     currentFile,
                 });
-            }, conflict);
 
-            uploaded.push(result);
-            completedFiles += 1;
-            baseUploadedBytes += candidate.file.size;
-            onProgress?.({
-                totalFiles,
-                completedFiles,
+                const result = await apiImportArchive(vaultId, candidate.file, normalizedTarget, conflict);
+                // Represent each extracted path as a pseudo-result item
+                for (const extractedPath of result.extracted) {
+                    uploaded.push({ path: extractedPath, filename: extractedPath.split('/').pop() ?? '', size: 0 });
+                }
+                for (const skippedPath of result.skipped ?? []) {
+                    skipped.push({ path: skippedPath, filename: skippedPath.split('/').pop() ?? '', size: 0, skipped: true });
+                }
+                completedFiles += 1;
+                baseUploadedBytes += candidate.file.size;
+                onProgress?.({
+                    totalFiles,
+                    completedFiles,
+                    totalBytes,
+                    uploadedBytes: baseUploadedBytes,
+                });
+            }
+
+            // ── 2. Pre-create directories for regular files ──────────────────────
+            const directories = new Set<string>();
+            for (const candidate of regularCandidates) {
+                const relativeDir = dirname(candidate.relativePath);
+                const destinationDir = joinPath(normalizedTarget, relativeDir);
+                if (destinationDir) {
+                    const segments = destinationDir.split('/');
+                    for (let i = 0; i < segments.length; i += 1) {
+                        directories.add(segments.slice(0, i + 1).join('/'));
+                    }
+                }
+            }
+
+            const orderedDirectories = [...directories].sort((a, b) => a.split('/').length - b.split('/').length);
+            for (const directory of orderedDirectories) {
+                throwIfAborted(signal);
+                await createDirectoryIfMissing(vaultId, directory);
+            }
+
+            // ── 3. Upload regular files ──────────────────────────────────────────
+            for (const candidate of regularCandidates) {
+                throwIfAborted(signal);
+                const relativeDir = dirname(candidate.relativePath);
+                const destinationDir = joinPath(normalizedTarget, relativeDir);
+                const currentFile = candidate.relativePath;
+
+                const result = await uploadCandidateFile(vaultId, candidate, destinationDir, (fileUploadedBytes) => {
+                    onProgress?.({
+                        totalFiles,
+                        completedFiles,
+                        totalBytes,
+                        uploadedBytes: baseUploadedBytes + fileUploadedBytes,
+                        currentFile,
+                    });
+                }, conflict, signal);
+
+                if (result.skipped) {
+                    skipped.push({ ...result, size: candidate.file.size });
+                } else {
+                    uploaded.push(result);
+                }
+                completedFiles += 1;
+                baseUploadedBytes += candidate.file.size;
+                onProgress?.({
+                    totalFiles,
+                    completedFiles,
+                    totalBytes,
+                    uploadedBytes: baseUploadedBytes,
+                    currentFile,
+                });
+            }
+
+            return {
+                uploaded,
+                skipped,
+                directoryCount: orderedDirectories.length,
                 totalBytes,
-                uploadedBytes: baseUploadedBytes,
-                currentFile,
-            });
+            };
+        } finally {
+            await loadTree(vaultId);
         }
-
-        await loadTree(vaultId);
-
-        return {
-            uploaded,
-            directoryCount: orderedDirectories.length,
-            totalBytes,
-        };
     }
 
     /** Download selected vault paths as a ZIP file and trigger a browser download. */
@@ -467,6 +501,10 @@ export const useFilesStore = defineStore('files', () => {
         }));
     }
 
+    function collapseAllFolders() {
+        collapseAllFoldersVersion.value += 1;
+    }
+
     return {
         tree,
         recentFiles,
@@ -477,6 +515,7 @@ export const useFilesStore = defineStore('files', () => {
         writeFile,
         createFile,
         deleteFile,
+        deleteFiles,
         createDirectory,
         renameFile,
         moveFiles,
@@ -490,6 +529,7 @@ export const useFilesStore = defineStore('files', () => {
         selectionMode,
         selectedPaths,
         lastSelectionAnchorPath,
+        collapseAllFoldersVersion,
         setSelectionMode,
         toggleSelectionMode,
         selectPath,
@@ -503,5 +543,6 @@ export const useFilesStore = defineStore('files', () => {
         selectedTopLevelNodes,
         destinationExists,
         buildMoveTargets,
+        collapseAllFolders,
     };
 });

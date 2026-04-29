@@ -52,8 +52,8 @@ onMounted(async () => {
   --text-primary: #e5e7eb;
   --text-secondary: #9ca3af;
   --border-color: #27272a;
-  --accent-color: #8b5cf6;
-  --accent-hover: #a78bfa;
+  --accent-color: #5b83f5;
+  --accent-hover: #5bc0f5;
   --error-color: #ef4444;
 }
 
@@ -94,7 +94,7 @@ body {
 }
 .markdown-body p { margin-bottom: 0.8em; }
 .markdown-body code {
-  background: rgba(139, 92, 246, 0.12);
+  background: rgba(91, 131, 245, 0.12);
   border-radius: 3px;
   padding: 0.1em 0.35em;
   font-size: 0.88em;
@@ -112,17 +112,17 @@ body {
   margin-bottom: 1em;
 }
 .markdown-body blockquote {
-  border-left: 3px solid #8b5cf6;
+  border-left: 3px solid #5b83f5;
   margin: 0.5em 0;
   padding: 0.25em 1em;
   color: #9ca3af;
 }
 .markdown-body a {
-  color: #8b5cf6;
+  color: #5b83f5;
   text-decoration: none;
 }
 .markdown-body a:hover {
-  color: #a78bfa;
+  color: #5bc0f5;
   text-decoration: underline;
 }
 .markdown-body table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }

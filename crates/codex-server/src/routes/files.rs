@@ -19,6 +19,8 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
+const RAW_UPLOAD_PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
+
 #[get("/api/vaults/{vault_id}/files")]
 async fn get_file_tree(
     state: web::Data<AppState>,
@@ -1003,6 +1005,7 @@ fn render_file_tree_to_html(nodes: &[crate::models::FileNode]) -> String {
 ///
 /// * `fail` (default) – return a 409 error.
 /// * `overwrite` – silently replace the existing file.
+/// * `skip` – leave the existing file untouched and report it as skipped.
 /// * `rename_with_timestamp` – keep both; append `_YYYYMMDD_HHmmss[_N]` before the extension.
 #[derive(serde::Deserialize, Default, PartialEq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -1010,6 +1013,7 @@ enum ConflictStrategy {
     #[default]
     Fail,
     Overwrite,
+    Skip,
     RenameWithTimestamp,
 }
 
@@ -1130,6 +1134,11 @@ async fn finish_upload_session(
         FileService::resolve_path(&vault.path, &req.path)?
     };
     let intended_final = safe_target_dir.join(&req.filename);
+    let intended_path_str = intended_final
+        .strip_prefix(&vault.path)
+        .unwrap_or(&intended_final)
+        .to_string_lossy()
+        .to_string();
 
     // Apply conflict strategy when the destination already exists.
     let (effective_path, effective_filename) = if intended_final.exists() {
@@ -1141,6 +1150,14 @@ async fn finish_upload_session(
                 )));
             }
             ConflictStrategy::Overwrite => (req.path.clone(), req.filename.clone()),
+            ConflictStrategy::Skip => {
+                let _ = FileService::delete_upload_session_temp(&vault.path, &session_id);
+                return Ok(HttpResponse::Ok().json(serde_json::json!({
+                    "path": intended_path_str,
+                    "filename": req.filename,
+                    "skipped": true,
+                })));
+            }
             ConflictStrategy::RenameWithTimestamp => {
                 let renamed = conflict_rename(&intended_final);
                 let new_filename = renamed
@@ -1185,7 +1202,7 @@ async fn finish_upload_session(
 /// Query params:
 ///   - `path` – target subdirectory inside the vault (default: vault root)
 ///   - `archive_type` – "zip", "tar", "tar.gz", or "tgz"
-///   - `conflict` – "fail" | "overwrite" | "rename_with_timestamp" (default: rename_with_timestamp)
+///   - `conflict` – "fail" | "overwrite" | "skip" | "rename_with_timestamp" (default: rename_with_timestamp)
 #[post("/api/vaults/{vault_id}/import-archive")]
 async fn import_archive(
     state: web::Data<AppState>,
@@ -1226,6 +1243,7 @@ async fn import_archive(
     }
 
     let mut extracted: Vec<String> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
 
     if is_zip {
         let cursor = Cursor::new(body.as_ref());
@@ -1256,6 +1274,15 @@ async fn import_archive(
                     )));
                 }
                 (true, ConflictStrategy::Overwrite) => dest,
+                (true, ConflictStrategy::Skip) => {
+                    skipped.push(
+                        dest.strip_prefix(&vault.path)
+                            .unwrap_or(&dest)
+                            .to_string_lossy()
+                            .to_string(),
+                    );
+                    continue;
+                }
                 (true, ConflictStrategy::RenameWithTimestamp) => conflict_rename(&dest),
                 (false, _) => dest,
             };
@@ -1309,6 +1336,15 @@ async fn import_archive(
                     )));
                 }
                 (true, ConflictStrategy::Overwrite) => dest,
+                (true, ConflictStrategy::Skip) => {
+                    skipped.push(
+                        dest.strip_prefix(&vault.path)
+                            .unwrap_or(&dest)
+                            .to_string_lossy()
+                            .to_string(),
+                    );
+                    continue;
+                }
                 (true, ConflictStrategy::RenameWithTimestamp) => conflict_rename(&dest),
                 (false, _) => dest,
             };
@@ -1338,6 +1374,8 @@ async fn import_archive(
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "extracted": extracted,
         "count": extracted.len(),
+        "skipped": skipped,
+        "skipped_count": skipped.len(),
     })))
 }
 
@@ -1465,7 +1503,8 @@ async fn delete_from_trash(
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(get_file_tree)
+    cfg.app_data(web::PayloadConfig::new(RAW_UPLOAD_PAYLOAD_LIMIT))
+        .service(get_file_tree)
         .service(get_file_tree_html)
         .service(get_file_changes)
         .service(sync_files)
