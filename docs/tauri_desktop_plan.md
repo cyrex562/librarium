@@ -1,4 +1,4 @@
-# Codex Platform Architecture — Implementation Spec
+# Librarium Platform Architecture — Implementation Spec
 
 > A unified design and task breakdown covering the migration to a Tauri-based
 > desktop client, single binary architecture, config path flag, platform data
@@ -9,8 +9,8 @@
 
 ## Design Summary
 
-Codex currently has three separate binaries: `codex-server` (Actix Web backend
-with embedded Vue frontend), `codex-desktop` (Iced native GUI), and `codex-client`
+Librarium currently has three separate binaries: `librarium-server` (Actix Web backend
+with embedded Vue frontend), `librarium-desktop` (Iced native GUI), and `librarium-client`
 (async HTTP/WS library). Every new feature requires parallel implementation in
 both the Vue frontend and the Iced desktop client.
 
@@ -20,7 +20,7 @@ process. The result is one binary for desktop use, one for headless server/Docke
 use, and the browser as a zero-install fallback — all sharing a single frontend
 codebase.
 
-The offline edit queue is shelved. It becomes relevant only when two Codex
+The offline edit queue is shelved. It becomes relevant only when two Librarium
 instances need to sync with each other, which is a separate future feature.
 
 ---
@@ -29,24 +29,24 @@ instances need to sync with each other, which is a separate future feature.
 
 ```
 BEFORE
-├── codex-server     Actix + embedded Vue SPA       standalone server / Docker
-├── codex-desktop    Iced GUI → HTTP → codex-server  desktop (being retired)
-└── codex-client     reqwest + tungstenite library   used by desktop + tests
+├── librarium-server     Actix + embedded Vue SPA       standalone server / Docker
+├── librarium-desktop    Iced GUI → HTTP → librarium-server  desktop (being retired)
+└── librarium-client     reqwest + tungstenite library   used by desktop + tests
 
 AFTER
-├── codex-server     Actix + embedded Vue SPA        standalone server / Docker
+├── librarium-server     Actix + embedded Vue SPA        standalone server / Docker
 │   └── lib.rs       run(config) callable by Tauri
-├── codex-tauri      Tauri shell                     desktop app
-│   ├── embeds       codex-server::run() on bg thread
+├── librarium-tauri      Tauri shell                     desktop app
+│   ├── embeds       librarium-server::run() on bg thread
 │   └── provides     OS integration only (tray, dialogs, notifications)
-└── codex-client     reqwest + tungstenite library   tests + CLI tools (kept)
+└── librarium-client     reqwest + tungstenite library   tests + CLI tools (kept)
 ```
 
 ### Key principles
 
 - The Vue frontend is the only UI codebase. Zero Iced UI work after migration.
 - The Tauri shell is intentionally thin — OS integration only, no business logic.
-- Standalone server mode (`codex-server` binary) is unchanged for Docker/headless.
+- Standalone server mode (`librarium-server` binary) is unchanged for Docker/headless.
 - Browser access to a running server remains a first-class supported path.
 - Config path is always explicit; no working-directory magic in production.
 - Platform data directories are used by the Tauri app; working-directory
@@ -65,8 +65,8 @@ changes.
 
 ```bash
 cargo test                        # all unit + integration tests
-cargo test -p codex-server        # server crate only
-cargo test -p codex-tauri         # Tauri crate only
+cargo test -p librarium-server        # server crate only
+cargo test -p librarium-tauri         # Tauri crate only
 RUST_LOG=debug cargo test -- --nocapture   # with log output for failures
 ```
 
@@ -88,9 +88,9 @@ Minimum coverage expectations per phase:
 | `AppConfig::load_from_file` | Missing file, malformed TOML, valid file, env var override |
 | `AppConfig::load_from_dirs` | First launch (no file), existing file, default value generation |
 | `AppConfig::write_default` | Writes valid TOML, returns correct struct, idempotent on re-run |
-| `codex-server::run()` as library | Starts, serves `/api/health`, shuts down cleanly |
-| CLI flag parsing | `--config` flag, `CODEX_CONFIG` env var, default fallback, `--help` |
-| Tauri `CodexPaths` resolution | Correct paths per platform (unit test with mock dirs) |
+| `librarium-server::run()` as library | Starts, serves `/api/health`, shuts down cleanly |
+| CLI flag parsing | `--config` flag, `LIBRARIUM_CONFIG` env var, default fallback, `--help` |
+| Tauri `LibrariumPaths` resolution | Correct paths per platform (unit test with mock dirs) |
 | `DocumentParser` trait | `MarkdownParser` implements all methods correctly |
 
 ### Gate 2 — Frontend Vitest unit tests
@@ -133,7 +133,7 @@ cd frontend && npm run test:e2e              # full suite
 cd frontend && npm run test:e2e -- --headed  # visible browser for debugging
 ```
 
-Playwright tests run against a real `codex-server` instance started in a
+Playwright tests run against a real `librarium-server` instance started in a
 temporary directory. Every user-visible flow introduced or modified by this spec
 requires E2E coverage.
 
@@ -142,7 +142,7 @@ requires E2E coverage.
 | Phase | Flow | Test |
 |---|---|---|
 | 0 | Server starts with `--config` flag | Health endpoint returns 200 |
-| 0 | Server starts with `CODEX_CONFIG` env var | Health endpoint returns 200 |
+| 0 | Server starts with `LIBRARIUM_CONFIG` env var | Health endpoint returns 200 |
 | 0 | Missing config file | Server exits with non-zero code and clear error message |
 | 1 | Loading screen | Visible during server startup, disappears on ready |
 | 1 | WebView navigation | App loads fully after health poll succeeds |
@@ -180,7 +180,7 @@ The CI pipeline should run them in this order, failing fast:
 4. npm run test:e2e                     (Playwright — chromium + firefox + webkit)
 ```
 
-The Playwright E2E job requires a running `codex-server` instance. The CI
+The Playwright E2E job requires a running `librarium-server` instance. The CI
 step should start the server in the background against a temp config, wait for
 `/api/health` to return 200, then run the suite.
 
@@ -196,30 +196,30 @@ or explicit values in `config.toml`.
 
 | Purpose | Tauri API | Path |
 |---|---|---|
-| Config file | `app_config_dir()` | `~/.config/codex/` |
-| Database, plugins, logs | `app_data_dir()` | `~/.local/share/codex/` |
-| Cache | `app_cache_dir()` | `~/.cache/codex/` |
-| Default vault location | user-chosen on first run | `~/Documents/Codex/` |
+| Config file | `app_config_dir()` | `~/.config/librarium/` |
+| Database, plugins, logs | `app_data_dir()` | `~/.local/share/librarium/` |
+| Cache | `app_cache_dir()` | `~/.cache/librarium/` |
+| Default vault location | user-chosen on first run | `~/Documents/Librarium/` |
 
 ### macOS
 
 | Purpose | Path |
 |---|---|
-| Config, data, logs | `~/Library/Application Support/codex/` |
-| Cache | `~/Library/Caches/codex/` |
-| Default vault location | `~/Documents/Codex/` |
+| Config, data, logs | `~/Library/Application Support/librarium/` |
+| Cache | `~/Library/Caches/librarium/` |
+| Default vault location | `~/Documents/Librarium/` |
 
 ### Windows
 
 | Purpose | Path |
 |---|---|
-| Config, data, logs | `%APPDATA%\codex\` |
-| Cache | `%LOCALAPPDATA%\codex\` |
-| Default vault location | `%USERPROFILE%\Documents\Codex\` |
+| Config, data, logs | `%APPDATA%\librarium\` |
+| Cache | `%LOCALAPPDATA%\librarium\` |
+| Default vault location | `%USERPROFILE%\Documents\Librarium\` |
 
 ### Vault directory convention
 
-Vaults are user content. They default to `~/Documents/Codex/` (prompted on
+Vaults are user content. They default to `~/Documents/Librarium/` (prompted on
 first launch) rather than being buried in XDG data directories. The chosen path
 is written to `config.toml` and never changed automatically. Individual vault
 paths in the database are always absolute, so vaults anywhere on disk are
@@ -239,23 +239,23 @@ impl AppConfig {
 
     /// Tauri desktop app — resolves paths from platform directories.
     /// Reads config.toml if present; uses defaults otherwise.
-    pub fn load_from_dirs(paths: &CodexPaths) -> anyhow::Result<Self>;
+    pub fn load_from_dirs(paths: &LibrariumPaths) -> anyhow::Result<Self>;
 
     /// Called by Tauri on first launch when no config.toml exists yet.
     /// Writes a default config.toml to paths.config_dir and returns it.
-    pub fn write_default(paths: &CodexPaths) -> anyhow::Result<Self>;
+    pub fn write_default(paths: &LibrariumPaths) -> anyhow::Result<Self>;
 
-    fn default_for_dirs(paths: &CodexPaths) -> Self;
+    fn default_for_dirs(paths: &LibrariumPaths) -> Self;
 }
 ```
 
 `AppConfig::load()` (working-directory-relative) is removed entirely. Every
 call site is explicit about the source.
 
-### `CodexPaths` struct
+### `LibrariumPaths` struct
 
 ```rust
-pub struct CodexPaths {
+pub struct LibrariumPaths {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
     pub cache_dir: PathBuf,
@@ -267,52 +267,52 @@ pub struct CodexPaths {
 
 For standalone server mode, resolution order (highest first):
 
-1. Values in the file at `--config` path (or `CODEX_CONFIG` env var path)
+1. Values in the file at `--config` path (or `LIBRARIUM_CONFIG` env var path)
 2. Hard-coded defaults in `AppConfig::default()`
 
 Environment variable override of individual config keys
-(`CODEX__SERVER__PORT` etc.) continues to work on top of file values.
+(`LIBRARIUM__SERVER__PORT` etc.) continues to work on top of file values.
 
 ---
 
-## CLI Interface (`codex-server` binary)
+## CLI Interface (`librarium-server` binary)
 
 ```
 USAGE:
-    codex [OPTIONS]
+    librarium [OPTIONS]
 
 OPTIONS:
     -c, --config <PATH>    Path to config.toml
-                           [env: CODEX_CONFIG]
+                           [env: LIBRARIUM_CONFIG]
                            [default: ./config.toml]
     -h, --help             Print help
     -V, --version          Print version
 ```
 
-Precedence: `--config` flag > `CODEX_CONFIG` env var > `./config.toml` default.
+Precedence: `--config` flag > `LIBRARIUM_CONFIG` env var > `./config.toml` default.
 
 Implemented via `clap`:
 
 ```rust
 #[derive(Parser)]
-#[command(name = "codex", about = "Codex knowledge server")]
+#[command(name = "librarium", about = "Librarium knowledge server")]
 struct Args {
-    #[arg(short, long, default_value = "./config.toml", env = "CODEX_CONFIG")]
+    #[arg(short, long, default_value = "./config.toml", env = "LIBRARIUM_CONFIG")]
     config: PathBuf,
 }
 ```
 
 ---
 
-## Tauri Shell Design (`codex-tauri`)
+## Tauri Shell Design (`librarium-tauri`)
 
 ### Responsibilities
 
 The Tauri shell does exactly four things:
 
-1. Resolves platform data directories and builds `CodexPaths`
+1. Resolves platform data directories and builds `LibrariumPaths`
 2. Handles first-launch initialization (directory creation, default config, vault dir prompt)
-3. Spawns `codex-server::run()` on a background thread
+3. Spawns `librarium-server::run()` on a background thread
 4. Polls `GET /api/health` then navigates the WebView to `http://localhost:{port}`
 
 Everything else — all app logic, all UI — lives in the Vue frontend and Actix backend.
@@ -326,7 +326,7 @@ These are the only Tauri-specific features beyond the shell itself:
 | Native file dialogs | `tauri-plugin-dialog` | Open/save vault dirs, import files |
 | System tray | `tauri-plugin-tray` | Open, quit, server status indicator |
 | Desktop notifications | `tauri-plugin-notification` | File sync events, background errors |
-| Deep links / file assoc. | `tauri-plugin-deep-link` | `codex://` URLs, `.md` file open |
+| Deep links / file assoc. | `tauri-plugin-deep-link` | `librarium://` URLs, `.md` file open |
 | Auto-update | `tauri-plugin-updater` | Optional; wire up later |
 
 ### Startup sequence
@@ -334,13 +334,13 @@ These are the only Tauri-specific features beyond the shell itself:
 ```
 main()
   │
-  ├─ resolve CodexPaths from Tauri path API
+  ├─ resolve LibrariumPaths from Tauri path API
   ├─ create dirs if absent
   ├─ if no config.toml → show vault dir prompt → AppConfig::write_default()
   ├─ else → AppConfig::load_from_dirs()
   │
   ├─ thread::spawn ──► actix_web::rt::System::new().block_on(
-  │                        codex_server::run(config)
+  │                        librarium_server::run(config)
   │                    )
   │
   └─ tauri setup hook
@@ -359,7 +359,7 @@ to a well-known file in `app_cache_dir()` after successful bind; Tauri reads
 it before constructing the navigation URL.
 
 Alternative for initial implementation: fail fast with a clear error dialog
-("Codex is already running — only one instance is supported") since multi-instance
+("Librarium is already running — only one instance is supported") since multi-instance
 use is not a current requirement.
 
 ### WebKitGTK compatibility targets
@@ -381,7 +381,7 @@ Vue frontend constraints for WebKitGTK 2.36 compatibility:
 - ES2020 target in `vite.config.ts` — verify Vite build target is not newer
 
 Ubuntu 22.04 on AWS Workspaces is a known target. Browser fallback (connecting
-to a running Codex server via Chrome/Firefox) fully covers this case without
+to a running Librarium server via Chrome/Firefox) fully covers this case without
 requiring Tauri installation.
 
 ---
@@ -392,7 +392,7 @@ requiring Tauri installation.
 
 Markdown remains the canonical on-disk format. The criticisms of markdown as a
 standard are real but largely apply to markdown as a *publication format* passed
-between tools. Codex owns its entire stack and is not subject to cross-tool
+between tools. Librarium owns its entire stack and is not subject to cross-tool
 fragmentation.
 
 Structured data is already moving out of prose and into frontmatter YAML + SQLite
@@ -438,7 +438,7 @@ document_format = "markdown"   # "markdown" | "mdx" (future)
 
 ### Prose sentinel format-agnosticism
 
-The `<!-- codex:prose:begin -->` / `<!-- codex:prose:end -->` sentinels from the
+The `<!-- librarium:prose:begin -->` / `<!-- librarium:prose:end -->` sentinels from the
 worldbuilding spec are HTML comments, valid in both markdown and MDX. The structural
 editor must not assume the content between them is *only* markdown — when MDX is
 active, component syntax is valid prose content.
@@ -448,8 +448,8 @@ active, component syntax is valid prose content.
 - **Import from Obsidian**: `.md` files are ingested as-is. Obsidian-specific
   syntax (`[[links]]`, `![[embeds]]`, frontmatter tags) is already handled by
   `WikiLinkService` and `FrontmatterService`. No format conversion needed.
-- **Export to Obsidian-compatible markdown**: strip `codex_type`, `codex_labels`,
-  `codex_plugin` frontmatter keys; strip prose sentinels; render any MDX component
+- **Export to Obsidian-compatible markdown**: strip `librarium_type`, `librarium_labels`,
+  `librarium_plugin` frontmatter keys; strip prose sentinels; render any MDX component
   calls to their markdown equivalents (e.g. a `<Timeline>` becomes a plain
   markdown list of events). `MarkdownService` is the export pipeline.
 - **Export to PDF / LaTeX**: out of scope for now. LaTeX is a typesetting target,
@@ -457,16 +457,16 @@ active, component syntax is valid prose content.
 
 ---
 
-## `codex-server` Library Extraction
+## `librarium-server` Library Extraction
 
 The server's `main.rs` currently contains both the Tokio runtime entry point and
-all startup logic. These must be separated so `codex-tauri` can call the startup
+all startup logic. These must be separated so `librarium-tauri` can call the startup
 logic on a background thread with its own runtime.
 
 ### Target structure
 
 ```rust
-// crates/codex-server/src/lib.rs
+// crates/librarium-server/src/lib.rs
 
 pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     setup_logging(&config)?;
@@ -497,13 +497,13 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-// crates/codex-server/src/main.rs
+// crates/librarium-server/src/main.rs
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let config = AppConfig::load_from_file(args.config)?;
-    codex_server::run(config).await
+    librarium_server::run(config).await
 }
 ```
 
@@ -513,12 +513,12 @@ Tauri must own the main thread on Linux/macOS. Actix is spawned via its own
 system on a background thread:
 
 ```rust
-// crates/codex-tauri/src/main.rs
+// crates/librarium-tauri/src/main.rs
 
 std::thread::spawn(move || {
     actix_web::rt::System::new()
         .block_on(async {
-            codex_server::run(config).await
+            librarium_server::run(config).await
                 .expect("server failed");
         });
 });
@@ -537,33 +537,33 @@ Config path is now explicit. Remove any working-directory assumptions:
 
 ```yaml
 services:
-  codex:
-    image: codex:latest
+  librarium:
+    image: librarium:latest
     command: ["--config", "/data/config.toml"]
     environment:
-      - CODEX_CONFIG=/data/config.toml   # alternative to command flag
+      - LIBRARIUM_CONFIG=/data/config.toml   # alternative to command flag
     ports:
       - "8080:8080"
     volumes:
       - ./config.toml:/data/config.toml
       - ./vaults:/data/vaults
-      - codex-db:/data/db
+      - librarium-db:/data/db
 volumes:
-  codex-db:
+  librarium-db:
 ```
 
 ### Systemd service example
 
 ```ini
 [Unit]
-Description=Codex knowledge server
+Description=Librarium knowledge server
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/codex --config /etc/codex/config.toml
+ExecStart=/usr/local/bin/librarium --config /etc/librarium/config.toml
 Environment=RUST_LOG=info
 Restart=on-failure
-User=codex
+User=librarium
 
 [Install]
 WantedBy=multi-user.target
@@ -574,21 +574,21 @@ WantedBy=multi-user.target
 ## Workspace Structure (final)
 
 ```
-codex/
+librarium/
 ├── Cargo.toml               workspace root
 ├── crates/
-│   ├── codex-server/        Actix backend + embedded Vue SPA
+│   ├── librarium-server/        Actix backend + embedded Vue SPA
 │   │   ├── src/
 │   │   │   ├── lib.rs       run(config) — callable by Tauri and tests
 │   │   │   ├── main.rs      clap CLI entry point
 │   │   │   └── ...
-│   ├── codex-tauri/         Tauri desktop shell (new)
+│   ├── librarium-tauri/         Tauri desktop shell (new)
 │   │   ├── src/
 │   │   │   └── main.rs      platform init, server spawn, WebView nav
 │   │   └── tauri.conf.json
-│   ├── codex-types/         shared types (unchanged)
-│   ├── codex-client/        HTTP/WS client library (kept for tests + CLI)
-│   └── codex-desktop/       Iced client (frozen — retire after Tauri parity)
+│   ├── librarium-types/         shared types (unchanged)
+│   ├── librarium-client/        HTTP/WS client library (kept for tests + CLI)
+│   └── librarium-desktop/       Iced client (frozen — retire after Tauri parity)
 ├── frontend/                Vue 3 SPA (unchanged — works in both modes)
 ├── docs/
 │   └── deployment.md        updated with --config flag, env var, Docker, systemd
@@ -608,13 +608,13 @@ codex/
 
 #### 0.1 Remove `AppConfig::load()`
 
-- [ ] Audit all call sites of `AppConfig::load()` in `codex-server`
-- [ ] Add `CodexPaths` struct to `codex-types`
+- [ ] Audit all call sites of `AppConfig::load()` in `librarium-server`
+- [ ] Add `LibrariumPaths` struct to `librarium-types`
 - [ ] Implement `AppConfig::load_from_file(path: PathBuf)` with context error
       on missing file
-- [ ] Implement `AppConfig::load_from_dirs(paths: &CodexPaths)`
-- [ ] Implement `AppConfig::write_default(paths: &CodexPaths)`
-- [ ] Implement `AppConfig::default_for_dirs(paths: &CodexPaths)`
+- [ ] Implement `AppConfig::load_from_dirs(paths: &LibrariumPaths)`
+- [ ] Implement `AppConfig::write_default(paths: &LibrariumPaths)`
+- [ ] Implement `AppConfig::default_for_dirs(paths: &LibrariumPaths)`
 - [ ] Remove `AppConfig::load()` — fix all compile errors
 - [ ] Update integration tests to use `load_from_file` with a temp dir fixture
 - [ ] **Unit tests**: `load_from_file` — missing file returns descriptive error;
@@ -625,18 +625,18 @@ codex/
 - [ ] **Unit tests**: `write_default` — creates file at correct path; written
       TOML round-trips back to equivalent struct; calling twice does not error
 - [ ] **Unit tests**: `default_for_dirs` — all path fields resolve relative to
-      provided `CodexPaths`; no field references working directory
+      provided `LibrariumPaths`; no field references working directory
 
-#### 0.2 Add `clap` CLI to `codex-server`
+#### 0.2 Add `clap` CLI to `librarium-server`
 
-- [ ] Add `clap` dependency to `codex-server/Cargo.toml` (features: `derive`)
-- [ ] Define `Args` struct with `--config` / `CODEX_CONFIG` / `./config.toml` default
+- [ ] Add `clap` dependency to `librarium-server/Cargo.toml` (features: `derive`)
+- [ ] Define `Args` struct with `--config` / `LIBRARIUM_CONFIG` / `./config.toml` default
 - [ ] Wire `Args::parse()` in `main.rs`
 - [ ] Verify `--help` output is correct
-- [ ] Verify `CODEX_CONFIG=/tmp/test.toml cargo run` resolves correctly
-- [ ] **Unit tests**: `--config` flag sets path correctly; `CODEX_CONFIG` env
+- [ ] Verify `LIBRARIUM_CONFIG=/tmp/test.toml cargo run` resolves correctly
+- [ ] **Unit tests**: `--config` flag sets path correctly; `LIBRARIUM_CONFIG` env
       var is used when flag is absent; default `./config.toml` is used when
-      neither is set; `--config` takes precedence over `CODEX_CONFIG`
+      neither is set; `--config` takes precedence over `LIBRARIUM_CONFIG`
 - [ ] **E2E test**: server starts successfully when `--config` points to a valid
       temp config file and `GET /api/health` returns 200
 - [ ] **E2E test**: server exits with non-zero code and prints a clear error when
@@ -646,10 +646,10 @@ codex/
 
 - [ ] Move all startup logic from `main()` into `pub async fn run(config: AppConfig)`
       in `lib.rs`
-- [ ] `main.rs` becomes: parse args → load config → call `codex_server::run(config)`
+- [ ] `main.rs` becomes: parse args → load config → call `librarium_server::run(config)`
 - [ ] Verify standalone server still starts and passes all existing integration tests
 - [ ] Verify `cargo build --release` produces a working binary
-- [ ] **Integration test**: call `codex_server::run(config)` directly in a test
+- [ ] **Integration test**: call `librarium_server::run(config)` directly in a test
       process, verify `/api/health` returns 200, send shutdown signal, verify
       clean exit — this test is the foundation for all future integration tests
 - [ ] **Integration test**: all existing `tests/` integration tests pass without
@@ -660,7 +660,7 @@ codex/
 - [ ] Update `docker-compose.yml` to pass `--config /data/config.toml`
 - [ ] Update `Dockerfile` CMD or ENTRYPOINT accordingly
 - [ ] Add systemd unit file example to `docs/deployment.md`
-- [ ] Document `CODEX_CONFIG` env var and `--config` flag precedence in docs
+- [ ] Document `LIBRARIUM_CONFIG` env var and `--config` flag precedence in docs
 - [ ] **E2E test**: `docker compose up` starts successfully; `GET /api/health`
       returns 200 from the host; `docker compose down` exits cleanly
 
@@ -668,28 +668,28 @@ codex/
 
 ### Phase 1 — Tauri Shell
 
-> Creates the `codex-tauri` crate. At the end of this phase, the desktop app
+> Creates the `librarium-tauri` crate. At the end of this phase, the desktop app
 > is a Tauri window running the full Vue frontend with the embedded server.
 
-#### 1.1 Scaffold `codex-tauri` crate
+#### 1.1 Scaffold `librarium-tauri` crate
 
-- [ ] Add `codex-tauri` to workspace `Cargo.toml`
+- [ ] Add `librarium-tauri` to workspace `Cargo.toml`
 - [ ] Add Tauri dependencies: `tauri`, `tauri-build`
 - [ ] Create `tauri.conf.json`:
-  - `productName: "Codex"`
-  - `identifier: "com.codex.app"`
+  - `productName: "Librarium"`
+  - `identifier: "com.librarium.app"`
   - `windows[0].url: "http://localhost:8080"`
-  - `windows[0].title: "Codex"`
+  - `windows[0].title: "Librarium"`
   - `bundle.targets: ["appimage", "deb"]` (Linux)
 - [ ] Create `build.rs` with `tauri_build::build()`
-- [ ] Verify `cargo build -p codex-tauri` compiles
+- [ ] Verify `cargo build -p librarium-tauri` compiles
 - [ ] **Unit test**: `tauri.conf.json` contains correct `productName`,
       `identifier`, and window URL — parse and assert in a build-time test
 
 #### 1.2 Platform path resolution
 
 - [ ] Add `tauri-plugin-path` or use built-in `app.path()` API
-- [ ] Implement `resolve_platform_paths(app: &AppHandle) -> CodexPaths`
+- [ ] Implement `resolve_platform_paths(app: &AppHandle) -> LibrariumPaths`
 - [ ] Create all required directories on startup (`config_dir`, `data_dir`,
       `data_dir/plugins`, `cache_dir`)
 - [ ] Verify correct paths on Fedora and Ubuntu 22.04
@@ -701,7 +701,7 @@ codex/
 
 - [ ] On startup, check if `config_dir/config.toml` exists
 - [ ] If absent: show native dialog prompting for vault directory
-      (pre-filled with `~/Documents/Codex`); call `AppConfig::write_default()`
+      (pre-filled with `~/Documents/Librarium`); call `AppConfig::write_default()`
 - [ ] If present: call `AppConfig::load_from_dirs()`
 - [ ] Create `default_vault_dir` if it does not exist
 - [ ] **Unit tests**: first-launch branch calls `write_default` and creates
@@ -713,7 +713,7 @@ codex/
 #### 1.4 Embedded server startup
 
 - [ ] Spawn Actix server on background thread via
-      `actix_web::rt::System::new().block_on(codex_server::run(config))`
+      `actix_web::rt::System::new().block_on(librarium_server::run(config))`
 - [ ] Propagate server startup errors to main thread via `mpsc` channel;
       show error dialog if server fails to start
 - [ ] **Integration test**: server thread starts, `/api/health` returns 200
@@ -722,7 +722,7 @@ codex/
 #### 1.5 Health polling and WebView navigation
 
 - [ ] Show loading screen HTML in WebView immediately (plain centered text:
-      "Starting Codex…")
+      "Starting Librarium…")
 - [ ] Spawn async task polling `GET http://localhost:{port}/api/health`
       every 100ms
 - [ ] On healthy response: navigate WebView to `http://localhost:{port}`
@@ -742,7 +742,7 @@ codex/
 #### 1.6 Port conflict handling (initial)
 
 - [ ] If server fails to bind configured port, surface a clear error dialog:
-      "Codex is already running on port {port}. Only one instance is supported."
+      "Librarium is already running on port {port}. Only one instance is supported."
 - [ ] Log full bind error to log file before showing dialog
 - [ ] **Integration test**: attempting to start a second server on the same port
       returns a bind error; error message contains the port number
@@ -759,12 +759,12 @@ codex/
 #### 2.1 System tray
 
 - [ ] Add `tauri-plugin-tray` dependency
-- [ ] Tray icon with menu: Open Codex, separator, Quit
+- [ ] Tray icon with menu: Open Librarium, separator, Quit
 - [ ] Status indicator: green (server healthy), yellow (starting), red (error)
-- [ ] Tray icon shows on startup; clicking "Open Codex" focuses or creates window
+- [ ] Tray icon shows on startup; clicking "Open Librarium" focuses or creates window
 - [ ] **Unit tests**: tray menu items are constructed with correct labels and
       actions; status transitions from yellow → green on health; red on error
-- [ ] **E2E test**: tray icon is present after launch; "Open Codex" focuses
+- [ ] **E2E test**: tray icon is present after launch; "Open Librarium" focuses
       the window; "Quit" exits the process cleanly
 
 #### 2.2 Native file dialogs
@@ -797,13 +797,13 @@ codex/
 #### 2.4 Deep links and file associations
 
 - [ ] Add `tauri-plugin-deep-link` dependency
-- [ ] Register `codex://` URL scheme
-- [ ] Register `.md` file association (opens file in Codex)
+- [ ] Register `librarium://` URL scheme
+- [ ] Register `.md` file association (opens file in Librarium)
 - [ ] Handle deep link in main window: navigate to the linked entity or file
 - [ ] **Unit tests**: deep link URL parser extracts vault id and file path
-      correctly from `codex://vault/{id}/file/{path}` format; malformed URLs
+      correctly from `librarium://vault/{id}/file/{path}` format; malformed URLs
       are handled gracefully without panic
-- [ ] **E2E test**: opening a `codex://` URL while the app is running navigates
+- [ ] **E2E test**: opening a `librarium://` URL while the app is running navigates
       to the correct file; opening one while the app is closed launches the app
       and then navigates
 
@@ -833,11 +833,11 @@ codex/
 
 ### Phase 4 — Desktop Client Retirement
 
-> Retire `codex-desktop` (Iced) once Tauri reaches feature parity.
+> Retire `librarium-desktop` (Iced) once Tauri reaches feature parity.
 
 #### 4.1 Parity checklist
 
-Compare `codex-desktop` feature list against Tauri implementation:
+Compare `librarium-desktop` feature list against Tauri implementation:
 
 - [ ] Vault browser — handled by Vue frontend
 - [ ] Multi-tab markdown editor — handled by Vue frontend
@@ -857,13 +857,13 @@ Compare `codex-desktop` feature list against Tauri implementation:
 #### 4.2 Retirement
 
 - [ ] Confirm all parity checklist items complete
-- [ ] Remove `codex-desktop` from workspace `Cargo.toml`
-- [ ] Delete `crates/codex-desktop/` directory
-- [ ] Remove `codex-desktop` references from `README`, `docs/`, CI config
-- [ ] `codex-client` is kept — still used by integration tests and any CLI tools
+- [ ] Remove `librarium-desktop` from workspace `Cargo.toml`
+- [ ] Delete `crates/librarium-desktop/` directory
+- [ ] Remove `librarium-desktop` references from `README`, `docs/`, CI config
+- [ ] `librarium-client` is kept — still used by integration tests and any CLI tools
 - [ ] **Regression gate**: full `cargo test`, `npm test`, and `npm run test:e2e`
       must pass with zero failures after deletion; no test may reference
-      `codex-desktop` or `codex-client` in a way that breaks after desktop removal
+      `librarium-desktop` or `librarium-client` in a way that breaks after desktop removal
 
 ---
 
@@ -872,7 +872,7 @@ Compare `codex-desktop` feature list against Tauri implementation:
 > Low priority. Prepares the parser layer for a future MDX upgrade without
 > committing to one.
 
-- [ ] Define `DocumentParser` trait in `codex-types`:
+- [ ] Define `DocumentParser` trait in `librarium-types`:
   ```rust
   pub trait DocumentParser: Send + Sync {
       fn render(&self, source: &str) -> RenderedDocument;
@@ -928,7 +928,7 @@ costs nothing to roll back.
 | Phase 1 → Phase 2 | Loading screen, health poll, and navigation E2E tests pass |
 | Phase 2 → Phase 3 | All OS integration E2E tests pass on Fedora |
 | Phase 3 → Phase 4 | Full Playwright suite passes on WebKitGTK 2.36 (`ubuntu:22.04`) |
-| Phase 4 (retirement) | Zero test failures after `codex-desktop` deletion |
+| Phase 4 (retirement) | Zero test failures after `librarium-desktop` deletion |
 | Any → Phase 5 | No gate dependency; run full suite after to confirm no regressions |
 
 ---
@@ -949,8 +949,8 @@ costs nothing to roll back.
    users would prefer RPM. Does the CI build need to produce all three, or is
    AppImage sufficient for the current user base?
 
-4. **Session persistence across restarts**: `codex-desktop` had auto-login via
-   a saved refresh token in `~/.config/codex/session.json`. In the Tauri app,
+4. **Session persistence across restarts**: `librarium-desktop` had auto-login via
+   a saved refresh token in `~/.config/librarium/session.json`. In the Tauri app,
    the Vue frontend stores tokens in `localStorage` which is scoped to the
    WebView origin (`localhost:{port}`). This should persist across restarts
    automatically — but needs verification, particularly if the port ever changes.
@@ -959,7 +959,7 @@ costs nothing to roll back.
    natural design is a vault-level sync using the existing file watcher +
    broadcast channel infrastructure, either via a shared network filesystem,
    rsync, or a purpose-built sync protocol. The offline edit queue concept from
-   `codex-desktop` is the right starting point for that design.
+   `librarium-desktop` is the right starting point for that design.
 
 ---
 

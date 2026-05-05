@@ -1,4 +1,4 @@
-# Codex
+# Librarium
 
 A self-hosted web UI for Obsidian vaults built with Rust and HTMX.
 

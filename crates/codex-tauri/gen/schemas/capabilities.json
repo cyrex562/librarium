@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default capability set for the Codex desktop app","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save","notification:allow-request-permission","notification:allow-notify","notification:allow-is-permission-granted","deep-link:default"]}}

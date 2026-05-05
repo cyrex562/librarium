@@ -5,18 +5,18 @@
       <v-progress-circular indeterminate size="32" />
     </div>
 
-    <!-- Error: no codex_type in frontmatter -->
+    <!-- Error: no librarium_type in frontmatter -->
     <div v-else-if="state === 'no_type'" class="structural-error pa-6" style="flex: 1; overflow-y: auto;">
       <v-icon icon="mdi-alert-circle-outline" color="warning" size="48" class="mb-4" />
       <h3 class="text-h6 mb-2">Not a typed entity</h3>
       <p class="text-body-2 text-secondary mb-4">
-        This file needs a <code>codex_type</code> field in its frontmatter before it can be edited as a
+        This file needs a <code>librarium_type</code> field in its frontmatter before it can be edited as a
         structured entity.
       </p>
       <v-list density="compact" class="bg-surface rounded mb-4">
         <v-list-subheader>To use structural editing:</v-list-subheader>
-        <v-list-item prepend-icon="mdi-numeric-1-circle-outline" title="Add codex_type to frontmatter" />
-        <v-list-item prepend-icon="mdi-numeric-2-circle-outline" title="Set codex_plugin to the plugin that defines the type" />
+        <v-list-item prepend-icon="mdi-numeric-1-circle-outline" title="Add librarium_type to frontmatter" />
+        <v-list-item prepend-icon="mdi-numeric-2-circle-outline" title="Set librarium_plugin to the plugin that defines the type" />
         <v-list-item prepend-icon="mdi-numeric-3-circle-outline" title="Or use File → New Entity to create a pre-typed file" />
       </v-list>
       <v-select
@@ -263,7 +263,8 @@ const vaultId = computed(() => vaultsStore.activeVaultId);
 const allLabels = computed(() => {
     const labels = entitySchema.value?.labels ?? [];
     const fm = activeTab.value?.frontmatter;
-    const fmLabels = Array.isArray(fm?.codex_labels) ? (fm.codex_labels as string[]) : [];
+    const fmLabelsRaw = fm?.librarium_labels ?? fm?.codex_labels;
+    const fmLabels = Array.isArray(fmLabelsRaw) ? (fmLabelsRaw as string[]) : [];
     return [...new Set([...labels, ...fmLabels])];
 });
 const availableTypeItems = computed(() =>
@@ -303,17 +304,17 @@ async function init() {
         return;
     }
 
-    // 3. Check for codex_type
-    const codexType = fm?.codex_type as string | undefined;
-    if (!codexType) {
+    // 3. Check for librarium_type
+    const librariumType = (fm?.librarium_type ?? fm?.codex_type) as string | undefined;
+    if (!librariumType) {
         state.value = 'no_type';
         loading.value = false;
         return;
     }
-    declaredType.value = codexType;
+    declaredType.value = librariumType;
 
     // 4. Find matching schema
-    const schema = availableTypes.value.find(t => t.id === codexType || t.name === codexType) ?? null;
+    const schema = availableTypes.value.find(t => t.id === librariumType || t.name === librariumType) ?? null;
     if (!schema) {
         state.value = 'schema_missing';
         loading.value = false;
@@ -322,7 +323,14 @@ async function init() {
     entitySchema.value = schema;
 
     // 5. Populate field values from frontmatter (strip codex_ reserved keys)
-    const reserved = new Set(['codex_type', 'codex_plugin', 'codex_labels']);
+    const reserved = new Set([
+        'librarium_type',
+        'librarium_plugin',
+        'librarium_labels',
+        'codex_type',
+        'codex_plugin',
+        'codex_labels',
+    ]);
     const vals: Record<string, unknown> = {};
     for (const field of schema.fields) {
         vals[field.key] = fm[field.key] ?? field.default ?? null;
@@ -333,7 +341,7 @@ async function init() {
     proseContent.value = extractProseZone(content);
 
     // 7. Ensure prose sentinels exist; insert if missing
-    if (!content.includes('<!-- codex:prose:begin -->')) {
+    if (!content.includes('<!-- librarium:prose:begin -->') && !content.includes('<!-- codex:prose:begin -->')) {
         await insertSentinels();
     }
 
@@ -394,9 +402,9 @@ async function insertSentinels() {
     if (fmEnd !== -1) {
         const afterFm = content.slice(fmEnd + 4).trimStart();
         const header = content.slice(0, fmEnd + 4);
-        body = `${header}\n\n<!-- codex:prose:begin -->\n${afterFm}\n<!-- codex:prose:end -->\n`;
+        body = `${header}\n\n<!-- librarium:prose:begin -->\n${afterFm}\n<!-- librarium:prose:end -->\n`;
     } else {
-        body = `${content}\n\n<!-- codex:prose:begin -->\n\n<!-- codex:prose:end -->\n`;
+        body = `${content}\n\n<!-- librarium:prose:begin -->\n\n<!-- librarium:prose:end -->\n`;
     }
     tabsStore.updateTabContent(tab.id, body);
 }
@@ -406,7 +414,7 @@ async function applyEntityType() {
     if (!type) return;
     const tab = activeTab.value;
     if (!tab) return;
-    const fm = { ...(tab.frontmatter ?? {}), codex_type: type.id, codex_plugin: type.plugin_id };
+    const fm = { ...(tab.frontmatter ?? {}), librarium_type: type.id, librarium_plugin: type.plugin_id };
     tabsStore.updateTabFrontmatter(tab.id, fm);
     // Re-run init to show the structural form
     await init();

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Librarium",
+  "version": "0.1.0",
+  "identifier": "com.librarium.app",
+  "build": {
+    "frontendDist": "./loading"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Librarium",
+        "width": 1280,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "capabilities": ["default"]
+    },
+    "trayIcon": {
+      "id": "main-tray",
+      "iconPath": "icons/tray-yellow.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": []
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["librarium"]
+      }
+    }
+  }
+}

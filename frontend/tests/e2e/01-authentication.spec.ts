@@ -7,7 +7,7 @@ test.describe('Authentication', () => {
     // Vue router will redirect to /login if not authenticated
   });
 
-  test('1.1 - App shows "Codex" branding on login page', async ({ page }) => {
+  test('1.1 - App shows "Librarium" branding on login page', async ({ page }) => {
     const loginPage = new LoginPage(page);
     await expect(loginPage.brandingHeading).toBeVisible();
     await expect(page.locator('text=Obsidian Host')).not.toBeVisible();

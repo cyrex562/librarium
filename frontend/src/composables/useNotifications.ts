@@ -83,7 +83,7 @@ export function useNotifications() {
             case 'Error': {
                 const message = (msg.message as string) ?? 'An unknown error occurred';
                 void fireNotification({
-                    title: 'Codex error',
+                    title: 'Librarium error',
                     body: message,
                     channel: 'error',
                 });

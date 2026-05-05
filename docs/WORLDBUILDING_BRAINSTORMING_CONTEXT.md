@@ -1,24 +1,24 @@
-# Codex App and Worldbuilding Plugin Overview
+# Librarium App and Worldbuilding Plugin Overview
 
 This document is meant as a **brainstorming handoff** for discussing future worldbuilding features, especially new entity types, richer relationships, and workflow improvements.
 
-## What Codex is
+## What Librarium is
 
-Codex is a self-hosted app for working with Obsidian-style vaults.
+Librarium is a self-hosted app for working with Obsidian-style vaults.
 
 - **Backend:** Rust + Actix Web
 - **Frontend:** Vue 3 + TypeScript + Vuetify
 - **Storage model:** markdown files in vault folders, plus SQLite metadata/indexes
 - **Live sync:** filesystem watcher + WebSocket updates
 
-In practice, the app is a structured UI on top of ordinary markdown notes. A note can still be "just a note," but Codex can also recognize some notes as **typed entities** by reading structured frontmatter.
+In practice, the app is a structured UI on top of ordinary markdown notes. A note can still be "just a note," but Librarium can also recognize some notes as **typed entities** by reading structured frontmatter.
 
 ## Core app model
 
 At a high level, the app works like this:
 
 1. A vault is registered with the server.
-2. Codex reads the vault file tree and serves it through the web UI.
+2. Librarium reads the vault file tree and serves it through the web UI.
 3. Notes are opened in tabs and edited in different modes.
 4. Background indexing extracts searchable content and entity metadata.
 5. File changes are broadcast to clients in real time.
@@ -41,9 +41,9 @@ Worldbuilding content currently spans two layers:
 
 The current entity creation flow opens new entities in **structural editor mode**, which is important because the plugin is designed around structured fields plus prose, not prose alone.
 
-## Plugin system in Codex
+## Plugin system in Librarium
 
-Codex has a plugin system, but the current worldbuilding plugin is mostly **schema-driven**, not a large custom app embedded in the frontend.
+Librarium has a plugin system, but the current worldbuilding plugin is mostly **schema-driven**, not a large custom app embedded in the frontend.
 
 A plugin can contribute:
 
@@ -71,7 +71,7 @@ The backend loads plugin manifests and schema files from the bundled `plugins/` 
 
 The worldbuilding manifest declares:
 
-- plugin id: `com.codex.worldbuilding`
+- plugin id: `com.librarium.worldbuilding`
 - human name: `Worldbuilding`
 - built-in entity types
 - built-in relation types
@@ -114,22 +114,22 @@ The most important fields in the schema design are:
 - **`display_field`**: which field should act like the human title
 - **`show_on_create`**: which fields appear in the quick-create dialog
 - **field `type`**: string, text, enum, date, entity reference, etc.
-- **`relation` on entity_ref fields**: tells Codex what relationship to create or interpret
+- **`relation` on entity_ref fields**: tells Librarium what relationship to create or interpret
 
 This is why the plugin already feels semi-structured without needing custom code for every entity type.
 
 ## 3. Templates
 
-When the user creates an entity, Codex asks the backend for the entity template:
+When the user creates an entity, Librarium asks the backend for the entity template:
 
 - `GET /api/vaults/{vault_id}/entity-template?type={type_id}`
 - `GET /api/plugins/entity-types/{type_id}/template`
 
 The template is usually plugin-provided markdown with frontmatter, for example:
 
-- `codex_type`
-- `codex_plugin`
-- `codex_labels`
+- `librarium_type`
+- `librarium_plugin`
+- `librarium_labels`
 - typed fields like `full_name`, `status`, `location`, etc.
 
 If the template file is missing, the backend can generate a **minimal fallback template** from the entity schema.
@@ -185,31 +185,31 @@ Creation flow:
 2. Pick a type
 3. Fetch the type template
 4. Patch frontmatter with:
-   - `codex_type`
-   - `codex_plugin`
-   - `codex_labels`
+   - `librarium_type`
+   - `librarium_plugin`
+   - `librarium_labels`
    - display field/title
    - quick-create field values
 5. Create the markdown file in the vault
 6. Open it in structural editor mode
 
-## 6. How Codex recognizes entities
+## 6. How Librarium recognizes entities
 
 Worldbuilding entities are fundamentally just markdown notes with specific frontmatter.
 
 The important keys are:
 
-- `codex_type`
-- `codex_plugin`
-- `codex_labels`
+- `librarium_type`
+- `librarium_plugin`
+- `librarium_labels`
 
 Example idea:
 
 ```yaml
 ---
-codex_type: character
-codex_plugin: com.codex.worldbuilding
-codex_labels:
+librarium_type: character
+librarium_plugin: com.librarium.worldbuilding
+librarium_labels:
   - graphable
   - person
 full_name: Lyra Voss
@@ -479,4 +479,4 @@ If you want to brainstorm productively, these are strong prompt directions:
 
 ## 14. Short summary
 
-Codex's worldbuilding plugin is currently a **schema-and-template-driven entity system on top of markdown notes**. Its current strengths are typed entities, typed relations, and direct creation flows for characters, factions, locations, and events. The best near-term expansion area is likely **more entity types, richer relations, and a few dedicated worldbuilding views**, while keeping markdown files as the primary source of truth.
+Librarium's worldbuilding plugin is currently a **schema-and-template-driven entity system on top of markdown notes**. Its current strengths are typed entities, typed relations, and direct creation flows for characters, factions, locations, and events. The best near-term expansion area is likely **more entity types, richer relations, and a few dedicated worldbuilding views**, while keeping markdown files as the primary source of truth.

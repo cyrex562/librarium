@@ -1,6 +1,6 @@
 # API Documentation
 
-Codex exposes a RESTful API for managing vaults and files.
+Librarium exposes a RESTful API for managing vaults and files.
 
 ## Base URL
 

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Codex is a full-stack application built with Rust (backend) and TypeScript (frontend), managing a local SQLite database for metadata.
+Librarium is a full-stack application built with Rust (backend) and TypeScript (frontend), managing a local SQLite database for metadata.
 
 ## Tech Stack
 

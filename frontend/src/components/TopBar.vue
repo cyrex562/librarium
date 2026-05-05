@@ -5,7 +5,7 @@
     style="background: rgb(var(--v-theme-surface)); border-bottom: 1px solid rgb(var(--v-theme-border));"
   >
     <v-app-bar-title class="text-caption font-weight-medium" style="color: rgb(var(--v-theme-on-background));">
-      {{ vaultsStore.getActive()?.name ?? 'Codex' }}
+      {{ vaultsStore.getActive()?.name ?? 'Librarium' }}
     </v-app-bar-title>
 
     <div class="d-flex align-center ga-2 mr-2">

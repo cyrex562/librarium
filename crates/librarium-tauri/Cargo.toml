@@ -1,0 +1,41 @@
+[package]
+name = "librarium-tauri"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri desktop shell for Librarium"
+
+[[bin]]
+name = "librarium-tauri"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri core + system tray (tray-icon feature is part of tauri core in v2)
+tauri = { version = "2", features = ["tray-icon"] }
+
+# Tauri plugins
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-deep-link = "2"
+
+# Embedded server — imported as the `librarium` crate (see [lib] name in librarium-server)
+librarium-server = { path = "../librarium-server" }
+
+# Actix runtime needed to spawn the server on a background thread
+actix-web = { version = "4.9", default-features = false }
+
+# HTTP client for health polling
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# Platform home-directory detection
+dirs = "5"
+
+# Utilities
+anyhow = "1"
+tokio = { version = "1", features = ["time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

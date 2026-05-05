@@ -14,7 +14,7 @@ export class LoginPage {
     this.passwordInput = page.locator('[data-testid="login-password-input"] input');
     this.submitButton = page.locator('[data-testid="login-submit-btn"]');
     this.errorAlert = page.locator('[data-testid="login-error-alert"]');
-    this.brandingHeading = page.locator('text=Codex').first();
+    this.brandingHeading = page.locator('text=Librarium').first();
   }
 
   async goto() {

@@ -1,4 +1,4 @@
-use codex::services::MarkdownService;
+use librarium::services::MarkdownService;
 
 /// Rendering correctness verification tests
 /// These tests verify that the HTML output is semantically correct and well-formed

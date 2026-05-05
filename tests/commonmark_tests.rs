@@ -1,4 +1,4 @@
-use codex::services::MarkdownService;
+use librarium::services::MarkdownService;
 
 /// Tests for CommonMark specification compliance
 /// Based on the CommonMark spec: https://spec.commonmark.org/

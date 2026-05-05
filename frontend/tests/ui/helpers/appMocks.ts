@@ -729,7 +729,7 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
     await page.route(/.*\/api\/vaults\/[^/]+\/entity-template.*/, async (route) => {
         const url = route.request().url();
         const typeId = new URL(url).searchParams.get('type') ?? '';
-        const content = entityTemplatesByTypeId[typeId] ?? `---\ncodex_type: ${typeId}\n---\n`;
+        const content = entityTemplatesByTypeId[typeId] ?? `---\nlibrarium_type: ${typeId}\n---\n`;
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content }) });
     });
 

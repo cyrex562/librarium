@@ -1,5 +1,5 @@
-use codex::error::AppError;
-use codex::services::FileService;
+use librarium::error::AppError;
+use librarium::services::FileService;
 use tempfile::TempDir;
 
 #[test]
@@ -54,7 +54,7 @@ fn test_input_validation_filenames() {
 #[test]
 fn test_xss_protection_in_markdown() {
     // This tests that our markdown rendering doesn't blindly output dangerous HTML
-    use codex::services::MarkdownService;
+    use librarium::services::MarkdownService;
 
     let dangerous_content = "<script>alert('xss')</script>";
     let rendered = MarkdownService::to_html(dangerous_content);

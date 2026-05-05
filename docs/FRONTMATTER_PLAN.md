@@ -1,7 +1,7 @@
 # Frontmatter Management Plan
 
 ## Overview
-This document outlines the UI and logic for managing YAML frontmatter (metadata) in Codex notes, equivalent to Obsidian's "Properties" view.
+This document outlines the UI and logic for managing YAML frontmatter (metadata) in Librarium notes, equivalent to Obsidian's "Properties" view.
 
 ## 1. Frontmatter Editor UI ("Properties View")
 

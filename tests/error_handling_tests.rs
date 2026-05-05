@@ -1,5 +1,5 @@
 use actix_web::ResponseError;
-use codex::error::{AppError, FileSystemError, VaultError};
+use librarium::error::{AppError, FileSystemError, VaultError};
 use std::io;
 
 #[test]

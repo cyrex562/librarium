@@ -1,4 +1,4 @@
-use codex::services::FileService;
+use librarium::services::FileService;
 use std::fs;
 use std::time::Duration;
 use tempfile::TempDir;

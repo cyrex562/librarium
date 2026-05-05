@@ -1,10 +1,10 @@
-[obsidian-test-a]
-ssh_host = "100.123.8.84"
+[librarium-01]
+ssh_host = "librarium-01"
 ssh_user = "box-admin"
 ssh_port = 22
 ssh_config = "/dev/null"
 ssh_identity_file = "~/.ssh/homelab_ssh_key"
 ip_address = "100.123.8.84"
 http_port = 8080
-app_dir = "/opt/codex"
+app_dir = "/opt/librarium"
 deployment = "docker"

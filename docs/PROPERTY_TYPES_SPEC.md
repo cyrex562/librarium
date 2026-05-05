@@ -1,7 +1,7 @@
 # Property Types Specification
 
 ## Overview
-This document defines the behavior, validation, and serialization logic for each supported Frontmatter property type in Codex.
+This document defines the behavior, validation, and serialization logic for each supported Frontmatter property type in Librarium.
 
 ## Base Architecture
 

@@ -3,7 +3,7 @@
     <v-card min-width="360" max-width="420">
       <v-card-title class="text-center pa-6">
         <v-icon icon="mdi-notebook-outline" size="40" color="primary" />
-        <div class="mt-2 text-h6">Codex</div>
+        <div class="mt-2 text-h6">Librarium</div>
       </v-card-title>
 
       <v-card-text>

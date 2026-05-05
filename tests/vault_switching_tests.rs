@@ -1,5 +1,5 @@
-use codex::db::Database;
-use codex::services::{FileService, SearchIndex};
+use librarium::db::Database;
+use librarium::services::{FileService, SearchIndex};
 use tempfile::TempDir;
 
 #[tokio::test]

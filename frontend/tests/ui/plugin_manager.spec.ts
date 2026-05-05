@@ -81,13 +81,13 @@ test.describe('Plugin manager', () => {
             vaults: [defaultVault],
             treeByVaultId: { [defaultVault.id]: [] },
             plugins: [
-                { id: 'com.codex.worldbuilding', name: 'Worldbuilding', description: 'Typed entities and relations', enabled: true },
+                { id: 'com.librarium.worldbuilding', name: 'Worldbuilding', description: 'Typed entities and relations', enabled: true },
             ],
             entityTypes: [
                 {
                     id: 'character',
                     name: 'Character',
-                    plugin_id: 'com.codex.worldbuilding',
+                    plugin_id: 'com.librarium.worldbuilding',
                     color: '#4A90D9',
                     icon: 'mdi-account',
                     labels: ['graphable', 'person'],
@@ -100,7 +100,7 @@ test.describe('Plugin manager', () => {
                 {
                     id: 'location',
                     name: 'Location',
-                    plugin_id: 'com.codex.worldbuilding',
+                    plugin_id: 'com.librarium.worldbuilding',
                     color: '#52B26B',
                     icon: 'mdi-map-marker',
                     labels: ['graphable', 'place'],

@@ -1,7 +1,7 @@
 ---
-codex_type: Faction
-codex_plugin: com.codex.worldbuilding
-codex_labels:
+librarium_type: Faction
+librarium_plugin: com.librarium.worldbuilding
+librarium_labels:
   - graphable
   - organization
 full_name: ""
@@ -10,6 +10,6 @@ headquarters: ""
 summary: ""
 ---
 
-<!-- codex:prose:begin -->
+<!-- librarium:prose:begin -->
 
-<!-- codex:prose:end -->
+<!-- librarium:prose:end -->

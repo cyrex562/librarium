@@ -61,7 +61,7 @@
         <v-empty-state
           icon="mdi-graph-outline"
           title="No entities"
-          text="No entities have been indexed yet. Open a file and add a codex_type frontmatter field, then trigger a re-index."
+          text="No entities have been indexed yet. Open a file and add a librarium_type frontmatter field, then trigger a re-index."
         />
       </div>
 

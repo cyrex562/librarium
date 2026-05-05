@@ -1,4 +1,4 @@
-# Test Plan for Codex Editor Modes
+# Test Plan for Librarium Editor Modes
 
 This document outlines the manual verification steps to ensure all editor modes function correctly.
 

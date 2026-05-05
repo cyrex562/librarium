@@ -5,7 +5,7 @@
 `scripts/deploy_tui.py` provides an interactive terminal workflow and CLI commands for:
 
 - building the Vue frontend
-- building the embedded `codex` backend release for a Linux VM
+- building the embedded `librarium` backend release for a Linux VM
 - assembling a deterministic `dist/` bundle
 - packaging desktop placeholders with a template config file
 - deploying idempotently to a target defined in `targets.toml`
@@ -39,25 +39,25 @@ The tool reads deployment targets from `targets.toml`.
 Example:
 
 ```toml
-[obsidian-test-a]
-ssh_host = "obsidian-test-a"
+[librarium-01]
+ssh_host = "librarium-01"
 ssh_user = "box-admin"
 ssh_port = 22
 ip_address = "100.123.8.84"
 http_port = 8080
-app_dir = "/opt/codex"
+app_dir = "/opt/librarium"
 ```
 
 ## Dist Layout
 
 The build step recreates `dist/` and writes:
 
-- `dist/server/codex`
+- `dist/server/librarium`
 - `dist/server/plugins/`
 - `dist/config.template.toml`
 - `dist/server.config.example.toml`
 - `dist/manifest.json`
-- `dist/deploy/codex-<release_id>.tar.gz`
+- `dist/deploy/librarium-<release_id>.tar.gz`
 - `dist/desktop/config.template.toml`
 - `dist/desktop/README.txt`
 
@@ -80,31 +80,31 @@ python .\scripts\deploy_tui.py targets
 Build artifacts:
 
 ```powershell
-python .\scripts\deploy_tui.py build --target obsidian-test-a
+python .\scripts\deploy_tui.py build --target librarium-01
 ```
 
 Build artifacts using remote host compilation explicitly:
 
 ```powershell
-python .\scripts\deploy_tui.py build --target obsidian-test-a --remote-build
+python .\scripts\deploy_tui.py build --target librarium-01 --remote-build
 ```
 
 Deploy an existing `dist/` bundle:
 
 ```powershell
-python .\scripts\deploy_tui.py deploy --target obsidian-test-a
+python .\scripts\deploy_tui.py deploy --target librarium-01
 ```
 
 Build and deploy in one step:
 
 ```powershell
-python .\scripts\deploy_tui.py build-and-deploy --target obsidian-test-a
+python .\scripts\deploy_tui.py build-and-deploy --target librarium-01
 ```
 
 Build and deploy using remote host compilation explicitly:
 
 ```powershell
-python .\scripts\deploy_tui.py build-and-deploy --target obsidian-test-a --remote-build
+python .\scripts\deploy_tui.py build-and-deploy --target librarium-01 --remote-build
 ```
 
 ## Remote Layout
@@ -119,9 +119,9 @@ The script manages these remote paths under `app_dir`:
 The generated `systemd` unit runs the server with:
 
 - `WorkingDirectory={app_dir}/shared`
-- `ExecStart={app_dir}/current/codex`
+- `ExecStart={app_dir}/current/librarium`
 
-That keeps `config.toml`, `codex.db`, and `logs/` in the persistent shared directory while loading bundled plugins from `{app_dir}/current/plugins`.
+That keeps `config.toml`, `librarium.db`, and `logs/` in the persistent shared directory while loading bundled plugins from `{app_dir}/current/plugins`.
 
 ## Idempotence Rules
 

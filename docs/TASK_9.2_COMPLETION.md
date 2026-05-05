@@ -23,7 +23,7 @@ Task 9.2 from PROJECT_PLAN.md has been completed. The application now has a prod
 # Set log format (default: text)
 LOG_FORMAT=json
 
-# Set log level (default: warn,codex=info,actix_web=info)
+# Set log level (default: warn,librarium=info,actix_web=info)
 RUST_LOG=debug
 ```
 
@@ -107,7 +107,7 @@ Flexible log level configuration via environment variables:
 
 **Default Log Levels:**
 - `warn` - Global default for all dependencies
-- `info` - codex application code
+- `info` - librarium application code
 - `info` - actix_web framework
 - `info` - actix_server
 
@@ -115,13 +115,13 @@ Flexible log level configuration via environment variables:
 ```bash
 # Override with RUST_LOG
 RUST_LOG=debug                           # All modules at debug
-RUST_LOG=codex=trace            # Trace level for app
-RUST_LOG=warn,codex::services=debug  # Debug for services only
+RUST_LOG=librarium=trace            # Trace level for app
+RUST_LOG=warn,librarium::services=debug  # Debug for services only
 ```
 
 **Per-Module Control:**
 ```bash
-RUST_LOG=warn,codex::routes=info,codex::services=debug
+RUST_LOG=warn,librarium::routes=info,librarium::services=debug
 ```
 
 **Location:** `src/main.rs` lines 27-35
@@ -160,7 +160,7 @@ Automatic daily log rotation using `tracing-appender`:
 - Daily rotation (new file each day)
 - Non-blocking writes for performance
 - Automatic log directory creation
-- Filename format: `codex.log.YYYY-MM-DD`
+- Filename format: `librarium.log.YYYY-MM-DD`
 
 **Configuration:**
 - Log directory: `./logs/`
@@ -170,9 +170,9 @@ Automatic daily log rotation using `tracing-appender`:
 **Files Created:**
 ```
 logs/
-├── codex.log.2026-01-23
-├── codex.log.2026-01-24
-└── codex.log.2026-01-25
+├── librarium.log.2026-01-23
+├── librarium.log.2026-01-24
+└── librarium.log.2026-01-25
 ```
 
 **Location:** `src/main.rs` lines 16-20
@@ -221,9 +221,9 @@ RUST_LOG=debug cargo run
 
 **Output:**
 ```
-2026-01-23T17:43:33.123456Z  INFO codex: Logging initialized (format: text)
-2026-01-23T17:43:33.234567Z  INFO codex: Starting Codex server...
-2026-01-23T17:43:33.345678Z  INFO codex: Database initialized at ./data/obsidian.db
+2026-01-23T17:43:33.123456Z  INFO librarium: Logging initialized (format: text)
+2026-01-23T17:43:33.234567Z  INFO librarium: Starting Librarium server...
+2026-01-23T17:43:33.345678Z  INFO librarium: Database initialized at ./data/obsidian.db
 ```
 
 ### Production (JSON)
@@ -234,14 +234,14 @@ LOG_FORMAT=json cargo run
 
 **Output:**
 ```json
-{"timestamp":"2026-01-23T17:43:33.123456Z","level":"INFO","target":"codex","fields":{"message":"Logging initialized (format: JSON)"}}
-{"timestamp":"2026-01-23T17:43:33.234567Z","level":"INFO","target":"codex","fields":{"message":"Starting Codex server..."}}
+{"timestamp":"2026-01-23T17:43:33.123456Z","level":"INFO","target":"librarium","fields":{"message":"Logging initialized (format: JSON)"}}
+{"timestamp":"2026-01-23T17:43:33.234567Z","level":"INFO","target":"librarium","fields":{"message":"Starting Librarium server..."}}
 ```
 
 ### Custom Log Levels
 ```bash
 # Verbose file operations, quiet everything else
-RUST_LOG=warn,codex::services::file_service=trace cargo run
+RUST_LOG=warn,librarium::services::file_service=trace cargo run
 ```
 
 ## Benefits
@@ -266,7 +266,7 @@ LOG_FORMAT=json cargo run | logstash -f logstash.conf
 
 **Splunk**:
 ```bash
-LOG_FORMAT=json cargo run >> /var/log/codex/app.log
+LOG_FORMAT=json cargo run >> /var/log/librarium/app.log
 ```
 
 **CloudWatch/Datadog**:

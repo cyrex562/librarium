@@ -1,9 +1,9 @@
 {
-    "id": "com.codex.backlinks",
+    "id": "com.librarium.backlinks",
     "name": "Backlinks",
     "version": "1.0.0",
     "description": "Show all notes that link to the current note",
-    "author": "Codex Team",
+    "author": "Librarium Team",
     "license": "MIT",
     "main": "main.js",
     "plugin_type": "javascript",

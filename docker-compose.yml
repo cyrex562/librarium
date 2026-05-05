@@ -1,29 +1,29 @@
 version: '3.8'
 
 services:
-  codex:
+  librarium:
     build: .
-    image: codex:latest
-    container_name: codex
+    image: librarium:latest
+    container_name: librarium
     ports:
       - "8080:8080"
     volumes:
-      - codex_data:/data
+      - librarium_data:/data
       # Uncomment to mount local vault directory:
       # - ./my-vaults:/data/vaults
     environment:
-      - CODEX__SERVER__HOST=0.0.0.0
-      - CODEX__SERVER__PORT=8080
-      - CODEX__DATABASE__PATH=/data/codex.db
-      - CODEX__VAULT__BASE_DIR=/data/vaults
-      - CODEX__AUTH__ENABLED=true
-      - CODEX__AUTH__BOOTSTRAP_ADMIN_USERNAME=admin
+      - LIBRARIUM__SERVER__HOST=0.0.0.0
+      - LIBRARIUM__SERVER__PORT=8080
+      - LIBRARIUM__DATABASE__PATH=/data/librarium.db
+      - LIBRARIUM__VAULT__BASE_DIR=/data/vaults
+      - LIBRARIUM__AUTH__ENABLED=true
+      - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME=admin
       # IMPORTANT: Change this before first run, then remove it.
-      - CODEX__AUTH__BOOTSTRAP_ADMIN_PASSWORD=changeme-on-first-login
+      - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD=changeme-on-first-login
       # Generate a stable secret: openssl rand -hex 32
-      # - CODEX__AUTH__JWT_SECRET=your-secret-here
+      # - LIBRARIUM__AUTH__JWT_SECRET=your-secret-here
       # Override config file path (default: /data/config.toml via CMD --config)
-      # - CODEX_CONFIG=/data/config.toml
+      # - LIBRARIUM_CONFIG=/data/config.toml
       - RUST_LOG=info
       # Rate limiting (requests per 60-second window per IP)
       - RATE_LIMIT_REQUESTS=120
@@ -36,4 +36,4 @@ services:
       retries: 3
 
 volumes:
-  codex_data:
+  librarium_data:

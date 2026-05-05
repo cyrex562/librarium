@@ -125,7 +125,7 @@ test.describe('New Entity dialog', () => {
             fileContentsByVaultId: { [defaultVault.id]: {} },
             entityTypes: [characterType],
             entityTemplatesByTypeId: {
-                character: `---\ncodex_type: character\ncodex_plugin: worldbuilding\nname: ""\n---\n`,
+                character: `---\nlibrarium_type: character\nlibrarium_plugin: worldbuilding\nname: ""\n---\n`,
             },
         });
 
@@ -198,7 +198,7 @@ test.describe('New Note dialog entity templates', () => {
             entityTypes: [characterType],
             fileContentsByVaultId: { [defaultVault.id]: {} },
             entityTemplatesByTypeId: {
-                character: `---\ncodex_type: character\ncodex_plugin: worldbuilding\nname: ""\n---\n`,
+                character: `---\nlibrarium_type: character\nlibrarium_plugin: worldbuilding\nname: ""\n---\n`,
             },
         });
 

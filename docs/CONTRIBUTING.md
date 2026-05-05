@@ -1,4 +1,4 @@
-# Contributing to Codex
+# Contributing to Librarium
 
 We welcome contributions! Here's how to get started.
 

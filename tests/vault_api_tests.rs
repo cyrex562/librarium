@@ -1,9 +1,9 @@
 use actix_web::{test, web, App};
-use codex::db::Database;
-use codex::models::CreateVaultRequest;
-use codex::routes::{vaults, AppState};
-use codex::services::{default_storage_backend, SearchIndex};
-use codex::watcher::FileWatcher;
+use librarium::db::Database;
+use librarium::models::CreateVaultRequest;
+use librarium::routes::{vaults, AppState};
+use librarium::services::{default_storage_backend, SearchIndex};
+use librarium::watcher::FileWatcher;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::{broadcast, Mutex};

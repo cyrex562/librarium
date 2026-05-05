@@ -1,11 +1,11 @@
 [workspace]
 members = [
-	"crates/codex-server",
-	"crates/codex-types",
-	"crates/codex-client",
-	"crates/codex-tauri",
+	"crates/librarium-server",
+	"crates/librarium-types",
+	"crates/librarium-client",
+	"crates/librarium-tauri",
 ]
-default-members = ["crates/codex-server"]
+default-members = ["crates/librarium-server"]
 resolver = "2"
 
 [profile.release]

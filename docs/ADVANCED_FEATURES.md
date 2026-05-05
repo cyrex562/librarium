@@ -1,6 +1,6 @@
 # Advanced Features Design Document
 
-This document outlines the design and implementation plans for advanced features in Codex, covering Task 12.2.
+This document outlines the design and implementation plans for advanced features in Librarium, covering Task 12.2.
 
 ## 1. Graph View Data Structure
 

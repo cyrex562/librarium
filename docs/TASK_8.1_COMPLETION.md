@@ -25,4 +25,4 @@ Run the targeted Playwright test:
 npx playwright test frontend/tests/ui/theme_mode.spec.ts
 ```
 
-(Ensure the Codex server is running at `http://127.0.0.1:8080`.)
+(Ensure the Librarium server is running at `http://127.0.0.1:8080`.)

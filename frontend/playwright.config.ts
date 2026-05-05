@@ -7,7 +7,7 @@ const frontendDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(frontendDir, '..');
 const serverPort = Number(process.env.PLAYWRIGHT_SERVER_PORT ?? 4173);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${serverPort}`;
-const serverStateDir = '/tmp/codex-playwright';
+const serverStateDir = '/tmp/librarium-playwright';
 const osRelease = (() => {
     try {
         return fs.readFileSync('/etc/os-release', 'utf8');
@@ -58,11 +58,11 @@ export default defineConfig({
         cwd: repoRoot,
         command: [
             `mkdir -p ${serverStateDir}`,
-            `rm -f ${serverStateDir}/codex.db`,
-            `printf '%s\n' '[server]' 'host = "127.0.0.1"' 'port = ${serverPort}' '' '[database]' 'path = "${serverStateDir}/codex.db"' '' '[auth]' 'enabled = true' 'bootstrap_admin_username = "admin"' 'bootstrap_admin_password = "admin"' > ${serverStateDir}/config.toml`,
+            `rm -f ${serverStateDir}/librarium.db`,
+            `printf '%s\n' '[server]' 'host = "127.0.0.1"' 'port = ${serverPort}' '' '[database]' 'path = "${serverStateDir}/librarium.db"' '' '[auth]' 'enabled = true' 'bootstrap_admin_username = "admin"' 'bootstrap_admin_password = "admin"' > ${serverStateDir}/config.toml`,
             'npm --prefix frontend run build',
-            'cargo build -p codex-server --bin codex',
-            `./target/debug/codex --config ${serverStateDir}/config.toml`,
+            'cargo build -p librarium-server --bin librarium',
+            `./target/debug/librarium --config ${serverStateDir}/config.toml`,
         ].join(' && '),
         url: `${baseURL}/api/health`,
         reuseExistingServer: !process.env.CI,

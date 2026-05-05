@@ -1,7 +1,7 @@
 ---
-codex_type: Character
-codex_plugin: com.codex.worldbuilding
-codex_labels:
+librarium_type: Character
+librarium_plugin: com.librarium.worldbuilding
+librarium_labels:
   - graphable
   - person
 full_name: ""
@@ -12,6 +12,6 @@ birth_date: ""
 summary: ""
 ---
 
-<!-- codex:prose:begin -->
+<!-- librarium:prose:begin -->
 
-<!-- codex:prose:end -->
+<!-- librarium:prose:end -->

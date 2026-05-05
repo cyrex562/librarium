@@ -1,4 +1,4 @@
-use codex::services::{FileService, SearchIndex};
+use librarium::services::{FileService, SearchIndex};
 use std::fs;
 use std::io::Write;
 use std::time::Instant;

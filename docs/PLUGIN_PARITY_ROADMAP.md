@@ -1,4 +1,4 @@
-# Plugin Parity Roadmap (Codex)
+# Plugin Parity Roadmap (Librarium)
 
 This roadmap tracks feature parity for requested Obsidian plugin behaviors in the Vue + Rust app.
 

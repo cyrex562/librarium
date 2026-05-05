@@ -18,7 +18,7 @@ export class MainLayout {
     this.userMenuSignOut = page.locator('[data-testid="user-menu-sign-out"]');
     this.userMenuChangePassword = page.locator('[data-testid="user-menu-change-password"]');
     this.userMenuManageUsers = page.locator('[data-testid="user-menu-manage-users"]');
-    this.brandingText = page.locator('text=Codex');
+    this.brandingText = page.locator('text=Librarium');
   }
 
   async openUserMenu() {

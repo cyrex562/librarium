@@ -9,7 +9,7 @@
 To build the Docker image locally:
 
 ```bash
-docker build -t codex .
+docker build -t librarium .
 ```
 
 *Note: The build process is multi-stage and builds both the frontend and backend. It may take a few minutes initially.*
@@ -30,16 +30,16 @@ The application will be available at `http://localhost:8080`.
 
 ```bash
 docker run -d \
-  --name codex \
+  --name librarium \
   -p 8080:8080 \
   -v obsidian_data:/data \
-  codex
+  librarium
 ```
 
 ## Volumes
 
 The container uses `/data` to store:
-- `codex.db` (The SQLite database)
+- `librarium.db` (The SQLite database)
 - `vaults/` (Default location for created vaults, though you can mount external paths)
 
 ### Mounting External Vaults
@@ -51,7 +51,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/my-local-vaults:/data/vaults \
   -v obsidian_data:/data \
-  codex
+  librarium
 ```
 
 Then, when registering a vault in the UI, use the container path (e.g., `/data/vaults/my-vault`).
@@ -62,8 +62,8 @@ You can override configuration using environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CODEX__SERVER__PORT` | 8080 | Server listening port |
-| `CODEX__DATABASE__PATH` | `/data/codex.db` | Path to SQLite database |
+| `LIBRARIUM__SERVER__PORT` | 8080 | Server listening port |
+| `LIBRARIUM__DATABASE__PATH` | `/data/librarium.db` | Path to SQLite database |
 | `RUST_LOG` | `info` | Logging level (error, warn, info, debug, trace) |
 
 ## Image optimization

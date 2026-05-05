@@ -133,7 +133,7 @@ describe('useNotifications — handleWsMessage', () => {
         await new Promise((r) => setTimeout(r, 10));
 
         expect(notified.length).toBeGreaterThan(0);
-        expect(notified[0].title).toBe('Codex error');
+        expect(notified[0].title).toBe('Librarium error');
         expect(notified[0].body).toBe('sync failed');
     });
 

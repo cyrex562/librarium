@@ -1,7 +1,7 @@
 # Tag System Specification
 
 ## Overview
-This document specifies the behavior of the Tag System in Codex, including parsing, nested tags, the Tag Explorer UI, and search integration.
+This document specifies the behavior of the Tag System in Librarium, including parsing, nested tags, the Tag Explorer UI, and search integration.
 
 ## 1. Tag Parsing
 

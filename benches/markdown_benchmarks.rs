@@ -1,4 +1,4 @@
-use codex::services::MarkdownService;
+use librarium::services::MarkdownService;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn benchmark_simple_markdown(c: &mut Criterion) {

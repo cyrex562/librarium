@@ -1,7 +1,7 @@
-# Codex - Implementation Summary
+# Librarium - Implementation Summary
 
 ## Project Overview
-Codex is a self-hosted, web-based knowledge management system inspired by Obsidian.md, built with Rust (backend) and TypeScript (frontend).
+Librarium is a self-hosted, web-based knowledge management system inspired by Obsidian.md, built with Rust (backend) and TypeScript (frontend).
 
 ## Completed Features
 
@@ -282,7 +282,7 @@ Codex is a self-hosted, web-based knowledge management system inspired by Obsidi
 
 ## Conclusion
 
-Codex now has a **fully functional plugin system** with:
+Librarium now has a **fully functional plugin system** with:
 - Complete architecture and security model
 - Three working example plugins
 - Comprehensive management UI

@@ -1,7 +1,7 @@
 # Task 9.1 & 9.2 Completion Summary
 
 ## Overview
-This document summarizes the completion and verification of **Task 9.1: Error Handling** and **Task 9.2: Logging** for the Codex project.
+This document summarizes the completion and verification of **Task 9.1: Error Handling** and **Task 9.2: Logging** for the Librarium project.
 
 ## Task 9.1: Error Handling ✅ COMPLETE
 
@@ -139,7 +139,7 @@ Leverages the enhanced `AppError` from Task 9.1:
 #### 5. Log Rotation
 - **Directory**: `./logs`
 - **Rotation**: Daily
-- **Format**: `codex-YYYY-MM-DD.log`
+- **Format**: `librarium-YYYY-MM-DD.log`
 - **Retention**: Manual cleanup (can be automated)
 
 ### Dependencies Added

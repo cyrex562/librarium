@@ -1,9 +1,9 @@
 use actix_web::{test, web, App};
-use codex::db::Database;
-use codex::models::{CreateFileRequest, UpdateFileRequest};
-use codex::routes::{files, vaults, AppState};
-use codex::services::{default_storage_backend, FileService, SearchIndex};
-use codex::watcher::FileWatcher;
+use librarium::db::Database;
+use librarium::models::{CreateFileRequest, UpdateFileRequest};
+use librarium::routes::{files, vaults, AppState};
+use librarium::services::{default_storage_backend, FileService, SearchIndex};
+use librarium::watcher::FileWatcher;
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;

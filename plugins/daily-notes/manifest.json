@@ -1,9 +1,9 @@
 {
-    "id": "com.codex.daily-notes",
+    "id": "com.librarium.daily-notes",
     "name": "Daily Notes",
     "version": "1.0.0",
     "description": "Automatically create and manage daily notes with templates",
-    "author": "Codex Team",
+    "author": "Librarium Team",
     "license": "MIT",
     "main": "main.js",
     "plugin_type": "javascript",

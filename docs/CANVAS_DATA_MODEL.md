@@ -628,7 +628,7 @@ class CanvasMigrator {
     {
       "id": "node-1",
       "type": "file",
-      "file": "Projects/Codex.md",
+      "file": "Projects/Librarium.md",
       "x": 0,
       "y": 0,
       "width": 400,

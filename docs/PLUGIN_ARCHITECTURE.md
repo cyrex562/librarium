@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Codex plugin system provides a secure, extensible way to add functionality to the application. Plugins can be written in JavaScript or WebAssembly (WASM) and run in a controlled environment with explicit permissions.
+The Librarium plugin system provides a secure, extensible way to add functionality to the application. Plugins can be written in JavaScript or WebAssembly (WASM) and run in a controlled environment with explicit permissions.
 
 ## Plugin Manifest Format
 

@@ -24,14 +24,14 @@ This will:
 2. Compile TypeScript frontend code.
 3. Build the Rust backend with optimizations (LTO, stripping symbols) and **embedded frontend assets**.
 4. Create a `dist` directory containing:
-    - `codex.exe` (Standalone binary with UI included)
+    - `librarium.exe` (Standalone binary with UI included)
     - `config.toml`
 
 To run the release build:
 
 ```powershell
 cd dist
-.\codex.exe
+.\librarium.exe
 ```
 
 ## Manual Build Steps
@@ -56,7 +56,7 @@ If you cannot use the script, follow these steps:
 
 3. **Assemble**:
     - Create a directory (e.g., `dist`).
-    - Copy `target/release/codex` (or `.exe`) to `dist`.
+    - Copy `target/release/librarium` (or `.exe`) to `dist`.
     - Copy `config.toml` to `dist`.
     - *(Optional)* You do **not** need to copy `target/frontend` as it is inside the binary.
 

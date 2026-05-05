@@ -1,7 +1,7 @@
 # Canvas-Note Integration Plan
 
 ## Overview
-This document outlines how the Canvas system integrates with the core note-taking features of Codex, ensuring a seamless experience between text-based and visual thinking.
+This document outlines how the Canvas system integrates with the core note-taking features of Librarium, ensuring a seamless experience between text-based and visual thinking.
 
 ## 1. Context Menu Integration
 
@@ -119,4 +119,4 @@ interface CanvasIntegration {
 }
 ```
 
-This plan ensures Canvas is not just a standalone tool but a deeply integrated part of the Codex ecosystem.
+This plan ensures Canvas is not just a standalone tool but a deeply integrated part of the Librarium ecosystem.

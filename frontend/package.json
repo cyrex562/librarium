@@ -1,7 +1,7 @@
 {
-  "name": "codex-frontend",
+  "name": "librarium-frontend",
   "version": "0.1.0",
-  "description": "Frontend for Codex",
+  "description": "Frontend for Librarium",
   "type": "module",
   "scripts": {
     "dev": "vite",

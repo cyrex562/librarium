@@ -2,18 +2,18 @@ import { expect, test } from '@playwright/test';
 import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, seedAuthTokens } from './helpers/appMocks';
 
 const characterContent = `---
-codex_type: character
-codex_plugin: worldbuilding
-codex_labels:
+librarium_type: character
+librarium_plugin: worldbuilding
+librarium_labels:
   - graphable
 name: Aria
 age: "28"
 occupation: Ranger
 ---
 
-<!-- codex:prose:begin -->
+<!-- librarium:prose:begin -->
 A skilled ranger from the northern wilds.
-<!-- codex:prose:end -->
+<!-- librarium:prose:end -->
 `;
 
 const characterType = {
@@ -69,7 +69,7 @@ test.describe('Structural editor', () => {
         await expect(page.getByText('Occupation')).toBeVisible();
     });
 
-    test('shows error state when file has no codex_type', async ({ page }) => {
+    test('shows error state when file has no librarium_type', async ({ page }) => {
         await seedAuthTokens(page);
         await seedActiveVault(page, defaultVault.id);
 
@@ -98,7 +98,7 @@ test.describe('Structural editor', () => {
         const structuralEditor = page.locator('.structural-editor');
         await expect(structuralEditor).toBeVisible();
         await expect(structuralEditor.getByRole('heading', { name: 'Not a typed entity' })).toBeVisible();
-        await expect(structuralEditor.getByText('codex_type', { exact: true })).toBeVisible();
+        await expect(structuralEditor.getByText('librarium_type', { exact: true })).toBeVisible();
     });
 
     test('structural editor shows prose zone below fields', async ({ page }) => {

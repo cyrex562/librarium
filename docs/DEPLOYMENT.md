@@ -4,8 +4,8 @@
 
 ```bash
 # 1. Clone and build
-git clone <repo-url> codex
-cd codex
+git clone <repo-url> librarium
+cd librarium
 
 # 2. Generate a JWT secret
 export JWT_SECRET=$(openssl rand -hex 32)
@@ -24,10 +24,10 @@ Edit `docker-compose.yml` environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CODEX__AUTH__ENABLED` | `true` | Enable/disable authentication |
-| `CODEX__AUTH__JWT_SECRET` | (auto) | Stable JWT signing secret |
-| `CODEX__AUTH__BOOTSTRAP_ADMIN_USERNAME` | `admin` | Initial admin username |
-| `CODEX__AUTH__BOOTSTRAP_ADMIN_PASSWORD` | — | Initial admin password |
+| `LIBRARIUM__AUTH__ENABLED` | `true` | Enable/disable authentication |
+| `LIBRARIUM__AUTH__JWT_SECRET` | (auto) | Stable JWT signing secret |
+| `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME` | `admin` | Initial admin username |
+| `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD` | — | Initial admin password |
 | `RATE_LIMIT_REQUESTS` | `120` | Max requests per 60s per IP |
 | `RUST_LOG` | `info` | Log level |
 
@@ -47,11 +47,11 @@ cp config.toml config.local.toml
 #   - Set auth.bootstrap_admin_password = "<strong-password>"
 
 # 3. Run
-./target/release/codex
+./target/release/librarium
 # Or specify an explicit config path:
-./target/release/codex --config /etc/codex/config.toml
+./target/release/librarium --config /etc/librarium/config.toml
 # Or via environment variable:
-CODEX_CONFIG=/etc/codex/config.toml ./target/release/codex
+LIBRARIUM_CONFIG=/etc/librarium/config.toml ./target/release/librarium
 # Server starts at http://127.0.0.1:8080
 ```
 
@@ -59,20 +59,20 @@ CODEX_CONFIG=/etc/codex/config.toml ./target/release/codex
 
 | Flag | Env var | Default | Description |
 |------|---------|---------|-------------|
-| `--config <PATH>` | `CODEX_CONFIG` | `./config.toml` | Path to the TOML config file |
+| `--config <PATH>` | `LIBRARIUM_CONFIG` | `./config.toml` | Path to the TOML config file |
 
 ### systemd service example
 
 ```ini
 [Unit]
-Description=Codex knowledge server
+Description=Librarium knowledge server
 After=network.target
 
 [Service]
 Type=simple
-User=codex
-WorkingDirectory=/opt/codex
-ExecStart=/opt/codex/codex --config /etc/codex/config.toml
+User=librarium
+WorkingDirectory=/opt/librarium
+ExecStart=/opt/librarium/librarium --config /etc/librarium/config.toml
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
@@ -88,14 +88,14 @@ WantedBy=multi-user.target
 cd frontend && npm run build && cd ..
 
 # Build the Tauri desktop binary
-cargo build --release -p codex-tauri
+cargo build --release -p librarium-tauri
 
 # Run
-./target/release/codex-tauri
+./target/release/librarium-tauri
 ```
 
 On first launch the app prompts for a vault directory and writes a default
-`config.toml` to the platform config directory (`~/.config/codex/` on Linux).
+`config.toml` to the platform config directory (`~/.config/librarium/` on Linux).
 The embedded server starts in-process; no separate server binary is required.
 
 ## Production Recommendations
@@ -192,7 +192,7 @@ curl http://localhost:8080/api/health
 The server uses a single SQLite file. To back up:
 
 ```bash
-sqlite3 /data/codex.db ".backup /backups/codex-$(date +%F).db"
+sqlite3 /data/librarium.db ".backup /backups/librarium-$(date +%F).db"
 ```
 
 Vault files are regular filesystem files in the configured `vault.base_dir`.

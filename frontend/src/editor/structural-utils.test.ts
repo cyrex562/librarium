@@ -18,20 +18,20 @@ describe('parseFrontmatter', () => {
     });
 
     it('parses a simple frontmatter block', () => {
-        const content = '---\ncodex_type: character\nfull_name: Alice\n---\n# Alice\n';
+        const content = '---\nlibrarium_type: character\nfull_name: Alice\n---\n# Alice\n';
         const fm = parseFrontmatter(content);
-        expect(fm.codex_type).toBe('character');
+        expect(fm.librarium_type).toBe('character');
         expect(fm.full_name).toBe('Alice');
     });
 
     it('parses arrays in frontmatter', () => {
-        const content = '---\ncodex_labels:\n  - graphable\n  - person\n---\n# Content\n';
-        const fm = parseFrontmatter(content) as { codex_labels: string[] };
-        expect(fm.codex_labels).toEqual(['graphable', 'person']);
+        const content = '---\nlibrarium_labels:\n  - graphable\n  - person\n---\n# Content\n';
+        const fm = parseFrontmatter(content) as { librarium_labels: string[] };
+        expect(fm.librarium_labels).toEqual(['graphable', 'person']);
     });
 
     it('returns empty object when closing --- is missing', () => {
-        const content = '---\ncodex_type: character\n# Missing closing delimiter';
+        const content = '---\nlibrarium_type: character\n# Missing closing delimiter';
         expect(parseFrontmatter(content)).toEqual({});
     });
 
@@ -58,8 +58,8 @@ describe('parseFrontmatter', () => {
 
 describe('serializeFrontmatter', () => {
     it('replaces existing frontmatter while keeping body', () => {
-        const original = '---\ncodex_type: character\n---\n# Alice\n\nSome prose.';
-        const fm = { codex_type: 'character', full_name: 'Alice Smith' };
+        const original = '---\nlibrarium_type: character\n---\n# Alice\n\nSome prose.';
+        const fm = { librarium_type: 'character', full_name: 'Alice Smith' };
         const result = serializeFrontmatter(fm, original);
         expect(result).toContain('full_name: Alice Smith');
         expect(result).toContain('# Alice');
@@ -68,24 +68,24 @@ describe('serializeFrontmatter', () => {
 
     it('prepends frontmatter when no existing block', () => {
         const original = '# Just a heading\n\nBody text.';
-        const fm = { codex_type: 'location' };
+        const fm = { librarium_type: 'location' };
         const result = serializeFrontmatter(fm, original);
         expect(result.startsWith('---\n')).toBe(true);
-        expect(result).toContain('codex_type: location');
+        expect(result).toContain('librarium_type: location');
         expect(result).toContain('# Just a heading');
     });
 
     it('round-trips frontmatter', () => {
-        const content = '---\ncodex_type: character\nfull_name: Alice\n---\n# Alice\n';
+        const content = '---\nlibrarium_type: character\nfull_name: Alice\n---\n# Alice\n';
         const fm = parseFrontmatter(content);
         const reserialized = serializeFrontmatter(fm, content);
         const reparsed = parseFrontmatter(reserialized);
-        expect(reparsed.codex_type).toBe('character');
+        expect(reparsed.librarium_type).toBe('character');
         expect(reparsed.full_name).toBe('Alice');
     });
 
     it('produces valid --- delimited output', () => {
-        const fm = { codex_type: 'faction', name: 'The Guild' };
+        const fm = { librarium_type: 'faction', name: 'The Guild' };
         const result = serializeFrontmatter(fm, '');
         expect(result.startsWith('---\n')).toBe(true);
         expect(result).toContain('\n---\n');
@@ -94,17 +94,17 @@ describe('serializeFrontmatter', () => {
 
 // ── extractProseZone ──────────────────────────────────────────────────────────
 
-const PROSE_BEGIN = '<!-- codex:prose:begin -->';
-const PROSE_END = '<!-- codex:prose:end -->';
+const PROSE_BEGIN = '<!-- librarium:prose:begin -->';
+const PROSE_END = '<!-- librarium:prose:end -->';
 
 describe('extractProseZone', () => {
     it('extracts content between prose sentinels', () => {
-        const content = `---\ncodex_type: character\n---\n${PROSE_BEGIN}\nThis is the prose.\n${PROSE_END}\n`;
+        const content = `---\nlibrarium_type: character\n---\n${PROSE_BEGIN}\nThis is the prose.\n${PROSE_END}\n`;
         expect(extractProseZone(content)).toBe('This is the prose.');
     });
 
     it('returns body when no sentinels present', () => {
-        const content = '---\ncodex_type: character\n---\n# Alice\n\nThe body.';
+        const content = '---\nlibrarium_type: character\n---\n# Alice\n\nThe body.';
         const prose = extractProseZone(content);
         expect(prose).toContain('Alice');
         expect(prose).toContain('body');
@@ -116,7 +116,7 @@ describe('extractProseZone', () => {
     });
 
     it('returns empty string for file with only frontmatter and empty body', () => {
-        const content = '---\ncodex_type: character\n---\n';
+        const content = '---\nlibrarium_type: character\n---\n';
         const prose = extractProseZone(content);
         expect(prose).toBe('');
     });
@@ -149,10 +149,10 @@ describe('replaceProseZone', () => {
     });
 
     it('preserves frontmatter when replacing prose', () => {
-        const original = `---\ncodex_type: character\n---\n${PROSE_BEGIN}\nOld.\n${PROSE_END}\n`;
+        const original = `---\nlibrarium_type: character\n---\n${PROSE_BEGIN}\nOld.\n${PROSE_END}\n`;
         const result = replaceProseZone(original, 'New.');
         expect(result.startsWith('---')).toBe(true);
-        expect(result).toContain('codex_type: character');
+        expect(result).toContain('librarium_type: character');
         expect(result).toContain('New.');
     });
 

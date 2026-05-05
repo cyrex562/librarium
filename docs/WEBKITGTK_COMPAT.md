@@ -1,7 +1,7 @@
 # WebKitGTK 2.36 Compatibility
 
 This document records the compatibility constraints, verification approach, and
-known issues for running the Codex Vue frontend on WebKitGTK 2.36 (the version
+known issues for running the Librarium Vue frontend on WebKitGTK 2.36 (the version
 shipped with Ubuntu 22.04 LTS).
 
 WebKitGTK 2.36 is the **minimum Tauri desktop target**. Browser users on Ubuntu
@@ -71,7 +71,7 @@ A dedicated `webkit-compat` job in `.github/workflows/ci.yml` runs on the
 
 1. Installs `libwebkit2gtk-4.0-dev` from the system package manager.
 2. Installs the Playwright `webkit` browser via `npx playwright install webkit`.
-3. Starts the `codex-server` binary against a temp config.
+3. Starts the `librarium-server` binary against a temp config.
 4. Runs the full Playwright suite with `--project=webkit`.
 
 This job must pass before Phase 3 is considered complete and before Phase 4

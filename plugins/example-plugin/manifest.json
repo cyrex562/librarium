@@ -3,6 +3,6 @@
     "name": "Example Plugin",
     "version": "1.0.0",
     "description": "A simple example plugin to demonstrate the architecture.",
-    "author": "Codex Team",
+    "author": "Librarium Team",
     "main": "main.js"
 }

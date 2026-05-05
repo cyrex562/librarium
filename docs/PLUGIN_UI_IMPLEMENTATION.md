@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Plugin Management UI provides a comprehensive interface for managing plugins in Codex.
+The Plugin Management UI provides a comprehensive interface for managing plugins in Librarium.
 
 ## Components Added
 
@@ -219,7 +219,7 @@ Returns list of all plugins with their status.
 [
   {
     "manifest": {
-      "id": "com.codex.daily-notes",
+      "id": "com.librarium.daily-notes",
       "name": "Daily Notes",
       "version": "1.0.0",
       "description": "...",

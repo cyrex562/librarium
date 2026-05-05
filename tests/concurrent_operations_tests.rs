@@ -1,4 +1,4 @@
-use codex::services::{FileService, SearchIndex};
+use librarium::services::{FileService, SearchIndex};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::task;
@@ -188,7 +188,7 @@ async fn test_concurrent_search_and_update() {
 
 #[tokio::test]
 async fn test_concurrent_vault_operations() {
-    use codex::db::Database;
+    use librarium::db::Database;
 
     let db_dir = TempDir::new().unwrap();
     let db_path = db_dir.path().join("test.db");
@@ -226,7 +226,7 @@ async fn test_concurrent_vault_operations() {
 
 #[tokio::test]
 async fn test_concurrent_recent_file_updates() {
-    use codex::db::Database;
+    use librarium::db::Database;
 
     let db_dir = TempDir::new().unwrap();
     let db_path = db_dir.path().join("test.db");

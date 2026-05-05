@@ -1,9 +1,9 @@
 {
-  "id": "com.codex.worldbuilding",
+  "id": "com.librarium.worldbuilding",
   "name": "Worldbuilding",
   "version": "1.0.0",
   "description": "Typed entities and relations for worldbuilding: characters, factions, locations, events, and more.",
-  "author": "Codex",
+  "author": "Librarium",
   "license": "MIT",
   "main": "main.js",
   "plugin_type": "javascript",

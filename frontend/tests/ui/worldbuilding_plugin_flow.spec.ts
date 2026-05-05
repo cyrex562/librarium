@@ -76,33 +76,33 @@ const factionTypeDef = {
 const allEntityTypes = [characterType, locationTypeDef, factionTypeDef];
 
 const characterTemplate = `---
-codex_type: character
-codex_plugin: worldbuilding
-codex_labels:
+librarium_type: character
+librarium_plugin: worldbuilding
+librarium_labels:
   - graphable
   - person
 full_name: ""
 status: Active
 ---
 
-<!-- codex:prose:begin -->
+<!-- librarium:prose:begin -->
 
-<!-- codex:prose:end -->
+<!-- librarium:prose:end -->
 `;
 
 const locationTemplate = `---
-codex_type: location
-codex_plugin: worldbuilding
-codex_labels:
+librarium_type: location
+librarium_plugin: worldbuilding
+librarium_labels:
   - graphable
   - place
 full_name: ""
 type: ""
 ---
 
-<!-- codex:prose:begin -->
+<!-- librarium:prose:begin -->
 
-<!-- codex:prose:end -->
+<!-- librarium:prose:end -->
 `;
 
 const graphData = {
@@ -138,9 +138,9 @@ const ariaEntityResponse = {
 };
 
 const ariaFileContent = `---
-codex_type: character
-codex_plugin: worldbuilding
-codex_labels:
+librarium_type: character
+librarium_plugin: worldbuilding
+librarium_labels:
   - graphable
   - person
 full_name: Aria
@@ -381,7 +381,7 @@ test.describe('Worldbuilding — Entity templates', () => {
         await expect(dialog).not.toBeVisible({ timeout: 8000 });
 
         // The saved content should come from the character template
-        expect(fileContentsByVaultId[defaultVault.id]['Aria.md']).toContain('codex_type: character');
+        expect(fileContentsByVaultId[defaultVault.id]['Aria.md']).toContain('librarium_type: character');
     });
 });
 
@@ -645,7 +645,7 @@ test.describe('Worldbuilding — Relations panel', () => {
             fileContentsByVaultId: {
                 [defaultVault.id]: {
                     'aria.md': ariaFileContent,
-                    'lyra.md': '---\ncodex_type: character\nfull_name: Lyra\n---\n',
+                    'lyra.md': '---\nlibrarium_type: character\nfull_name: Lyra\n---\n',
                 },
             },
             entityByPathByVaultId: { [defaultVault.id]: { 'aria.md': ariaEntityResponse } },

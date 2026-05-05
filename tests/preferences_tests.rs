@@ -1,5 +1,5 @@
-use codex::db::Database;
-use codex::models::{EditorMode, UserPreferences};
+use librarium::db::Database;
+use librarium::models::{EditorMode, UserPreferences};
 use tempfile::TempDir;
 
 async fn create_test_db() -> (Database, TempDir) {

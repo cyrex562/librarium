@@ -1,4 +1,4 @@
-use codex::services::MarkdownService;
+use librarium::services::MarkdownService;
 
 #[test]
 fn test_header_link_display_text() {

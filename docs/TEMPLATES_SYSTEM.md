@@ -1,7 +1,7 @@
 # Templates System Documentation
 
 ## Overview
-The Templates system in Codex allows users to create reusable note templates with variable substitution, making it easy to maintain consistent note structures.
+The Templates system in Librarium allows users to create reusable note templates with variable substitution, making it easy to maintain consistent note structures.
 
 ## Architecture
 

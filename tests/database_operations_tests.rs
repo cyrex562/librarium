@@ -1,5 +1,5 @@
-use codex::db::Database;
-use codex::models::EditorMode;
+use librarium::db::Database;
+use librarium::models::EditorMode;
 use tempfile::TempDir;
 
 #[tokio::test]

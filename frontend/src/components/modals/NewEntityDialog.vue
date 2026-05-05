@@ -288,13 +288,13 @@ function patchTemplate(
         body = match[2] ?? '';
     }
 
-    // Set required codex keys
-    fm.codex_type = typeId;
+    // Set required librarium keys
+    fm.librarium_type = typeId;
     if (type) {
         const plugin_id = type.plugin_id;
-        fm.codex_plugin = plugin_id;
+        fm.librarium_plugin = plugin_id;
         if (type.labels?.length) {
-            fm.codex_labels = type.labels;
+            fm.librarium_labels = type.labels;
         }
         // Set display field / title
         const displayKey = type.display_field ?? 'name';

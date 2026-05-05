@@ -3,9 +3,9 @@ import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, s
 
 const entityFile = 'aria.md';
 const entityFileContent = `---
-codex_type: character
-codex_plugin: worldbuilding
-codex_labels:
+librarium_type: character
+librarium_plugin: worldbuilding
+librarium_labels:
   - graphable
 name: Aria
 ---
@@ -191,7 +191,7 @@ test.describe('Entity relations panel', () => {
             fileContentsByVaultId: {
                 [defaultVault.id]: {
                     [entityFile]: entityFileContent,
-                    'lyra.md': '---\ncodex_type: character\nname: Lyra\n---\n',
+                    'lyra.md': '---\nlibrarium_type: character\nname: Lyra\n---\n',
                 },
             },
             entityByPathByVaultId: {
