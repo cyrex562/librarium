@@ -50,7 +50,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [x] **LIB-016** Clean up duplicate or stale API helpers in `frontend/src/api/client.ts`, especially around reindex and auth lifecycle responses.
 - [x] **LIB-017** Add explicit frontend handling for `TOTP_VERIFICATION_REQUIRED` and related auth errors so redirects and logout behavior stay predictable.
 - [x] **LIB-018** Reconcile any remaining drift between frontend TypeScript types and live backend payloads.
-- [ ] **LIB-019** Review WebSocket message handling for future message types so auth filtering stays centralized instead of per-message ad hoc.
+- [x] **LIB-019** Review WebSocket message handling for future message types so auth filtering stays centralized instead of per-message ad hoc.
 
 ## Tests And Tooling
 
