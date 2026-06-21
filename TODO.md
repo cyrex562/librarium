@@ -57,11 +57,13 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [ ] Ensure Playwright browser provisioning is reproducible for the full matrix (`chromium`, `firefox`, `webkit`) instead of assuming local browser caches exist.
 - [ ] Decide how to handle Playwright WebKit on Fedora 43+: the bundled WebKit runtime currently requires older SONAMEs (`libicu*.so.74`, `libjpeg.so.8`, `libjxl.so.0.8`) that are not all available from stock Fedora repos.
 - [x] Add a frontend test that covers the two-step login flow with pending TOTP state stored in Pinia/localStorage.
-- [ ] Decide whether to address the existing compile warnings in `request_id.rs`, `search_service.rs`, and test helpers, or intentionally defer them.
+- [ ] Decide whether to address the existing compile warnings in `request_id.rs`, `search_service.rs`, `ws.rs` (unused imports: `FileChangeEvent`, `broadcast`), `file_service.rs` (unused import: `WalkDir`), `watcher/mod.rs` (unused import: `warn`), `markdown_service.rs` (unused variable: `match_start`), and test helpers, or intentionally defer them.
 
 ## Plugin Follow-Up
 
 - [ ] Fix bundled plugin manifests that still declare `modify_ui`; the server currently only accepts `modify_u_i`, so `backlinks`, `daily-notes`, and `word-count` fail to load during startup.
+- [ ] Implement custom date-format support in `plugins/daily-notes/main.js` (line 150 TODO) so users can configure the note filename format beyond the hardcoded default.
+- [ ] Implement the backlinks UI panel update in `plugins/backlinks/main.js` (line 175 TODO) so detected wiki-link backlinks are actually rendered in the sidebar panel.
 
 ## Roadmap Buckets
 
