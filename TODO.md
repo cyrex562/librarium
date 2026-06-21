@@ -40,8 +40,8 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 
 ## Config And Deployment
 
-- [ ] **LIB-012** Write explicit production guidance for auth bootstrapping now that committed defaults no longer create an admin user automatically.
-- [ ] **LIB-013** Add a safe example config for local authenticated development that does not rely on shipping default credentials in tracked files.
+- [x] **LIB-012** Write explicit production guidance for auth bootstrapping now that committed defaults no longer create an admin user automatically.
+- [x] **LIB-013** Add a safe example config for local authenticated development that does not rely on shipping default credentials in tracked files.
 - [ ] **LIB-014** Audit committed docs for stale statements about the app architecture, frontend stack, auth providers, and configuration defaults.
 - [ ] **LIB-015** Document the system dependencies required for the Tauri target on Linux (`webkit2gtk`, `libsoup`, `javascriptcoregtk`) so workspace validation is reproducible.
 
