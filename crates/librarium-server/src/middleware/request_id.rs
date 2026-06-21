@@ -58,7 +58,7 @@ where
 
     forward_ready!(service);
 
-    fn call(&self, mut req: ServiceRequest) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
         // Use client-supplied ID if it's a short, printable ASCII string;
         // generate a fresh UUID otherwise.
         let id = req
