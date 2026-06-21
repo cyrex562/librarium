@@ -207,8 +207,11 @@ function scheduleTabSave(tabId: string, content: string, frontmatter: Record<str
 function onModeChange(value: EditorMode | null) {
   if (!value) return;
   editorStore.setMode(value);
-  prefsStore.set('editor_mode', value);
-  void prefsStore.save();
+  // 'structural' is a UI-only mode; it is not persisted to the backend.
+  if (value !== 'structural') {
+    prefsStore.set('editor_mode', value);
+    void prefsStore.save();
+  }
 }
 
 function onToolbarCommand(cmd: string) {

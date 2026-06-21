@@ -87,7 +87,7 @@ import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useEditorStore } from '@/stores/editor';
 import { useWebSocket } from '@/composables/useWebSocket';
-import type { EditorMode } from '@/api/types';
+import type { EditorMode, PersistedEditorMode } from '@/api/types';
 
 import TopBar from '@/components/TopBar.vue';
 import SidebarActions from '@/components/sidebar/SidebarActions.vue';
@@ -184,7 +184,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && ['1', '2', '3'].includes(e.key)) {
     e.preventDefault();
-    const modeByShortcut: Record<string, EditorMode> = {
+    const modeByShortcut: Record<string, PersistedEditorMode> = {
       '1': 'raw',
       '2': 'formatted_raw',
       '3': 'fully_rendered',

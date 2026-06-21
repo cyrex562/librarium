@@ -8,6 +8,8 @@ export interface Vault {
     path_exists: boolean;
     created_at: string;
     updated_at: string;
+    /** Always present; currently always "markdown". Reserved for future MDX support. */
+    document_format: string;
 }
 
 export interface CreateVaultRequest {
@@ -55,7 +57,7 @@ export interface SearchResult {
     matches: SearchMatch[];
     score: number;
     entity_type?: string;
-    labels?: string[];
+    labels: string[];
 }
 
 export interface PagedSearchResult {
@@ -78,11 +80,14 @@ export interface FileChangeEvent {
     timestamp: string;
 }
 
-export type EditorMode = 'raw' | 'side_by_side' | 'formatted_raw' | 'fully_rendered' | 'structural';
+/** Editor modes persisted to the backend (must match the Rust EditorMode enum). */
+export type PersistedEditorMode = 'raw' | 'side_by_side' | 'formatted_raw' | 'fully_rendered';
+/** UI-level editor mode — 'structural' is client-only and never stored in UserPreferences. */
+export type EditorMode = PersistedEditorMode | 'structural';
 
 export interface UserPreferences {
     theme: string;
-    editor_mode: EditorMode;
+    editor_mode: PersistedEditorMode;
     font_size: number;
     window_layout?: string;
     icon_map?: Record<string, string>;
@@ -320,6 +325,96 @@ export interface UndoMlActionResponse {
     file_path: string;
 }
 
+export interface SessionInfo {
+    token_id: string;
+    created_at: string;
+    expires_at: string;
+}
+
+export interface TotpEnrollResponse {
+    /** otpauth:// URI for QR-code generation. */
+    otpauth_url: string;
+    /** Raw base32-encoded secret for manual entry. */
+    secret: string;
+    backup_codes: string[];
+}
+
+export interface AuditLogEntry {
+    id: number;
+    timestamp: string;
+    user_id: string | null;
+    username: string | null;
+    event_type: string;
+    detail: string | null;
+    ip_address: string | null;
+    success: boolean;
+}
+
+export interface ApiKeyInfo {
+    id: string;
+    name: string;
+    prefix: string;
+    user_id: string;
+    created_at: string;
+    expires_at: string | null;
+    revoked: boolean;
+}
+
+export interface CreateApiKeyRequest {
+    name: string;
+    /** Expiration in days from now. Omit for a non-expiring key. */
+    expires_in_days?: number;
+}
+
+export interface CreateApiKeyResponse {
+    id: string;
+    name: string;
+    /** Full API key — shown only once at creation time. */
+    api_key: string;
+    prefix: string;
+    expires_at: string | null;
+}
+
+export interface CreateInviteRequest {
+    role: string;
+    vault_id?: string;
+    expires_in_hours?: number;
+}
+
+export interface InviteInfo {
+    id: string;
+    token: string;
+    role: string;
+    vault_id: string | null;
+    created_by: string;
+    created_at: string;
+    expires_at: string;
+    accepted: boolean;
+    accepted_by: string | null;
+}
+
+export interface AcceptInviteRequest {
+    token: string;
+    username: string;
+    password: string;
+}
+
+export interface BulkUserEntry {
+    username: string;
+    is_admin?: boolean;
+    temporary_password?: string;
+}
+
+export interface BulkImportError {
+    username: string;
+    error: string;
+}
+
+export interface BulkImportResult {
+    created: string[];
+    failed: BulkImportError[];
+}
+
 // Auth types
 export interface LoginRequest {
     username: string;
@@ -366,6 +461,7 @@ export interface AdminUser {
     id: string;
     username: string;
     is_admin: boolean;
+    is_active: boolean;
     must_change_password: boolean;
     created_at: string;
 }
