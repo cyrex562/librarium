@@ -87,6 +87,35 @@ async function handleUnauthorized(url: string) {
     }
 }
 
+// Handles 403 responses with known structured error codes so the user is
+// redirected to the correct page rather than seeing a generic error.
+//
+// TOTP_VERIFICATION_REQUIRED: the access token was issued before TOTP
+//   verification completed (e.g. stale tab after page reload). Re-arm the
+//   pendingTotp flag and redirect to /login so the TOTP form is shown.
+//
+// PASSWORD_CHANGE_REQUIRED: an admin forced a password reset. Redirect to
+//   /change-password; the router guard will enforce this on navigation too,
+//   but mid-session API calls need the same treatment.
+function handleForbidden(errorCode: string | undefined) {
+    if (typeof window === 'undefined') return;
+    try {
+        const auth = useAuthStore();
+        if (errorCode === 'TOTP_VERIFICATION_REQUIRED') {
+            auth.flagPendingTotp();
+            if (window.location.pathname !== '/login') {
+                window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+            }
+        } else if (errorCode === 'PASSWORD_CHANGE_REQUIRED') {
+            if (window.location.pathname !== '/change-password') {
+                window.location.href = '/change-password';
+            }
+        }
+    } catch {
+        // Pinia may not be ready during early boot.
+    }
+}
+
 async function request<T>(
     url: string,
     options: RequestInit = {},
@@ -117,10 +146,12 @@ async function request<T>(
         let body: unknown;
         try { body = await response.json(); } catch { /* empty */ }
         const message = (body as { message?: string })?.message ?? `HTTP ${response.status}`;
+        const errorCode = (body as { error?: string })?.error;
 
-        // Handle authentication expiration
         if (response.status === 401) {
             await handleUnauthorized(url);
+        } else if (response.status === 403) {
+            handleForbidden(errorCode);
         }
 
         throw new ApiError(response.status, message, body);
