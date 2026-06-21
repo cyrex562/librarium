@@ -12,68 +12,101 @@ This roadmap tracks feature parity for requested Obsidian plugin behaviors in th
 
 | Plugin / Feature | Status | Notes |
 |---|---:|---|
-| Advanced Tables | ⏳ | No table UX/editor tools yet. |
-| Automatic List Management | ⏳ | Need Enter/Tab list continuation + auto-numbering behavior in editor. |
+| Advanced Tables | 🟡 | Enter adds rows, Tab/Shift+Tab navigates cells — full alignment/insert toolbar still pending. |
+| Automatic List Management | ✅ | Enter continues bullets, ordered, task, and roman-numeral lists; Tab/Shift+Tab indents. |
 | Copy Button for Code Blocks | ✅ | Added in `MarkdownPreview.vue` (`Copy` / `Copied!` buttons on fenced code blocks). |
-| Code Syntax Highlight | ✅ | Backend markdown renderer already applies syntax highlighting (`markdown_service.rs`, syntect). |
+| Code Syntax Highlight | ✅ | Backend renderer applies syntax highlighting (`markdown_service.rs`, syntect). |
 | Folder Notes | ⏳ | No folder-note resolution convention yet. |
 | Iconize | ⏳ | No user-configurable per-file/folder icon metadata yet. |
 | Kanban | ⏳ | No `.kanban`/board view editor yet. |
-| Mermaid Tools | ⏳ | Mermaid fences are not yet rendered as diagrams in preview. |
+| Mermaid Tools | ✅ | Mermaid fences are rendered as diagrams in preview (`MarkdownPreview.vue`, lazy-loaded `mermaid` library, SVG sanitized via DOMPurify). |
 | Mindmap | ⏳ | No mindmap parser/view yet. |
-| Neighboring Files | ⏳ | No previous/next note navigation based on tree ordering. |
+| Neighboring Files | ✅ | `NeighboringFilesPanel.vue` shows previous/next note in tree order. |
 | Note Refactor | ⏳ | No heading/block extraction/refactor workflows yet. |
-| Ordered List Style | ⏳ | No configurable numbering styles (roman/alpha etc.). |
-| Recent Files | 🟡 | Backend+store endpoints exist; needs richer dedicated UI panel/workflow. |
+| Ordered List Style | 🟡 | Auto-continuation exists (decimal, alpha, roman); no configurable numbering styles (force roman, etc.). |
+| Recent Files | ✅ | `RecentFilesPanel.vue` uses `filesStore.recentFiles`; backend `/recent` endpoint exists. |
 | Tag Wrangler | ⏳ | No global rename/merge/delete tag operations yet. |
 | Tasks | ⏳ | No dedicated task query panel/filters/scheduling UI yet. |
-| Backlinks | 🟡 | Core plugin scaffolding exists; parity panel behavior in Vue app still needs full integration pass. |
-| Bases (Dataview-like) | 🟡 | Metadata query specs/docs exist; full UI/query execution parity pending. |
-| Bookmarks | ⏳ | No bookmark manager panel yet. |
-| Canvas | 🟡 | Data model/plans exist; full interactive canvas parity still in-progress. |
+| Backlinks | ✅ | `BacklinksPanel.vue` calls `apiGetBacklinks()` and renders with open-file navigation. |
+| Bases (Dataview-like) | 🟡 | Entity model and metadata query specs exist; full UI/query execution parity pending. |
+| Bookmarks | ✅ | `BookmarksPanel.vue` with add/remove actions and open-file navigation. |
+| Canvas | ✅ | `CanvasView.vue` — full interactive editor: pan/zoom, drag nodes (text/file/link/group), SVG bezier edges, inline editing, multi-select, resize, auto-save. |
 | Footnotes View | 🟡 | Markdown parser supports footnotes; no dedicated footnotes panel/view yet. |
-| Graph View | 🟡 | Models/plans exist; dedicated graph UI parity pending. |
-| Outgoing Links | ⏳ | No dedicated outgoing links panel yet. |
-| Outline | ⏳ | No live heading outline pane yet. |
-| Properties View | ✅ | Frontmatter properties panel exists (`FrontmatterPanel.vue`). |
-| Tags View | ⏳ | No dedicated tags browser panel in current Vue UI. |
-| Word Count | 🟡 | Plugin exists under `plugins/word-count`; needs first-class Vue integration in current shell. |
+| Graph View | ✅ | `GraphView.vue` — entity relation graph via `/api/vaults/{id}/graph`. |
+| Outgoing Links | ✅ | `OutgoingLinksPanel.vue` parses wiki-links and markdown links from current file content. |
+| Outline | ✅ | `OutlinePanel.vue` parses headings from current file content with ML outline generation. |
+| Properties View | ✅ | Frontmatter properties panel (`FrontmatterPanel.vue`). |
+| Tags View | ✅ | `TagsPanel.vue` lists all vault tags with counts via `apiListTags()`. |
+| Word Count | 🟡 | Hardcoded word/char count in `EditorPane.vue` status bar; not plugin-extensible yet. |
 
-## Recommended Implementation Waves
+## Plugin Infrastructure
 
-## Wave 1 — Editor UX parity (quick wins)
+### What is implemented
 
-1. Automatic list management (continue/toggle task/numbered lists on Enter)
-2. Ordered list style controls
-3. Advanced tables editing helpers (row/column insert/delete, align)
-4. Mermaid rendering in preview + toolbar insert
+- Plugin discovery: scans `plugins/` directory for `manifest.json`
+- Capability-based authorization (`PluginCapability` enum; every API call checks the required capability)
+- Plugin enable/disable persisted to `.plugins_config.json`
+- Plugin config schema support (JSON Schema in manifest; server validates before persisting)
+- Dependency resolution with topological sort and cycle detection
+- Entity type, relation type, and label registration (worldbuilding plugin)
+- `PluginManager.vue` admin UI: list plugins, toggle enable/disable, show schema-based config
+- Plugin asset serving (`/api/plugins/{id}/assets/{file}`) with path traversal protection
 
-## Wave 2 — Navigation & knowledge surfaces
+### Plugin API authorization
 
-1. Outline panel
-2. Backlinks panel (full Vue integration)
-3. Outgoing links panel
-4. Recent files panel
-5. Neighboring files navigation
+| Endpoint | Auth Required | Notes |
+|---|---|---|
+| `GET /api/plugins` | Any authenticated user | List all plugins and metadata |
+| `GET /api/plugins/{id}` | Any authenticated user | Plugin detail + config schema |
+| `POST /api/plugins/{id}/toggle` | **Admin only** | Enable or disable a plugin |
+| `PUT /api/plugins/{id}/config` | **Admin only** | Replace plugin configuration |
+| `GET /api/plugins/{id}/assets/{file}` | Any authenticated user | Serve plugin static assets; path-traversal protected |
 
-## Wave 3 — Metadata & organization
+This authorization model is intentional: all users can view plugin info and load plugin assets (needed for frontend plugin JS to load), but only admins control what is installed and configured.
 
-1. Tags view + Tag Wrangler ops
-2. Bookmarks manager
-3. Folder Notes behavior
-4. Iconize-like icon metadata
+### What is not yet implemented
 
-## Wave 4 — Advanced views
+- **Frontend plugin code execution**: `main.js` files are not yet loaded or executed in the browser. All current plugin behavior (backlinks, word-count, daily-notes) is implemented natively in the Vue/Rust app; the plugin JS files are scaffolding for future runtime support.
+- **Plugin event bus**: No frontend event system for `on_file_open`, `on_editor_change`, `on_load` hooks yet.
+- **Plugin UI extension APIs**: No `addStatusBarItem()`, `registerCommand()`, `addRibbonIcon()`, or custom sidebar panel registration from plugin code.
+- **JavaScript runtime**: The backend has a `PluginApi` struct with capability-checked methods but no JS engine (V8 / QuickJS) to execute plugin code server-side.
 
-1. Tasks panel/query DSL
-2. Bases (Dataview-like views)
-3. Graph view
-4. Canvas editor completion
-5. Kanban + Mindmap
+### Recommended future direction
 
-## Proposed Next Sprint (start here)
+The cleanest path for frontend plugin execution is a **Web Worker sandbox** per plugin:
+- Each enabled plugin's `main.js` is loaded into an isolated `Worker`
+- A message-passing bridge exposes the capability-checked API (`readFile`, `writeFile`, `addStatusBarItem`, etc.)
+- The worker is terminated on plugin disable or vault switch
+- This avoids CSP/iframe complexity and keeps plugin code off the main thread
 
-- Implement **Automatic List Management** in `MarkdownEditor` key handling.
-- Add **Outline panel** component (headings from current markdown content).
-- Add **Outgoing links panel** using parsed wikilinks/markdown links.
-- Add **Recent files sidebar section** (using existing `recentFiles` store).
+Server-side execution (via an embedded JS engine) is an option for data-heavy plugins but adds significant dependency weight. The hybrid model (client Worker + server capability check on every API call) is preferred for this offline-first app.
+
+## Remaining Implementation Waves
+
+### Wave 1 — Quick wins remaining
+
+1. Advanced Tables toolbar: column insert/delete, alignment toggle
+2. Configurable ordered-list styles in editor toolbar
+
+### Wave 2 — Advanced views
+
+1. Tasks panel with query DSL (checkbox scanning, due-date filters)
+2. Bases (Dataview-like entity query views)
+3. Kanban board view (`.kanban` files)
+4. Mindmap view
+
+### Wave 3 — Plugin runtime
+
+1. Web Worker plugin loader with message-bridge API
+2. Plugin event bus (file open, editor change, save)
+3. `addStatusBarItem()` — replace hardcoded word count
+4. `registerCommand()` / command palette integration
+5. Custom sidebar panel registration from plugin code
+6. Schema-based config form in `PluginManager.vue`
+
+### Wave 4 — Content operations
+
+1. Tag Wrangler bulk ops (rename/merge/delete across vault)
+2. Note Refactor (heading/block extraction)
+3. Folder Notes resolution
+4. Iconize-like per-file/folder icon metadata

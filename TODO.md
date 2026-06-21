@@ -78,7 +78,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - verify Linux packaging and runtime dependencies
 - [x] **LIB-030** Canvas feature completion
   - continue implementation from `docs/CANVAS_INTEGRATION_PLAN.md` and `docs/CANVAS_EDITING_PLAN.md`
-- [ ] **LIB-031** Plugin parity and plugin security hardening
+- [x] **LIB-031** Plugin parity and plugin security hardening
   - continue `docs/PLUGIN_PARITY_ROADMAP.md`
   - review plugin enable/disable/config authorization expectations
 - [ ] **LIB-032** Vue/frontend migration completion and cleanup
