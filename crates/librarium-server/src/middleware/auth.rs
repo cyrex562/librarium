@@ -335,19 +335,34 @@ where
                 match user_role {
                     Ok(Some(role)) if role_allows(&role, required_role) => {}
                     Ok(Some(_)) | Ok(None) => {
-                        let vault_exists = state.db.get_vault(&vault_id).await.is_ok();
-                        let response = if vault_exists {
-                            HttpResponse::Forbidden().json(serde_json::json!({
-                                "error": "FORBIDDEN",
-                                "message": "You do not have access to this vault"
-                            }))
-                        } else {
-                            HttpResponse::NotFound().json(serde_json::json!({
-                                "error": "NOT_FOUND",
-                                "message": "Vault not found"
-                            }))
-                        };
-                        return Ok(req.into_response(response).map_into_right_body());
+                        // LIB-008: An authenticated user who is not a vault member should
+                        // still be able to read a public vault, just like an anonymous
+                        // visitor. Without this check, logged-in non-members would be
+                        // blocked while anonymous users could freely access the same vault.
+                        let is_read = matches!(required_role, RequiredVaultRole::Read);
+                        let is_public = is_read
+                            && state
+                                .db
+                                .get_vault_visibility(&vault_id)
+                                .await
+                                .map(|v| v == "public")
+                                .unwrap_or(false);
+
+                        if !is_public {
+                            let vault_exists = state.db.get_vault(&vault_id).await.is_ok();
+                            let response = if vault_exists {
+                                HttpResponse::Forbidden().json(serde_json::json!({
+                                    "error": "FORBIDDEN",
+                                    "message": "You do not have access to this vault"
+                                }))
+                            } else {
+                                HttpResponse::NotFound().json(serde_json::json!({
+                                    "error": "NOT_FOUND",
+                                    "message": "Vault not found"
+                                }))
+                            };
+                            return Ok(req.into_response(response).map_into_right_body());
+                        }
                     }
                     Err(_) => {
                         let response =

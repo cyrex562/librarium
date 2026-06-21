@@ -491,6 +491,17 @@ impl Database {
             .execute(&self.pool)
             .await;
 
+        // oidc_sub: stores the OIDC provider's stable subject identifier so
+        // returning OIDC users are matched by sub rather than by mutable username,
+        // preventing username-collision account takeover (LIB-008).
+        let _ = sqlx::query("ALTER TABLE users ADD COLUMN oidc_sub TEXT")
+            .execute(&self.pool)
+            .await;
+        let _ =
+            sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub)")
+                .execute(&self.pool)
+                .await;
+
         // ── Phase 4b: Invitations ───────────────────────────────────────
         sqlx::query(
             r#"
@@ -814,6 +825,32 @@ impl Database {
                 .map_err(AppError::from)?;
 
         Ok(row)
+    }
+
+    /// Look up a user by their OIDC provider subject identifier.
+    /// Returns `(id, username)` if found.
+    pub async fn get_user_by_oidc_sub(
+        &self,
+        oidc_sub: &str,
+    ) -> AppResult<Option<(String, String)>> {
+        let row: Option<(String, String)> =
+            sqlx::query_as("SELECT id, username FROM users WHERE oidc_sub = ?")
+                .bind(oidc_sub)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(AppError::from)?;
+        Ok(row)
+    }
+
+    /// Bind an OIDC subject identifier to an existing user account.
+    pub async fn set_user_oidc_sub(&self, user_id: &str, oidc_sub: &str) -> AppResult<()> {
+        sqlx::query("UPDATE users SET oidc_sub = ? WHERE id = ?")
+            .bind(oidc_sub)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(AppError::from)?;
+        Ok(())
     }
 
     pub async fn get_user_auth_by_id(

@@ -20,7 +20,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 ## Security And Correctness
 
 - [x] **LIB-007** Review all non-`/api/vaults/...` routes for missing resource-scoped authorization checks, especially plugin, label, relation-type, and admin-adjacent endpoints.
-- [ ] **LIB-008** Review remaining auth edge cases:
+- [x] **LIB-008** Review remaining auth edge cases:
   - OIDC local user provisioning and username collision policy
   - API key scope and whether keys should be session-independent
   - public-vault read paths versus authenticated read paths
