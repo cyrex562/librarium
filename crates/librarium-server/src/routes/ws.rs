@@ -4,6 +4,7 @@ use crate::models::WsMessage;
 use crate::routes::vaults::AppState;
 use actix_web::{get, web, Error, HttpMessage, HttpRequest, HttpResponse};
 use actix_ws::Message;
+use std::time::Duration;
 use tracing::info;
 
 /// Return the vault ID that a `WsMessage` is scoped to, or `None` for
@@ -39,8 +40,24 @@ async fn websocket(
     let current_user = req.extensions().get::<AuthenticatedUser>().cloned();
 
     actix_web::rt::spawn(async move {
+        let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+        ping_interval.tick().await; // discard the immediate first tick
+
         loop {
             tokio::select! {
+                // Send a SyncPing every 30 seconds to keep idle connections alive
+                // through reverse-proxy idle-timeout policies.
+                _ = ping_interval.tick() => {
+                    let server_time = chrono::Utc::now().timestamp_millis();
+                    let msg = WsMessage::SyncPing;
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        if session.text(json).await.is_err() {
+                            break;
+                        }
+                    }
+                    let _ = server_time; // available for future SyncPong matching
+                }
+
                 // Receive messages from the client
                 Some(Ok(msg)) = msg_stream.recv() => {
                     match msg {

@@ -84,7 +84,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [x] **LIB-032** Vue/frontend migration completion and cleanup
   - continue `docs/VUE_PORT_AND_API_PLAN.md`
   - remove stale HTMX-era documentation and assumptions
-- [ ] **LIB-033** Multi-user, sharing, and sync hardening
+- [x] **LIB-033** Multi-user, sharing, and sync hardening
   - continue `docs/PLAN-desktop-sync-multiuser.md`
   - verify group-sharing and invitation edge cases under auth enforcement
 
