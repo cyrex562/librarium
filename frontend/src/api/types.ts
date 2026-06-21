@@ -526,8 +526,61 @@ export type WsMessage =
     | { type: 'SyncPong'; server_time: number }
     | { type: 'Error'; message: string };
 
+// ── Canvas types (Obsidian-compatible .canvas JSON format) ───────────────────
+
+export type CanvasNodeSide = 'top' | 'right' | 'bottom' | 'left';
+
+export interface CanvasNodeBase {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    color?: string;
+}
+
+export interface CanvasTextNode extends CanvasNodeBase {
+    type: 'text';
+    text: string;
+}
+
+export interface CanvasFileNode extends CanvasNodeBase {
+    type: 'file';
+    file: string;
+    subpath?: string;
+}
+
+export interface CanvasLinkNode extends CanvasNodeBase {
+    type: 'link';
+    url: string;
+}
+
+export interface CanvasGroupNode extends CanvasNodeBase {
+    type: 'group';
+    label?: string;
+    background?: string;
+    backgroundStyle?: 'cover' | 'ratio' | 'repeat';
+}
+
+export type CanvasNode = CanvasTextNode | CanvasFileNode | CanvasLinkNode | CanvasGroupNode;
+
+export interface CanvasEdge {
+    id: string;
+    fromNode: string;
+    fromSide: CanvasNodeSide;
+    toNode: string;
+    toSide: CanvasNodeSide;
+    color?: string;
+    label?: string;
+}
+
+export interface CanvasData {
+    nodes: CanvasNode[];
+    edges: CanvasEdge[];
+}
+
 // UI-only tab type
-export type FileType = 'markdown' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'graph' | 'other';
+export type FileType = 'markdown' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'graph' | 'canvas' | 'other';
 
 export interface Tab {
     id: string;

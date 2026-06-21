@@ -76,7 +76,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [x] **LIB-029** Desktop parity and Tauri stabilization
   - keep working through `docs/DESKTOP_FEATURE_PARITY_PLAN.md`
   - verify Linux packaging and runtime dependencies
-- [ ] **LIB-030** Canvas feature completion
+- [x] **LIB-030** Canvas feature completion
   - continue implementation from `docs/CANVAS_INTEGRATION_PLAN.md` and `docs/CANVAS_EDITING_PLAN.md`
 - [ ] **LIB-031** Plugin parity and plugin security hardening
   - continue `docs/PLUGIN_PARITY_ROADMAP.md`

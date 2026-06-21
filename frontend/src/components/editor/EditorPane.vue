@@ -66,6 +66,14 @@
       <!-- Graph view -->
       <GraphView v-else-if="isGraph" :vault-id="graphVaultId" style="flex: 1; min-height: 0;" />
 
+      <!-- Canvas view -->
+      <CanvasView
+        v-else-if="isCanvas"
+        :vault-id="vaultsStore.activeVaultId ?? ''"
+        :file-path="activeTab.filePath"
+        style="flex: 1; min-height: 0;"
+      />
+
       <!-- Generic binary notice -->
       <div v-else class="d-flex align-center justify-center" style="flex: 1;">
         <span class="text-caption text-secondary">Binary file — cannot be edited here.</span>
@@ -103,6 +111,7 @@ const ImageViewer = defineAsyncComponent(() => import('@/components/viewers/Imag
 const PdfViewer = defineAsyncComponent(() => import('@/components/viewers/PdfViewer.vue'));
 const AudioVideoViewer = defineAsyncComponent(() => import('@/components/viewers/AudioVideoViewer.vue'));
 const GraphView = defineAsyncComponent(() => import('@/components/graph/GraphView.vue'));
+const CanvasView = defineAsyncComponent(() => import('@/components/graph/CanvasView.vue'));
 
 const props = defineProps<{ paneId: string }>();
 
@@ -133,6 +142,7 @@ const isImage = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].incl
 const isPdf = computed(() => ext.value === 'pdf');
 const isAv = computed(() => ['mp4', 'webm', 'ogv', 'mov', 'mp3', 'ogg', 'wav', 'flac', 'm4a'].includes(ext.value));
 const isGraph = computed(() => activeTab.value?.fileType === 'graph');
+const isCanvas = computed(() => activeTab.value?.fileType === 'canvas');
 const graphVaultId = computed(() => {
   const fp = activeTab.value?.filePath ?? '';
   return fp.startsWith('__graph__:') ? fp.slice('__graph__:'.length) : '';
@@ -147,8 +157,8 @@ const charCount = computed(() => (activeTab.value?.content ?? '').length);
 
 watch(activeTab, async (tab) => {
   if (!tab || tab.content !== '' || !tab.filePath) return;
-  // Graph tabs are virtual — no file to load
-  if (tab.fileType === 'graph') return;
+  // Graph and canvas tabs manage their own content loading
+  if (tab.fileType === 'graph' || tab.fileType === 'canvas') return;
   const vaultId = vaultsStore.activeVaultId;
   if (!vaultId) return;
   const fc = await filesStore.readFile(vaultId, tab.filePath);

@@ -25,6 +25,14 @@
       @click="newNote"
     />
     <v-btn
+      icon="mdi-vector-square-plus"
+      size="small"
+      density="compact"
+      title="New canvas"
+      :disabled="!hasActiveVault"
+      @click="newCanvas"
+    />
+    <v-btn
       icon="mdi-folder-plus-outline"
       size="small"
       density="compact"
@@ -294,6 +302,16 @@ async function loadEntityTypes() {
     entityTypes.value = [];
   } finally {
     loadingNewNoteTemplates.value = false;
+  }
+}
+
+async function newCanvas() {
+  const vaultId = vaultsStore.activeVaultId;
+  if (!vaultId) return;
+  const name = `canvas-${Date.now()}.canvas`;
+  const node = await filesStore.createFile(vaultId, name, JSON.stringify({ nodes: [], edges: [] }));
+  if (node) {
+    tabsStore.openTab(tabsStore.activePaneId, node.path, node.path.split('/').pop()!);
   }
 }
 
