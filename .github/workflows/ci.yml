@@ -122,8 +122,20 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: Install Playwright browsers
+      # Cache Playwright browser binaries keyed by browser + package-lock.json so
+      # the ~200 MB download is only repeated when the Playwright version changes.
+      - name: Cache Playwright browser binaries
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install Playwright browser + system deps (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Install Playwright system deps only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps ${{ matrix.browser }}
       - name: Build frontend
         working-directory: frontend
         run: npm run build
@@ -156,6 +168,7 @@ jobs:
         run: npx playwright test --project=${{ matrix.browser }}
         env:
           CI: true
+          PLAYWRIGHT_INCLUDE_WEBKIT: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -191,8 +204,18 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: Install Playwright webkit browser
+      - name: Cache Playwright browser binaries (webkit / Ubuntu 22.04)
+        uses: actions/cache@v4
+        id: playwright-cache-webkit-22
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-ubuntu-22.04-webkit-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install Playwright webkit browser + system deps (cache miss)
+        if: steps.playwright-cache-webkit-22.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps webkit
+      - name: Install Playwright webkit system deps only (cache hit)
+        if: steps.playwright-cache-webkit-22.outputs.cache-hit == 'true'
+        run: npx playwright install-deps webkit
       - name: Build frontend
         run: npm run build
       - name: Build server
@@ -222,6 +245,7 @@ jobs:
         run: npx playwright test --project=webkit
         env:
           CI: true
+          PLAYWRIGHT_INCLUDE_WEBKIT: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
