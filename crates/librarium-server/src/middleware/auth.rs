@@ -168,6 +168,13 @@ where
         }
 
         // If we have an API key, validate it asynchronously and resolve the user.
+        //
+        // API key auth (LIB-006): API keys are session-independent credentials
+        // intended for programmatic/automation access. They bypass the TOTP
+        // verification gate by design — TOTP is a human-facing second factor
+        // and must not be imposed on non-interactive callers. A valid, non-revoked,
+        // non-expired API key is sufficient to authenticate a request; no TOTP
+        // challenge is ever issued or required.
         if let Some(raw_key) = api_key_header {
             let state_clone = state_for_api_key.clone();
 

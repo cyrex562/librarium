@@ -137,6 +137,21 @@ async fn refresh_access_token(
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Log out the authenticated user.
+///
+/// **Session revocation contract (LIB-005):**
+/// - If a `refresh_token` is supplied in the request body, only the session
+///   identified by that token's JTI is revoked. This is the normal single-device
+///   logout path: the client sends the refresh token it holds, and only that
+///   browser/device session is terminated.
+/// - If no `refresh_token` is supplied (or the body is omitted entirely), **all**
+///   active sessions for the user are revoked. This makes the no-token path a
+///   deliberate "logout everywhere" operation — useful when a client has already
+///   discarded its refresh token or when a server-side forced-logout is needed.
+///
+/// Callers that want to log out only the current device MUST include the refresh
+/// token. Callers that omit it accept that every other active session will also
+/// be invalidated.
 #[post("/api/auth/logout")]
 async fn logout(
     state: web::Data<AppState>,
@@ -163,6 +178,7 @@ async fn logout(
         }
         state.db.revoke_session(&claims.jti).await?;
     } else {
+        // No refresh token supplied — revoke all sessions (logout everywhere).
         let _ = state.db.revoke_all_sessions(&user.user_id).await?;
     }
 
