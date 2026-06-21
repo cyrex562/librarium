@@ -19,7 +19,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 
 ## Security And Correctness
 
-- [ ] **LIB-007** Review all non-`/api/vaults/...` routes for missing resource-scoped authorization checks, especially plugin, label, relation-type, and admin-adjacent endpoints.
+- [x] **LIB-007** Review all non-`/api/vaults/...` routes for missing resource-scoped authorization checks, especially plugin, label, relation-type, and admin-adjacent endpoints.
 - [ ] **LIB-008** Review remaining auth edge cases:
   - OIDC local user provisioning and username collision policy
   - API key scope and whether keys should be session-independent
@@ -31,6 +31,9 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - archive import behavior on large archives and nested conflicts
 - [ ] **LIB-010** Review search index consistency under watcher-driven rename/delete bursts and cross-process file changes.
 - [ ] **LIB-011** Confirm the reindex flow is now the single source of truth for both search and entity state, then remove any remaining duplicate client helpers or stale assumptions.
+
+- [ ] **LIB-041** Decide whether recent-file tracking (`/api/vaults/{vault_id}/recent`) should be scoped per-user rather than per-vault; currently all members of a vault share one recent-files list.
+- [ ] **LIB-042** Document that `/api/render` (stateless markdown rendering) is intentionally unauthenticated, or add auth if that was an oversight.
 
 ## Config And Deployment
 
