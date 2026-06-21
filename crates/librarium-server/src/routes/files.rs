@@ -3,7 +3,7 @@ use crate::models::{
     CreateFileRequest, CreateUploadSessionRequest, UpdateFileRequest, UploadSessionResponse,
 };
 use crate::routes::vaults::AppState;
-use crate::services::{file_service::TrashItem, FileService, ImageService, WikiLinkResolver};
+use crate::services::{file_service::TrashItem, FileService, ImageService, ReindexService, WikiLinkResolver};
 use actix_multipart::Multipart;
 use actix_web::http::header::{ETAG, IF_NONE_MATCH};
 use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse};
@@ -459,8 +459,11 @@ async fn delete_file(
         )
         .await?;
 
-    // Remove from search index
+    // Remove from search index and entity state.
     state.search_index.remove_file(&vault_id, &file_path)?;
+    if let Err(e) = ReindexService::remove_file(&state.db, &vault_id, &file_path).await {
+        tracing::warn!("Entity remove_file failed after delete of {file_path}: {e}");
+    }
 
     Ok(HttpResponse::NoContent().finish())
 }
@@ -522,15 +525,24 @@ async fn rename_file(
         )
         .await?;
 
-    // Update search index if it's a markdown file
+    // Update search index and entity state for the rename.
     if from.ends_with(".md") {
         state.search_index.remove_file(&vault_id, from)?;
+    }
+    if let Err(e) = ReindexService::remove_file(&state.db, &vault_id, from).await {
+        tracing::warn!("Entity remove_file failed after rename of {from}: {e}");
     }
     if new_path.ends_with(".md") {
         if let Ok(content) = FileService::read_file(&vault.path, &new_path) {
             state
                 .search_index
                 .update_file(&vault_id, &new_path, content.content)?;
+        }
+        let abs_path = format!("{}/{}", vault.path.trim_end_matches('/'), new_path);
+        if let Err(e) =
+            ReindexService::index_file(&state.db, &vault_id, &new_path, &abs_path).await
+        {
+            tracing::warn!("Entity index_file failed after rename to {new_path}: {e}");
         }
     }
 

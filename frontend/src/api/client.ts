@@ -236,7 +236,7 @@ export const apiSearch = (
         `/api/vaults/${vaultId}/search?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`,
     );
 
-export const apiReindex = (vaultId: string): Promise<{ message: string; vault_id: string }> =>
+export const apiTriggerReindex = (vaultId: string): Promise<{ message: string; vault_id: string }> =>
     request(`/api/vaults/${vaultId}/reindex`, { method: 'POST' });
 
 // ── ML (outline + organization suggestions, suggest-only) ───────────────────
@@ -637,8 +637,6 @@ export const apiGetEntityRelations = (vaultId: string, entityId: string): Promis
 
 export const apiGetGraph = (vaultId: string): Promise<GraphData> =>
     request(`/api/vaults/${vaultId}/graph`);
-
-export const apiTriggerReindex = apiReindex;
 
 export const apiListLabels = (): Promise<{ labels: Array<{ name: string; description?: string }> }> =>
     request('/api/plugins/labels');

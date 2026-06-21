@@ -30,7 +30,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - trash restore versus existing file conflicts
   - archive import behavior on large archives and nested conflicts
 - [x] **LIB-010** Review search index consistency under watcher-driven rename/delete bursts and cross-process file changes.
-- [ ] **LIB-011** Confirm the reindex flow is now the single source of truth for both search and entity state, then remove any remaining duplicate client helpers or stale assumptions.
+- [x] **LIB-011** Confirm the reindex flow is now the single source of truth for both search and entity state, then remove any remaining duplicate client helpers or stale assumptions.
 
 - [ ] **LIB-044** Refactor `import-archive` to stream archive entries rather than buffering the entire request body into memory (`web::Bytes`). Large archives currently risk OOMing the server. This requires switching to a streaming multipart or chunked body reader and feeding the decompressor incrementally.
 - [ ] **LIB-041** Decide whether recent-file tracking (`/api/vaults/{vault_id}/recent`) should be scoped per-user rather than per-vault; currently all members of a vault share one recent-files list.
