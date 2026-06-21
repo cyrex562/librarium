@@ -59,7 +59,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - refresh token rotation after TOTP completion
   - cross-vault entity ID lookups
   - archive extraction safety
-- [ ] **LIB-021** Add CI coverage that runs the targeted backend integration suite added during this review.
+- [x] **LIB-021** Add CI coverage that runs the targeted backend integration suite added during this review.
 - [ ] **LIB-022** Ensure Playwright browser provisioning is reproducible for the full matrix (`chromium`, `firefox`, `webkit`) instead of assuming local browser caches exist.
 - [ ] **LIB-023** Decide how to handle Playwright WebKit on Fedora 43+: the bundled WebKit runtime currently requires older SONAMEs (`libicu*.so.74`, `libjpeg.so.8`, `libjxl.so.0.8`) that are not all available from stock Fedora repos.
 - [x] **LIB-024** Add a frontend test that covers the two-step login flow with pending TOTP state stored in Pinia/localStorage.
