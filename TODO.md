@@ -35,6 +35,8 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [ ] **LIB-041** Decide whether recent-file tracking (`/api/vaults/{vault_id}/recent`) should be scoped per-user rather than per-vault; currently all members of a vault share one recent-files list.
 - [ ] **LIB-042** Document that `/api/render` (stateless markdown rendering) is intentionally unauthenticated, or add auth if that was an oversight.
 
+- [ ] **LIB-043** Audit the auth stack for offline-first / air-gapped compatibility. The app must function fully on isolated lab networks where no external endpoints are reachable. Specific concerns: (1) OIDC discovery and token exchange make outbound HTTP calls at login time — these must be gracefully disabled, not just unconfigured; (2) any other runtime HTTP calls (plugin asset CDNs, avatar URLs, link-preview fetches, etc.) must be identified and made optional; (3) the auth provider selection should be structured so local username/password always works as a self-contained fallback, with OIDC/LDAP as additive layers, and the design should accommodate future providers (SAML, client-cert, etc.) without requiring core changes.
+
 ## Config And Deployment
 
 - [ ] **LIB-012** Write explicit production guidance for auth bootstrapping now that committed defaults no longer create an admin user automatically.
