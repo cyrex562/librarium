@@ -1249,6 +1249,32 @@ async fn import_archive(
         let cursor = Cursor::new(body.as_ref());
         let mut archive = zip::ZipArchive::new(cursor)
             .map_err(|e| AppError::InvalidInput(format!("Invalid zip: {}", e)))?;
+
+        // For the Fail strategy, pre-scan all entries for conflicts before
+        // writing anything so the operation stays atomic (all-or-nothing).
+        if query.conflict == ConflictStrategy::Fail {
+            for i in 0..archive.len() {
+                let zf = archive
+                    .by_index(i)
+                    .map_err(|e| AppError::InternalError(format!("Zip read error: {}", e)))?;
+                if zf.is_dir() {
+                    continue;
+                }
+                let Some(safe_name) = zf.enclosed_name().map(|p| p.to_path_buf()) else {
+                    continue;
+                };
+                let dest = target_dir.join(&safe_name);
+                if dest.exists() {
+                    return Err(AppError::Conflict(format!(
+                        "Archive entry already exists: {}",
+                        dest.strip_prefix(&vault.path)
+                            .unwrap_or(&dest)
+                            .to_string_lossy()
+                    )));
+                }
+            }
+        }
+
         for i in 0..archive.len() {
             let mut zf = archive
                 .by_index(i)
@@ -1266,6 +1292,8 @@ async fn import_archive(
             }
             let final_dest = match (dest.exists(), query.conflict) {
                 (true, ConflictStrategy::Fail) => {
+                    // Should not be reached after the pre-scan above, but kept
+                    // as a safe fallback for the race window.
                     return Err(AppError::Conflict(format!(
                         "Archive entry already exists: {}",
                         dest.strip_prefix(&vault.path)
@@ -1319,6 +1347,7 @@ async fn import_archive(
                 continue;
             }
             let raw_name = entry_path.to_string_lossy().to_string();
+            // String-level pre-check for the most obvious traversal forms.
             if raw_name.starts_with('/') || raw_name.contains("..") {
                 continue;
             }
@@ -1326,8 +1355,30 @@ async fn import_archive(
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            // Canonicalize the resolved destination and verify it stays inside
+            // target_dir. The parent directory was just created above so
+            // canonicalize should succeed; if it doesn't, skip the entry rather
+            // than risk writing outside the vault.
+            let canonical_dest = match dest.canonicalize() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let canonical_target = match target_dir.canonicalize() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !canonical_dest.starts_with(&canonical_target) {
+                continue;
+            }
             let final_dest = match (dest.exists(), query.conflict) {
                 (true, ConflictStrategy::Fail) => {
+                    // TAR is a streaming format so we cannot pre-scan; clean up
+                    // the files already extracted before returning the error.
+                    for already in &extracted {
+                        let _ = std::fs::remove_file(
+                            std::path::Path::new(&vault.path).join(already),
+                        );
+                    }
                     return Err(AppError::Conflict(format!(
                         "Archive entry already exists: {}",
                         dest.strip_prefix(&vault.path)
