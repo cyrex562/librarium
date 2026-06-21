@@ -73,7 +73,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 
 ## Roadmap Buckets
 
-- [ ] **LIB-029** Desktop parity and Tauri stabilization
+- [x] **LIB-029** Desktop parity and Tauri stabilization
   - keep working through `docs/DESKTOP_FEATURE_PARITY_PLAN.md`
   - verify Linux packaging and runtime dependencies
 - [ ] **LIB-030** Canvas feature completion
