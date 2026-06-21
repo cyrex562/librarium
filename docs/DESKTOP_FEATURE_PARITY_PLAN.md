@@ -1,6 +1,6 @@
 # Desktop Feature Parity Plan
 
-This document tracks the work needed for the native desktop client (`crates/obsidian-desktop`) to reach practical feature parity with the current web frontend.
+This document tracks the work needed for the native desktop client (`crates/librarium-tauri`) to reach practical feature parity with the current web frontend.
 
 ## Current state
 

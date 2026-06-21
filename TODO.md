@@ -81,7 +81,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [x] **LIB-031** Plugin parity and plugin security hardening
   - continue `docs/PLUGIN_PARITY_ROADMAP.md`
   - review plugin enable/disable/config authorization expectations
-- [ ] **LIB-032** Vue/frontend migration completion and cleanup
+- [x] **LIB-032** Vue/frontend migration completion and cleanup
   - continue `docs/VUE_PORT_AND_API_PLAN.md`
   - remove stale HTMX-era documentation and assumptions
 - [ ] **LIB-033** Multi-user, sharing, and sync hardening
