@@ -204,7 +204,8 @@ export const apiRenameFile = (
     vaultId: string,
     from: string,
     to: string,
-    strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
+    // Frontend uses 'rename' as the name for auto-rename; backend calls it 'autorename'.
+    strategy: 'fail' | 'overwrite' | 'rename' = 'fail',
 ): Promise<{ new_path: string }> =>
     request(`/api/vaults/${vaultId}/rename`, {
         method: 'POST',
@@ -476,7 +477,7 @@ export const apiTogglePlugin = (
         body: JSON.stringify({ enabled }),
     });
 
-// ── Auth (Phase E — endpoints may not yet exist; gracefully no-op) ────────────
+// ── Auth ─────────────────────────────────────────────────────────────────────
 
 export const apiLogin = (username: string, password: string): Promise<LoginResponse> =>
     request('/api/auth/login', {
@@ -650,7 +651,10 @@ export const apiGetEntityTypeTemplate = (vaultId: string, typeId: string): Promi
 export const apiListRelationTypes = (): Promise<{ relation_types: RelationTypeSchema[] }> =>
     request('/api/plugins/relation-types');
 
-export const apiGetEntityByPath = (vaultId: string, filePath: string): Promise<{ entity: import('./types').Entity | null; relations: import('./types').EntityRelation[] }> =>
+export const apiGetEntityByPath = (
+    vaultId: string,
+    filePath: string,
+): Promise<{ entity: Entity | null; relations: EntityRelation[] }> =>
     request(`/api/vaults/${encodeURIComponent(vaultId)}/entity-by-path?path=${encodeURIComponent(filePath)}`);
 
 export interface VaultEntityStats {

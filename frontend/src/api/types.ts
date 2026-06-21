@@ -320,7 +320,7 @@ export interface UndoMlActionResponse {
     file_path: string;
 }
 
-// Auth types (Phase E — used now so stores can be wired consistently)
+// Auth types
 export interface LoginRequest {
     username: string;
     password: string;
@@ -422,7 +422,7 @@ export interface VaultShareList {
     group_shares: VaultShareEntry[];
 }
 
-// WebSocket message envelope (Phase F formal type, used here for frontend)
+// WebSocket message envelope
 export type WsMessage =
     | { type: 'FileChanged'; vault_id: string; path: string; event_type: FileChangeType; etag?: string; timestamp: number }
     | { type: 'ReindexComplete'; vault_id: string; file_count: number; duration_ms: number }
