@@ -29,7 +29,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - rename overwrite semantics
   - trash restore versus existing file conflicts
   - archive import behavior on large archives and nested conflicts
-- [ ] **LIB-010** Review search index consistency under watcher-driven rename/delete bursts and cross-process file changes.
+- [x] **LIB-010** Review search index consistency under watcher-driven rename/delete bursts and cross-process file changes.
 - [ ] **LIB-011** Confirm the reindex flow is now the single source of truth for both search and entity state, then remove any remaining duplicate client helpers or stale assumptions.
 
 - [ ] **LIB-044** Refactor `import-archive` to stream archive entries rather than buffering the entire request body into memory (`web::Bytes`). Large archives currently risk OOMing the server. This requires switching to a streaming multipart or chunked body reader and feeding the decompressor incrementally.
@@ -63,7 +63,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [ ] **LIB-022** Ensure Playwright browser provisioning is reproducible for the full matrix (`chromium`, `firefox`, `webkit`) instead of assuming local browser caches exist.
 - [ ] **LIB-023** Decide how to handle Playwright WebKit on Fedora 43+: the bundled WebKit runtime currently requires older SONAMEs (`libicu*.so.74`, `libjpeg.so.8`, `libjxl.so.0.8`) that are not all available from stock Fedora repos.
 - [x] **LIB-024** Add a frontend test that covers the two-step login flow with pending TOTP state stored in Pinia/localStorage.
-- [ ] **LIB-025** Decide whether to address the existing compile warnings in `request_id.rs`, `search_service.rs`, `ws.rs` (unused imports: `FileChangeEvent`, `broadcast`), `file_service.rs` (unused import: `WalkDir`), `watcher/mod.rs` (unused import: `warn`), `markdown_service.rs` (unused variable: `match_start`), and test helpers, or intentionally defer them.
+- [ ] **LIB-025** Decide whether to address the existing compile warnings in `request_id.rs`, `search_service.rs`, `ws.rs` (unused imports: `FileChangeEvent`, `broadcast`), `file_service.rs` (unused import: `WalkDir`), `markdown_service.rs` (unused variable: `match_start`), and test helpers, or intentionally defer them. (`watcher/mod.rs` warning resolved — `warn` is now used.)
 
 ## Plugin Follow-Up
 
