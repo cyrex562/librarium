@@ -68,8 +68,8 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 ## Plugin Follow-Up
 
 - [x] **LIB-026** Fix bundled plugin manifests that still declare `modify_ui`; the server currently only accepts `modify_u_i`, so `backlinks`, `daily-notes`, and `word-count` fail to load during startup.
-- [ ] **LIB-027** Implement custom date-format support in `plugins/daily-notes/main.js` (line 150 TODO) so users can configure the note filename format beyond the hardcoded default.
-- [ ] **LIB-028** Implement the backlinks UI panel update in `plugins/backlinks/main.js` (line 175 TODO) so detected wiki-link backlinks are actually rendered in the sidebar panel.
+- [x] **LIB-027** Implement custom date-format support in `plugins/daily-notes/main.js` (line 150 TODO) so users can configure the note filename format beyond the hardcoded default.
+- [x] **LIB-028** Implement the backlinks UI panel update in `plugins/backlinks/main.js` (line 175 TODO) so detected wiki-link backlinks are actually rendered in the sidebar panel.
 
 ## Roadmap Buckets
 
