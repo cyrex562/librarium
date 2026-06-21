@@ -70,9 +70,9 @@ sudo dnf install -y \
     librsvg2-devel
 
 # Fedora 41+ / RHEL 9 use the same package names above.
-# Note: Fedora 43+ ships newer SONAMEs (libicu*.so.75, libjpeg.so.8+).
-# See docs/WEBKITGTK_COMPAT.md and TODO.md LIB-023 for the bundled Playwright
-# webkit runtime compatibility issue on Fedora 43+.
+# Note: Fedora 43+ ships newer SONAMEs (libicu*.so.75, libjpeg.so.9+).
+# See "Playwright WebKit on Fedora 43+" in this file for the bundled Playwright
+# webkit SONAME mismatch and the decision to skip WebKit locally on Fedora.
 ```
 
 #### Arch Linux
@@ -108,7 +108,51 @@ by `pkg-config` at compile time.
 See `docs/WEBKITGTK_COMPAT.md` for JavaScript / CSS / Web API constraints that
 apply when running on WebKitGTK 2.36 (Ubuntu 22.04 minimum).
 
-## Building for Release
+## Running E2E Tests (Playwright)
+
+```bash
+cd frontend
+npm ci
+npx playwright install --with-deps   # installs all three browsers
+npm run test:e2e
+```
+
+### Browser matrix
+
+The test suite targets **Chromium**, **Firefox**, and **WebKit** via Playwright's
+bundled browser binaries.  On CI all three run in the GitHub Actions matrix
+(`ubuntu-latest`).  The `webkit-compat` CI job additionally runs WebKit on
+`ubuntu-22.04` with the system WebKitGTK 4.0 packages installed, giving
+confidence on the oldest supported GTK stack.
+
+### Playwright WebKit on Fedora 43+
+
+Playwright bundles its own WebKit runtime (separate from the WebKitGTK packages
+used by the Tauri desktop shell).  On **Fedora 43+** the bundled runtime requires
+older shared-library SONAMEs that are no longer in the default repos:
+
+| Library | Required SONAME | Fedora 43 ships |
+|---------|-----------------|-----------------|
+| ICU | `libicu*.so.74` | `libicu*.so.75` |
+| libjpeg | `libjpeg.so.8` | `libjpeg.so.9` (libjpeg-turbo) |
+| libjxl | `libjxl.so.0.8` | `libjxl.so.0.10` |
+
+**Decision (LIB-023):** Skip Playwright WebKit on local Fedora hosts by default.
+`playwright.config.ts` detects Fedora via `/etc/os-release` and excludes the
+`webkit` project automatically.  The CI `webkit-compat` job on `ubuntu-22.04`
+provides the authoritative WebKit coverage gate, so local Fedora developers are
+not blocked.
+
+To force WebKit locally anyway (e.g., with compat libs installed via Nix or a
+container):
+
+```bash
+PLAYWRIGHT_INCLUDE_WEBKIT=1 npx playwright test --project=webkit
+```
+
+Chromium and Firefox are unaffected and run normally on Fedora 43+.
+
+
 
 ### Server binary (Linux / macOS / Windows)
 
