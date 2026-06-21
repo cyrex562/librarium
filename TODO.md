@@ -54,7 +54,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 
 ## Tests And Tooling
 
-- [ ] **LIB-020** Expand backend integration coverage for:
+- [x] **LIB-020** Expand backend integration coverage for:
   - logout revocation behavior
   - refresh token rotation after TOTP completion
   - cross-vault entity ID lookups
