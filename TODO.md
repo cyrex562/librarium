@@ -88,6 +88,15 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - continue `docs/PLAN-desktop-sync-multiuser.md`
   - verify group-sharing and invitation edge cases under auth enforcement
 
+## Packaging And Distribution
+
+- [ ] **LIB-045** Create single-file installers for both the desktop (Tauri) and server variants, with platform-specific builds for Windows and Linux.
+  - [ ] **Desktop / Windows** – produce an `.msi` or NSIS `.exe` via `tauri build` that bundles the WebView2 runtime bootstrapper and requires no separate install step.
+  - [ ] **Desktop / Linux** – produce an AppImage (preferred for portability) and/or `.deb`/`.rpm` via `tauri build --bundles appimage,deb` that satisfies the `webkit2gtk`, `libsoup`, and `javascriptcoregtk` runtime requirements documented in LIB-015.
+  - [ ] **Server / Windows** – produce a self-contained `.exe` (via `cargo build --release` + a WiX/NSIS wrapper or a single-binary approach) that embeds the default config and can run as a Windows Service.
+  - [ ] **Server / Linux** – produce a statically linked or `musl`-targeted binary (or a `.deb`/`.rpm`) that includes a `systemd` unit file for service installation.
+  - [ ] Wire all four installer targets into CI so artifacts are published on tagged releases.
+
 ## Known Review Findings Already Addressed
 
 - [x] **LIB-034** Enforce TOTP after password login instead of issuing fully trusted tokens immediately.
