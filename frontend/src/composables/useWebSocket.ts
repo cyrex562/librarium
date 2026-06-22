@@ -33,6 +33,11 @@ function handleMessage(event: MessageEvent) {
     const { handleWsMessage } = useNotifications();
     handleWsMessage(msg as { type: string; [key: string]: unknown });
 
+    // IMPORTANT: this switch must handle every variant of WsMessage.
+    // The exhaustiveness check at the bottom of the switch (the `never`
+    // assignment) will cause a TypeScript compile error if a new variant is
+    // added to the WsMessage union without a corresponding case here, keeping
+    // frontend handling centralised in one place.
     switch (msg.type) {
         case 'FileChanged': {
             const filesStore = useFilesStore();
@@ -43,12 +48,12 @@ function handleMessage(event: MessageEvent) {
                 tabsStore.remapTabPaths(msg.event_type.renamed.from, msg.event_type.renamed.to);
             }
 
-            // Refresh the file tree for the affected vault
+            // Refresh the file tree for the affected vault.
             if (vaultsStore.activeVaultId === msg.vault_id) {
                 void filesStore.loadTree(msg.vault_id);
             }
 
-            // If the changed file is open in a tab and not dirty, reload it
+            // If the changed file is open in a tab and not dirty, reload it.
             tabsStore.tabs.forEach((tab, tabId) => {
                 if (tab.filePath === msg.path && !tab.isDirty) {
                     void filesStore.readFile(msg.vault_id, msg.path).then((fc) => {
@@ -64,7 +69,8 @@ function handleMessage(event: MessageEvent) {
             break;
         }
         case 'ReindexComplete':
-            // Notification was already fired above; no UI state update needed.
+            // Notification already fired via handleWsMessage above;
+            // no additional UI state update needed here.
             break;
         case 'SyncPing':
         case 'SyncPong':
@@ -73,6 +79,13 @@ function handleMessage(event: MessageEvent) {
         case 'Error':
             console.warn('WebSocket error from server:', msg.message);
             break;
+        default: {
+            // Exhaustiveness check: if WsMessage gains a new variant and it is
+            // not handled above, TypeScript will mark `msg` as `never` here and
+            // the assignment will fail to compile.
+            const _exhaustive: never = msg;
+            console.warn('Unhandled WebSocket message type:', (_exhaustive as WsMessage).type);
+        }
     }
 }
 

@@ -92,38 +92,64 @@ async fn oidc_callback(
     let username = oidc_provider::derive_username(&userinfo);
 
     // Find or create local user.
-    let local_user = state.db.get_user_auth_by_username(&username).await?;
-    let user_id = match local_user {
-        Some((id, _, _)) => id,
-        None => {
-            // Auto-provision: create user with a random placeholder password.
-            let placeholder = format!("oidc-managed-{}", Uuid::new_v4());
-            let salt = SaltString::generate(&mut OsRng);
-            let hash = Argon2::default()
-                .hash_password(placeholder.as_bytes(), &salt)
-                .map_err(|e| AppError::InternalError(format!("Hash failed: {e}")))?
-                .to_string();
-
-            let (id, _, _, _) = state
-                .db
-                .create_user_with_options(&username, &hash, false, false)
-                .await?;
-            let _ = state
-                .db
-                .write_audit_log(
-                    Some(&id),
-                    Some(&username),
-                    "oidc_user_provisioned",
-                    Some(&format!(
-                        "Auto-provisioned from OIDC (sub={})",
-                        userinfo.sub
-                    )),
-                    None,
-                    true,
-                )
-                .await;
-            id
+    //
+    // LIB-008: Match returning OIDC users by their stable `sub` identifier first.
+    // Matching by username alone is unsafe — a local account named identically to
+    // an OIDC user's derived username would be silently taken over. We store `sub`
+    // on first login and use it as the canonical OIDC identity on subsequent logins.
+    let user_id = if let Some((id, _)) = state.db.get_user_by_oidc_sub(&userinfo.sub).await? {
+        // Known OIDC user — verify the derived username hasn't drifted (IdP rename).
+        id
+    } else {
+        // First OIDC login for this sub. Check whether a local account already
+        // exists with the derived username to prevent silent account takeover.
+        let existing = state.db.get_user_auth_by_username(&username).await?;
+        if existing.is_some() {
+            // A local account with this username already exists and was NOT created
+            // via OIDC (no oidc_sub binding). Refuse to merge automatically.
+            return Err(AppError::Conflict(format!(
+                "A local account named '{username}' already exists. \
+                 Contact an administrator to link your OIDC identity."
+            )));
         }
+
+        // Auto-provision a new local user bound to this OIDC sub.
+        let placeholder = format!("oidc-managed-{}", Uuid::new_v4());
+        let salt = SaltString::generate(&mut OsRng);
+        let hash = Argon2::default()
+            .hash_password(placeholder.as_bytes(), &salt)
+            .map_err(|e| AppError::InternalError(format!("Hash failed: {e}")))?
+            .to_string();
+
+        let (id, _, _, _) = state
+            .db
+            .create_user_with_options(&username, &hash, false, false)
+            .await
+            .map_err(|e| match e {
+                // Concurrent provisioning race: re-check by sub before failing.
+                AppError::Conflict(_) => AppError::InternalError(
+                    "Account provisioning conflict; please try logging in again.".to_string(),
+                ),
+                other => other,
+            })?;
+
+        state.db.set_user_oidc_sub(&id, &userinfo.sub).await?;
+
+        let _ = state
+            .db
+            .write_audit_log(
+                Some(&id),
+                Some(&username),
+                "oidc_user_provisioned",
+                Some(&format!(
+                    "Auto-provisioned from OIDC (sub={})",
+                    userinfo.sub
+                )),
+                None,
+                true,
+            )
+            .await;
+        id
     };
 
     let _ = state

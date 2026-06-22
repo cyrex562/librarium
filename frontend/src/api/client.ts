@@ -87,6 +87,35 @@ async function handleUnauthorized(url: string) {
     }
 }
 
+// Handles 403 responses with known structured error codes so the user is
+// redirected to the correct page rather than seeing a generic error.
+//
+// TOTP_VERIFICATION_REQUIRED: the access token was issued before TOTP
+//   verification completed (e.g. stale tab after page reload). Re-arm the
+//   pendingTotp flag and redirect to /login so the TOTP form is shown.
+//
+// PASSWORD_CHANGE_REQUIRED: an admin forced a password reset. Redirect to
+//   /change-password; the router guard will enforce this on navigation too,
+//   but mid-session API calls need the same treatment.
+function handleForbidden(errorCode: string | undefined) {
+    if (typeof window === 'undefined') return;
+    try {
+        const auth = useAuthStore();
+        if (errorCode === 'TOTP_VERIFICATION_REQUIRED') {
+            auth.flagPendingTotp();
+            if (window.location.pathname !== '/login') {
+                window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+            }
+        } else if (errorCode === 'PASSWORD_CHANGE_REQUIRED') {
+            if (window.location.pathname !== '/change-password') {
+                window.location.href = '/change-password';
+            }
+        }
+    } catch {
+        // Pinia may not be ready during early boot.
+    }
+}
+
 async function request<T>(
     url: string,
     options: RequestInit = {},
@@ -117,10 +146,12 @@ async function request<T>(
         let body: unknown;
         try { body = await response.json(); } catch { /* empty */ }
         const message = (body as { message?: string })?.message ?? `HTTP ${response.status}`;
+        const errorCode = (body as { error?: string })?.error;
 
-        // Handle authentication expiration
         if (response.status === 401) {
             await handleUnauthorized(url);
+        } else if (response.status === 403) {
+            handleForbidden(errorCode);
         }
 
         throw new ApiError(response.status, message, body);
@@ -204,7 +235,8 @@ export const apiRenameFile = (
     vaultId: string,
     from: string,
     to: string,
-    strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
+    // Frontend uses 'rename' as the name for auto-rename; backend calls it 'autorename'.
+    strategy: 'fail' | 'overwrite' | 'rename' = 'fail',
 ): Promise<{ new_path: string }> =>
     request(`/api/vaults/${vaultId}/rename`, {
         method: 'POST',
@@ -236,7 +268,7 @@ export const apiSearch = (
         `/api/vaults/${vaultId}/search?q=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`,
     );
 
-export const apiReindex = (vaultId: string): Promise<{ message: string; vault_id: string }> =>
+export const apiTriggerReindex = (vaultId: string): Promise<{ message: string; vault_id: string }> =>
     request(`/api/vaults/${vaultId}/reindex`, { method: 'POST' });
 
 // ── ML (outline + organization suggestions, suggest-only) ───────────────────
@@ -476,7 +508,7 @@ export const apiTogglePlugin = (
         body: JSON.stringify({ enabled }),
     });
 
-// ── Auth (Phase E — endpoints may not yet exist; gracefully no-op) ────────────
+// ── Auth ─────────────────────────────────────────────────────────────────────
 
 export const apiLogin = (username: string, password: string): Promise<LoginResponse> =>
     request('/api/auth/login', {
@@ -638,8 +670,6 @@ export const apiGetEntityRelations = (vaultId: string, entityId: string): Promis
 export const apiGetGraph = (vaultId: string): Promise<GraphData> =>
     request(`/api/vaults/${vaultId}/graph`);
 
-export const apiTriggerReindex = apiReindex;
-
 export const apiListLabels = (): Promise<{ labels: Array<{ name: string; description?: string }> }> =>
     request('/api/plugins/labels');
 
@@ -652,7 +682,10 @@ export const apiGetEntityTypeTemplate = (vaultId: string, typeId: string): Promi
 export const apiListRelationTypes = (): Promise<{ relation_types: RelationTypeSchema[] }> =>
     request('/api/plugins/relation-types');
 
-export const apiGetEntityByPath = (vaultId: string, filePath: string): Promise<{ entity: import('./types').Entity | null; relations: import('./types').EntityRelation[] }> =>
+export const apiGetEntityByPath = (
+    vaultId: string,
+    filePath: string,
+): Promise<{ entity: Entity | null; relations: EntityRelation[] }> =>
     request(`/api/vaults/${encodeURIComponent(vaultId)}/entity-by-path?path=${encodeURIComponent(filePath)}`);
 
 export interface VaultEntityStats {

@@ -17,13 +17,13 @@ services:
       - LIBRARIUM__DATABASE__PATH=/data/librarium.db
       - LIBRARIUM__VAULT__BASE_DIR=/data/vaults
       - LIBRARIUM__AUTH__ENABLED=true
+      # Bootstrap: only used when the database has no users yet.
+      # Set both variables, start the server once, then log in and remove them.
+      # If unset and the database is empty you will be unable to log in.
       - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME=admin
-      # IMPORTANT: Change this before first run, then remove it.
-      - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD=changeme-on-first-login
-      # Generate a stable secret: openssl rand -hex 32
-      # - LIBRARIUM__AUTH__JWT_SECRET=your-secret-here
-      # Override config file path (default: /data/config.toml via CMD --config)
-      # - LIBRARIUM_CONFIG=/data/config.toml
+      # - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD=<set-before-first-run>
+      # Generate a stable signing secret: openssl rand -hex 32
+      # - LIBRARIUM__AUTH__JWT_SECRET=<your-secret-here>
       - RUST_LOG=info
       # Rate limiting (requests per 60-second window per IP)
       - RATE_LIMIT_REQUESTS=120

@@ -46,6 +46,22 @@ async fn create_invitation(
     let token = generate_invite_token();
     let expires_at = Utc::now() + chrono::Duration::hours(body.expires_in_hours.max(1) as i64);
 
+    // If the invitation is scoped to a vault, verify the inviter is the vault owner.
+    if let Some(ref vault_id) = body.vault_id {
+        let role = state
+            .db
+            .get_vault_role_for_user(vault_id, &user.user_id)
+            .await?;
+        match role {
+            Some(crate::models::VaultRole::Owner) => {}
+            _ => {
+                return Err(AppError::Forbidden(
+                    "Only the vault owner can create invitations for this vault".to_string(),
+                ));
+            }
+        }
+    }
+
     state
         .db
         .create_invitation(

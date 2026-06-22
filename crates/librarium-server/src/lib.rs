@@ -204,6 +204,9 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     let db = Database::new(&db_url)
         .await
         .expect("Failed to initialize database");
+    db.run_recent_files_migration()
+        .await
+        .expect("Failed to run recent_files user_id migration");
     info!("Database initialized at {}", config.database.path);
 
     match db

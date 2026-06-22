@@ -1,0 +1,86 @@
+# config.example.toml — annotated reference for local development
+#
+# Copy to config.local.toml (or any path) and pass it to the binary:
+#   ./librarium --config config.local.toml
+#
+# Environment variables override any value here.  Use double-underscores for
+# nesting: LIBRARIUM__AUTH__JWT_SECRET="..." etc.
+#
+# This file contains NO credentials.  All secrets use placeholder comments.
+
+[server]
+host = "127.0.0.1"  # change to 0.0.0.0 to listen on all interfaces
+port = 8080
+
+[database]
+path = "./librarium.db"
+
+[vault]
+base_dir = "./vaults"
+index_exclusions = [".git", ".obsidian", ".trash", "node_modules", ".librarium"]
+
+[auth]
+enabled = true
+
+# Authentication provider.  "password" requires no external services and works
+# fully offline — it is always a safe fallback.
+# Valid values: "password" | "ldap" | "oidc"
+provider = "password"
+
+# JWT signing secret.  Must be a stable, secret random value in production.
+# Generate one:  openssl rand -hex 32
+# Leave empty to use a hard-coded dev secret (insecure — do not use in production).
+jwt_secret = ""   # TODO: set before deployment
+
+# Token lifetimes (seconds).
+access_token_ttl  = 3600    # 1 hour
+refresh_token_ttl = 604800  # 7 days
+
+# ── Bootstrap (first-run only) ──────────────────────────────────────────────
+# These fields create the first admin account when the database has no users.
+# Once any user exists they are ignored.
+# REMOVE bootstrap_admin_password from your config after the first login.
+#
+# bootstrap_admin_username = "admin"
+# bootstrap_admin_password = ""   # set to a strong password before first run
+
+# ── Password policy (all relaxed for local dev — tighten for production) ───
+min_password_length = 8
+require_uppercase   = false
+require_lowercase   = false
+require_digit       = false
+require_special     = false
+
+# Account lockout after repeated failed logins (0 = disabled).
+max_failed_logins = 0
+lockout_minutes   = 15
+
+# ── OIDC (optional — leave all commented out for password-only mode) ────────
+# OIDC is additive: password auth continues to work when OIDC is configured.
+# Do not set provider = "oidc" unless you intend to replace password login.
+#
+# oidc_issuer_url   = "https://accounts.example.com"
+# oidc_client_id    = ""   # set via env: LIBRARIUM__AUTH__OIDC_CLIENT_ID
+# oidc_client_secret = ""  # set via env: LIBRARIUM__AUTH__OIDC_CLIENT_SECRET
+# oidc_redirect_uri = "http://localhost:8080/api/auth/oidc/callback"
+
+# ── LDAP (optional) ─────────────────────────────────────────────────────────
+# ldap_url           = "ldap://ldap.example.com:389"
+# ldap_base_dn       = "ou=people,dc=example,dc=com"
+# ldap_bind_dn       = "cn=svc,dc=example,dc=com"
+# ldap_bind_password = ""   # set via env: LIBRARIUM__AUTH__LDAP_BIND_PASSWORD
+# ldap_user_attr     = "uid"
+# ldap_search_filter = "({attr}={username})"
+
+[cors]
+# For local dev, allow the Vite dev server.
+# For production, list only your actual origin(s).
+allowed_origins = ["http://localhost:5173", "http://localhost:8080"]
+
+[tls]
+# Uncomment to enable HTTPS directly (PEM files).
+# cert_file = "/etc/librarium/tls/server.crt"
+# key_file  = "/etc/librarium/tls/server.key"
+
+[sync]
+change_log_retention_days = 30

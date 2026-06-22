@@ -2,63 +2,198 @@
 
 ## Prerequisites
 
-- **Rust**: Latest stable version (install via rustup)
-- **Node.js**: LTS version (for frontend)
-- **PowerShell**: For running build scripts (Windows)
+- **Rust**: Latest stable toolchain (install via `rustup`)
+- **Node.js**: LTS version (18 or 20) for the Vue frontend
+- **npm**: Ships with Node.js
 
-## Building for Release
+### Linux system dependencies (server binary)
 
-We have provided a PowerShell script to automate the build process, which includes building the frontend assets and the backend binary in release mode.
+The server binary has no native UI dependencies beyond a standard C toolchain.
+On most Linux distributions the only package you need beyond Rust/Node is:
 
-### Windows
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y build-essential pkg-config libssl-dev
 
-Run the following command from the project root:
+# Fedora / RHEL
+sudo dnf install -y gcc pkg-config openssl-devel
+
+# Arch
+sudo pacman -S base-devel pkg-config openssl
+```
+
+### Linux system dependencies (Tauri desktop binary)
+
+The Tauri desktop shell (`librarium-tauri`) embeds the Vue UI in a native WebView
+and requires **WebKitGTK** plus a handful of supporting libraries.  These must be
+present both at build time and at runtime on the end-user's machine.
+
+#### Ubuntu / Debian
+
+```bash
+# Ubuntu 22.04 LTS (WebKitGTK 4.0 — Tauri 2 minimum target)
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential pkg-config \
+    libssl-dev \
+    libwebkit2gtk-4.0-dev \
+    libsoup2.4-dev \
+    libjavascriptcoregtk-4.0-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev
+
+# Ubuntu 24.04 LTS / Debian 12+ (WebKitGTK 4.1)
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential pkg-config \
+    libssl-dev \
+    libwebkit2gtk-4.1-dev \
+    libsoup-3.0-dev \
+    libjavascriptcoregtk-4.1-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev
+```
+
+#### Fedora / RHEL
+
+```bash
+# Fedora 39 / 40 (WebKitGTK 4.1)
+sudo dnf install -y \
+    gcc pkg-config openssl-devel \
+    webkit2gtk4.1-devel \
+    libsoup3-devel \
+    javascriptcoregtk4.1-devel \
+    gtk3-devel \
+    libappindicator-gtk3-devel \
+    librsvg2-devel
+
+# Fedora 41+ / RHEL 9 use the same package names above.
+# Note: Fedora 43+ ships newer SONAMEs (libicu*.so.75, libjpeg.so.9+).
+# See "Playwright WebKit on Fedora 43+" in this file for the bundled Playwright
+# webkit SONAME mismatch and the decision to skip WebKit locally on Fedora.
+```
+
+#### Arch Linux
+
+```bash
+sudo pacman -S base-devel pkg-config openssl \
+    webkit2gtk-4.1 libsoup3 gtk3 libappindicator-gtk3 librsvg
+```
+
+#### Runtime requirements (end-user machines)
+
+A machine running the `librarium-tauri` binary needs the same WebKitGTK and
+GTK3 libraries at runtime. On Ubuntu 22.04+ and Fedora 39+ these are installed
+by default. If shipping a standalone binary, document the runtime deps or package
+via `.deb` / `.rpm` / AppImage (Tauri's bundler handles this automatically).
+
+#### Key package mapping
+
+| Capability | Ubuntu 22.04 pkg | Ubuntu 24.04 / Fedora pkg |
+|---|---|---|
+| WebKitGTK rendering engine | `libwebkit2gtk-4.0-dev` | `libwebkit2gtk-4.1-dev` / `webkit2gtk4.1-devel` |
+| HTTP stack (libsoup) | `libsoup2.4-dev` | `libsoup-3.0-dev` / `libsoup3-devel` |
+| JavaScript engine | `libjavascriptcoregtk-4.0-dev` | `libjavascriptcoregtk-4.1-dev` |
+| GTK3 window toolkit | `libgtk-3-dev` | same |
+| System tray icon | `libayatana-appindicator3-dev` | `libappindicator-gtk3-devel` |
+
+WebKitGTK 4.0 (`gtk-webkit2-4.0`) is the Tauri 2 minimum.  WebKitGTK 4.1
+(`gtk-webkit2-4.1`) is preferred where available.  Both SONAME families can
+coexist on the same machine but the binary must be linked against one or the
+other — the Tauri build system selects based on which `-dev` packages are found
+by `pkg-config` at compile time.
+
+See `docs/WEBKITGTK_COMPAT.md` for JavaScript / CSS / Web API constraints that
+apply when running on WebKitGTK 2.36 (Ubuntu 22.04 minimum).
+
+## Running E2E Tests (Playwright)
+
+```bash
+cd frontend
+npm ci
+npx playwright install --with-deps   # installs all three browsers
+npm run test:e2e
+```
+
+### Browser matrix
+
+The test suite targets **Chromium**, **Firefox**, and **WebKit** via Playwright's
+bundled browser binaries.  On CI all three run in the GitHub Actions matrix
+(`ubuntu-latest`).  The `webkit-compat` CI job additionally runs WebKit on
+`ubuntu-22.04` with the system WebKitGTK 4.0 packages installed, giving
+confidence on the oldest supported GTK stack.
+
+### Playwright WebKit on Fedora 43+
+
+Playwright bundles its own WebKit runtime (separate from the WebKitGTK packages
+used by the Tauri desktop shell).  On **Fedora 43+** the bundled runtime requires
+older shared-library SONAMEs that are no longer in the default repos:
+
+| Library | Required SONAME | Fedora 43 ships |
+|---------|-----------------|-----------------|
+| ICU | `libicu*.so.74` | `libicu*.so.75` |
+| libjpeg | `libjpeg.so.8` | `libjpeg.so.9` (libjpeg-turbo) |
+| libjxl | `libjxl.so.0.8` | `libjxl.so.0.10` |
+
+**Decision (LIB-023):** Skip Playwright WebKit on local Fedora hosts by default.
+`playwright.config.ts` detects Fedora via `/etc/os-release` and excludes the
+`webkit` project automatically.  The CI `webkit-compat` job on `ubuntu-22.04`
+provides the authoritative WebKit coverage gate, so local Fedora developers are
+not blocked.
+
+To force WebKit locally anyway (e.g., with compat libs installed via Nix or a
+container):
+
+```bash
+PLAYWRIGHT_INCLUDE_WEBKIT=1 npx playwright test --project=webkit
+```
+
+Chromium and Firefox are unaffected and run normally on Fedora 43+.
+
+
+
+### Server binary (Linux / macOS / Windows)
+
+```bash
+# 1. Build the Vue frontend (output lands in target/frontend/)
+cd frontend && npm ci && npm run build && cd ..
+
+# 2. Build the server binary (frontend is embedded at compile time)
+cargo build --release -p librarium-server
+
+# The binary is at target/release/librarium
+# Copy it alongside config.toml (or config.example.toml) to deploy.
+```
+
+### Windows (PowerShell script)
+
+A convenience script is provided:
 
 ```powershell
 .\scripts\build_release.ps1
 ```
 
-This will:
+This installs frontend dependencies, builds the Vue SPA, then builds the server
+binary with LTO and symbol stripping into a `dist/` directory.
 
-1. Install frontend dependencies (if missing).
-2. Compile TypeScript frontend code.
-3. Build the Rust backend with optimizations (LTO, stripping symbols) and **embedded frontend assets**.
-4. Create a `dist` directory containing:
-    - `librarium.exe` (Standalone binary with UI included)
-    - `config.toml`
+### Desktop app (Tauri)
 
-To run the release build:
+Install Linux system dependencies first (see above), then:
 
-```powershell
-cd dist
-.\librarium.exe
+```bash
+# Build frontend (required — Tauri embeds it)
+cd frontend && npm ci && npm run build && cd ..
+
+# Build the desktop binary
+cargo build --release -p librarium-tauri
+# Binary: target/release/librarium-tauri
+
+# Or use Tauri CLI for a bundled installer (.deb / .rpm / AppImage):
+cargo install tauri-cli
+cargo tauri build
 ```
-
-## Manual Build Steps
-
-If you cannot use the script, follow these steps:
-
-1. **Build Frontend**:
-
-    ```bash
-    cd frontend
-    npm install
-    npm run build
-    cd ..
-    ```
-
-2. **Build Backend**:
-    *Ensure `target/frontend` is populated first (generated by `npm run build`), as it is embedded at compile time.*
-
-    ```bash
-    cargo build --release
-    ```
-
-3. **Assemble**:
-    - Create a directory (e.g., `dist`).
-    - Copy `target/release/librarium` (or `.exe`) to `dist`.
-    - Copy `config.toml` to `dist`.
-    - *(Optional)* You do **not** need to copy `target/frontend` as it is inside the binary.
 
 ## Binary Optimization
 

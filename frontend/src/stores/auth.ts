@@ -107,6 +107,14 @@ export const useAuthStore = defineStore('auth', () => {
         await loadProfile(true);
     }
 
+    // Called by the API client when the server returns 403 TOTP_VERIFICATION_REQUIRED
+    // mid-session (e.g. the access token was issued before TOTP verification and the
+    // in-memory pendingTotp flag was lost across a page reload).
+    function flagPendingTotp() {
+        pendingTotp.value = true;
+        localStorage.setItem(PENDING_TOTP_KEY, 'true');
+    }
+
     return {
         accessToken,
         refreshToken,
@@ -125,5 +133,6 @@ export const useAuthStore = defineStore('auth', () => {
         ensureFresh,
         loadProfile,
         changePassword,
+        flagPendingTotp,
     };
 });

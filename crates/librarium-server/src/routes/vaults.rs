@@ -257,13 +257,26 @@ async fn share_vault_with_group(
 #[delete("/api/vaults/{id}/shares/users/{user_id}")]
 async fn revoke_vault_user_share(
     state: web::Data<AppState>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> AppResult<HttpResponse> {
     let (vault_id, user_id) = path.into_inner();
+    let actor = req.extensions().get::<AuthenticatedUser>().cloned();
     state
         .db
         .revoke_vault_user_share(&vault_id, &user_id)
         .await?;
+    let _ = state
+        .db
+        .write_audit_log(
+            actor.as_ref().map(|u| u.user_id.as_str()),
+            actor.as_ref().map(|u| u.username.as_str()),
+            "vault_share_revoked",
+            Some(&format!("Revoked user share: vault={vault_id} user={user_id}")),
+            None,
+            true,
+        )
+        .await;
     let shares = state.db.list_vault_shares(&vault_id).await?;
     Ok(HttpResponse::Ok().json(shares))
 }
@@ -271,13 +284,26 @@ async fn revoke_vault_user_share(
 #[delete("/api/vaults/{id}/shares/groups/{group_id}")]
 async fn revoke_vault_group_share(
     state: web::Data<AppState>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> AppResult<HttpResponse> {
     let (vault_id, group_id) = path.into_inner();
+    let actor = req.extensions().get::<AuthenticatedUser>().cloned();
     state
         .db
         .revoke_vault_group_share(&vault_id, &group_id)
         .await?;
+    let _ = state
+        .db
+        .write_audit_log(
+            actor.as_ref().map(|u| u.user_id.as_str()),
+            actor.as_ref().map(|u| u.username.as_str()),
+            "vault_share_revoked",
+            Some(&format!("Revoked group share: vault={vault_id} group={group_id}")),
+            None,
+            true,
+        )
+        .await;
     let shares = state.db.list_vault_shares(&vault_id).await?;
     Ok(HttpResponse::Ok().json(shares))
 }
@@ -386,6 +412,23 @@ struct SetVisibilityRequest {
     visibility: String,
 }
 
+/// Return file change events recorded since the given Unix millisecond timestamp.
+/// Clients use this to catch up after a WebSocket reconnect without doing a full tree reload.
+#[get("/api/vaults/{vault_id}/changes")]
+async fn get_vault_changes(
+    state: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> AppResult<HttpResponse> {
+    let vault_id = path.into_inner();
+    let since: i64 = query
+        .get("since")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let events = state.db.get_file_changes_since(&vault_id, since).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "events": events })))
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(create_vault)
         .service(list_vaults)
@@ -397,5 +440,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(revoke_vault_user_share)
         .service(revoke_vault_group_share)
         .service(transfer_vault_ownership)
-        .service(set_vault_visibility);
+        .service(set_vault_visibility)
+        .service(get_vault_changes);
 }

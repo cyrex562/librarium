@@ -229,6 +229,313 @@ async fn verify_api_keys_and_totp() {
     assert!(me_after_totp_resp.status().is_success());
 }
 
+/// Logout without a refresh token must revoke ALL active sessions for the user
+/// (the "logout everywhere" contract established by LIB-005).
+#[actix_web::test]
+async fn test_logout_all_sessions_revokes_every_refresh_token() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("logout-all-test.db");
+    let db_url = format!("sqlite://{}", db_path.display());
+    let db = Database::new(&db_url).await.unwrap();
+    db.bootstrap_admin_if_empty(Some("admin"), Some("hunter2"))
+        .await
+        .unwrap();
+
+    let search_index = SearchIndex::new();
+    let (watcher, _) = FileWatcher::new().unwrap();
+    let watcher = Arc::new(Mutex::new(watcher));
+    let (event_tx, _) = broadcast::channel(100);
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        search_index,
+        watcher,
+        event_broadcaster: event_tx,
+        ws_broadcaster: tokio::sync::broadcast::channel::<librarium::models::WsMessage>(16).0,
+        change_log_retention_days: 7,
+        ml_undo_store: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        shutdown_tx: tokio::sync::broadcast::channel::<()>(1).0,
+        document_parser: Arc::new(MarkdownParser),
+        entity_type_registry: librarium::services::EntityTypeRegistry::new(),
+        relation_type_registry: librarium::services::RelationTypeRegistry::new(),
+        plugins_dir: std::path::PathBuf::new(),
+    });
+    let mut config = AppConfig::default();
+    config.auth.enabled = true;
+    config.auth.jwt_secret = "logout-all-secret".to_string();
+    let config = web::Data::new(config);
+
+    let app = test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .app_data(config.clone())
+            .wrap(AuthMiddleware)
+            .configure(auth::configure),
+    )
+    .await;
+
+    // Establish two independent sessions by logging in twice.
+    let login = |username: &str, password: &str| {
+        test::TestRequest::post()
+            .uri("/api/auth/login")
+            .set_json(json!({ "username": username, "password": password }))
+            .to_request()
+    };
+
+    let body_a: serde_json::Value =
+        test::read_body_json(test::call_service(&app, login("admin", "hunter2")).await).await;
+    let refresh_a = body_a["refresh_token"].as_str().unwrap().to_string();
+    let token_a = body_a["access_token"].as_str().unwrap().to_string();
+
+    let body_b: serde_json::Value =
+        test::read_body_json(test::call_service(&app, login("admin", "hunter2")).await).await;
+    let refresh_b = body_b["refresh_token"].as_str().unwrap().to_string();
+
+    // Confirm both refresh tokens are valid before logout.
+    for rt in [&refresh_a, &refresh_b] {
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/refresh")
+                .set_json(json!({ "refresh_token": rt }))
+                .to_request(),
+        )
+        .await;
+        assert!(resp.status().is_success(), "refresh should work before logout");
+        // Discard the rotated token — we only care about the final state after logout.
+    }
+
+    // Re-login to get fresh sessions after the rotation above consumed the tokens.
+    let body_a2: serde_json::Value =
+        test::read_body_json(test::call_service(&app, login("admin", "hunter2")).await).await;
+    let refresh_a2 = body_a2["refresh_token"].as_str().unwrap().to_string();
+    let token_a2 = body_a2["access_token"].as_str().unwrap().to_string();
+
+    let body_b2: serde_json::Value =
+        test::read_body_json(test::call_service(&app, login("admin", "hunter2")).await).await;
+    let refresh_b2 = body_b2["refresh_token"].as_str().unwrap().to_string();
+
+    // Logout WITHOUT a refresh token — this must revoke every session.
+    let logout_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/logout")
+            .insert_header((header::AUTHORIZATION, format!("Bearer {token_a2}")))
+            // Intentionally omit refresh_token to trigger "logout everywhere".
+            .to_request(),
+    )
+    .await;
+    assert!(logout_resp.status().is_success(), "logout must succeed");
+
+    // Both refresh tokens (from both sessions) must now be rejected.
+    for (label, rt) in [("session A", &refresh_a2), ("session B", &refresh_b2)] {
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/refresh")
+                .set_json(json!({ "refresh_token": rt }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            resp.status().as_u16(),
+            401,
+            "{label} refresh token must be revoked after logout-all"
+        );
+    }
+
+    let _ = (token_a, state);
+}
+
+/// After completing TOTP login-verify the pending (unverified) access token
+/// must be rejected and a fresh fully-trusted token pair must be returned.
+#[actix_web::test]
+async fn test_totp_pending_token_rejected_after_login_verify() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("totp-rotation-test.db");
+    let db_url = format!("sqlite://{}", db_path.display());
+    let db = Database::new(&db_url).await.unwrap();
+    db.bootstrap_admin_if_empty(Some("admin"), Some("hunter2"))
+        .await
+        .unwrap();
+
+    let search_index = SearchIndex::new();
+    let (watcher, _) = FileWatcher::new().unwrap();
+    let watcher = Arc::new(Mutex::new(watcher));
+    let (event_tx, _) = broadcast::channel(100);
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        search_index,
+        watcher,
+        event_broadcaster: event_tx,
+        ws_broadcaster: tokio::sync::broadcast::channel::<librarium::models::WsMessage>(16).0,
+        change_log_retention_days: 7,
+        ml_undo_store: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        shutdown_tx: tokio::sync::broadcast::channel::<()>(1).0,
+        document_parser: Arc::new(MarkdownParser),
+        entity_type_registry: librarium::services::EntityTypeRegistry::new(),
+        relation_type_registry: librarium::services::RelationTypeRegistry::new(),
+        plugins_dir: std::path::PathBuf::new(),
+    });
+    let mut config = AppConfig::default();
+    config.auth.enabled = true;
+    config.auth.jwt_secret = "totp-rotation-secret".to_string();
+    let config = web::Data::new(config);
+
+    let app = test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .app_data(config.clone())
+            .wrap(AuthMiddleware)
+            .configure(auth::configure)
+            .configure(totp::configure),
+    )
+    .await;
+
+    // --- Phase 1: enroll TOTP while not yet requiring it ---
+    let login_body: serde_json::Value = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/login")
+                .set_json(json!({ "username": "admin", "password": "hunter2" }))
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let setup_token = login_body["access_token"].as_str().unwrap().to_string();
+    let setup_header = format!("Bearer {setup_token}");
+
+    let enroll_body: serde_json::Value = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/totp/enroll")
+                .insert_header((header::AUTHORIZATION, setup_header.clone()))
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let secret = enroll_body["secret"].as_str().unwrap();
+    let secret_bytes = totp_rs::Secret::Encoded(secret.to_string()).to_bytes().unwrap();
+    let totp = TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,
+        30,
+        secret_bytes,
+        Some("Librarium".to_string()),
+        "admin".to_string(),
+    )
+    .unwrap();
+
+    let verify_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/totp/verify")
+            .insert_header((header::AUTHORIZATION, setup_header.clone()))
+            .set_json(json!({ "code": totp.generate_current().unwrap() }))
+            .to_request(),
+    )
+    .await;
+    assert!(verify_resp.status().is_success(), "TOTP enrollment verify must succeed");
+
+    // --- Phase 2: fresh login now requires TOTP ---
+    let pending_body: serde_json::Value = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/login")
+                .set_json(json!({ "username": "admin", "password": "hunter2" }))
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        pending_body["totp_required"].as_bool(),
+        Some(true),
+        "login must require TOTP after enrollment"
+    );
+    let pending_token = pending_body["access_token"].as_str().unwrap().to_string();
+    let pending_header = format!("Bearer {pending_token}");
+
+    // Pending token must be rejected for normal API calls.
+    let me_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/auth/me")
+            .insert_header((header::AUTHORIZATION, pending_header.clone()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(me_resp.status().as_u16(), 403, "pending token must be rejected for /me");
+
+    // --- Phase 3: complete TOTP login ---
+    let verified_body: serde_json::Value = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/auth/totp/login-verify")
+                .insert_header((header::AUTHORIZATION, pending_header.clone()))
+                .set_json(json!({ "code": totp.generate_current().unwrap() }))
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let full_token = verified_body["access_token"].as_str().unwrap().to_string();
+    let full_refresh = verified_body["refresh_token"].as_str().unwrap().to_string();
+    assert!(!full_token.is_empty(), "login-verify must return a new access token");
+    assert!(!full_refresh.is_empty(), "login-verify must return a new refresh token");
+
+    // --- Phase 4: old pending token must now be rejected ---
+    let me_with_pending = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/auth/me")
+            .insert_header((header::AUTHORIZATION, pending_header))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        me_with_pending.status().as_u16(),
+        403,
+        "pending token must still be rejected even after login-verify completes"
+    );
+
+    // --- Phase 5: new fully-trusted token must work ---
+    let me_with_full = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/auth/me")
+            .insert_header((header::AUTHORIZATION, format!("Bearer {full_token}")))
+            .to_request(),
+    )
+    .await;
+    assert!(
+        me_with_full.status().is_success(),
+        "fresh full token from login-verify must be accepted"
+    );
+
+    // --- Phase 6: new refresh token must be usable for rotation ---
+    let refresh_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/refresh")
+            .set_json(json!({ "refresh_token": full_refresh }))
+            .to_request(),
+    )
+    .await;
+    assert!(
+        refresh_resp.status().is_success(),
+        "new refresh token from login-verify must be valid"
+    );
+
+    let _ = (setup_token, state);
+}
+
 #[actix_web::test]
 async fn test_public_vault_allows_anonymous_reads() {
     let temp_dir = TempDir::new().unwrap();

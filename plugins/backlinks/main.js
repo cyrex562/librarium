@@ -18,6 +18,19 @@ class BacklinksPlugin {
         const savedConfig = await this.api.storage_get('config');
         this.config = savedConfig || this.getDefaultConfig();
 
+        // Inject a sidebar panel element that displayBacklinks() will update.
+        // The panel is appended to the plugin sidebar container when the host
+        // exposes one; if no container exists yet the panel is held in memory
+        // and attached on first use.
+        this.panelEl = document.createElement('div');
+        this.panelEl.id   = 'librarium-backlinks-plugin-panel';
+        this.panelEl.className = 'plugin-panel backlinks-plugin-panel';
+
+        const container = document.getElementById('plugin-sidebar-panels');
+        if (container) {
+            container.appendChild(this.panelEl);
+        }
+
         // Build initial backlinks index
         await this.rebuildIndex();
 
@@ -35,6 +48,10 @@ class BacklinksPlugin {
     }
 
     async onUnload() {
+        if (this.panelEl && this.panelEl.parentNode) {
+            this.panelEl.parentNode.removeChild(this.panelEl);
+        }
+        this.panelEl = null;
         console.log('Backlinks plugin unloaded');
     }
 
@@ -169,15 +186,67 @@ class BacklinksPlugin {
     }
 
     displayBacklinks(backlinks, unlinkedMentions) {
-        console.log('Backlinks:', backlinks);
-        console.log('Unlinked mentions:', unlinkedMentions);
+        const all = [
+            ...backlinks.map(b => ({ ...b, label: 'link' })),
+            ...unlinkedMentions.map(m => ({ ...m, label: 'mention' })),
+        ];
 
-        // TODO: Update UI panel with backlinks
-        // For now, just log to console
-        const total = backlinks.length + unlinkedMentions.length;
-        if (total > 0) {
-            this.api.show_notice(`Found ${backlinks.length} backlinks and ${unlinkedMentions.length} mentions`);
+        // Render into the injected panel element when available.
+        if (this.panelEl) {
+            // Lazily attach to DOM if the container appeared after onLoad.
+            if (!this.panelEl.parentNode) {
+                const container = document.getElementById('plugin-sidebar-panels');
+                if (container) container.appendChild(this.panelEl);
+            }
+
+            if (all.length === 0) {
+                this.panelEl.innerHTML = '<p class="backlinks-empty">No backlinks found.</p>';
+                return;
+            }
+
+            const items = all.map(entry => {
+                const fileName = entry.file.split('/').pop() || entry.file;
+                const badge = entry.label === 'mention'
+                    ? '<span class="backlink-badge mention">mention</span>'
+                    : '';
+                return `<div class="backlink-entry" data-path="${this.escapeAttr(entry.file)}" role="button" tabindex="0">
+                    <span class="backlink-name">${this.escapeHtml(fileName)}</span>${badge}
+                    <span class="backlink-path">${this.escapeHtml(entry.file)}</span>
+                </div>`;
+            }).join('');
+
+            this.panelEl.innerHTML = `
+                <div class="backlinks-panel-header">
+                    Backlinks
+                    <span class="backlinks-count">(${all.length})</span>
+                </div>
+                <div class="backlinks-entries">${items}</div>
+            `;
+
+            // Wire click/keyboard navigation — open the file via the API if available.
+            this.panelEl.querySelectorAll('.backlink-entry').forEach(el => {
+                const open = () => {
+                    const path = el.dataset.path;
+                    if (path && this.api.open_file) {
+                        this.api.open_file(this.api.getContext().vault_id, path);
+                    }
+                };
+                el.addEventListener('click', open);
+                el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+            });
         }
+    }
+
+    escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    escapeAttr(str) {
+        return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     getFileNameWithoutExtension(filePath) {

@@ -3,19 +3,21 @@
 ## Quick Start (Docker)
 
 ```bash
-# 1. Clone and build
+# 1. Clone the repository
 git clone <repo-url> librarium
 cd librarium
 
-# 2. Generate a JWT secret
-export JWT_SECRET=$(openssl rand -hex 32)
+# 2. Set required secrets before first run (see Auth Bootstrapping below)
+export LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD=$(openssl rand -base64 16)
+export LIBRARIUM__AUTH__JWT_SECRET=$(openssl rand -hex 32)
+echo "Bootstrap password: $LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD"
 
-# 3. Start with Docker Compose
+# 3. Start
 docker compose up -d
 
-# 4. Log in at http://localhost:8080
-#    Default admin: admin / changeme-on-first-login
-#    You will be prompted to change the password on first login.
+# 4. Log in at http://localhost:8080 with username "admin" and the
+#    password printed above.  After logging in you can remove the
+#    BOOTSTRAP_ADMIN_PASSWORD variable — it has no effect once a user exists.
 ```
 
 ### Customizing Docker
@@ -25,11 +27,51 @@ Edit `docker-compose.yml` environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LIBRARIUM__AUTH__ENABLED` | `true` | Enable/disable authentication |
-| `LIBRARIUM__AUTH__JWT_SECRET` | (auto) | Stable JWT signing secret |
-| `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME` | `admin` | Initial admin username |
-| `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD` | — | Initial admin password |
+| `LIBRARIUM__AUTH__JWT_SECRET` | (dev secret) | Stable JWT signing secret — **must be set in production** |
+| `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME` | — | First admin username (bootstrap only) |
+| `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD` | — | First admin password (bootstrap only) |
 | `RATE_LIMIT_REQUESTS` | `120` | Max requests per 60s per IP |
 | `RUST_LOG` | `info` | Log level |
+
+## Auth Bootstrapping
+
+Librarium has no built-in default credentials. On first startup it checks
+whether the database contains any users. If it is empty **and** both
+`bootstrap_admin_username` and `bootstrap_admin_password` are set, it creates
+an admin account with those credentials. If the database already has users, or
+if either field is missing, bootstrap is skipped (a warning is logged).
+
+**Production checklist:**
+
+1. Generate a strong bootstrap password: `openssl rand -base64 16`
+2. Set `auth.bootstrap_admin_username` and `auth.bootstrap_admin_password`
+   in `config.toml` (or via environment variables) **before** first run.
+3. Start the server. Confirm startup log shows:
+   `Bootstrapped admin user '<username>' from config.toml`
+4. Log in and verify admin access works.
+5. **Remove `bootstrap_admin_password` from your config / environment.**
+   The field is only consulted when the user table is empty; leaving it set
+   in a running deployment is an unnecessary credential exposure risk.
+6. Optionally remove `bootstrap_admin_username` too — it has no effect
+   after bootstrap.
+
+The bootstrap account is created with `is_admin = true` and
+`must_change_password = false`. After logging in you can update the password
+via the profile page or `POST /api/auth/change-password`.
+
+### Binary deployment
+
+```toml
+# /etc/librarium/config.toml  — initial bootstrap values
+[auth]
+enabled = true
+jwt_secret = "<output of: openssl rand -hex 32>"
+bootstrap_admin_username = "admin"
+bootstrap_admin_password = "<strong-password>"
+```
+
+Remove `bootstrap_admin_password` (and optionally `bootstrap_admin_username`)
+after the first successful login.
 
 ## Quick Start (Binary)
 

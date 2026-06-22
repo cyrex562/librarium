@@ -276,7 +276,6 @@ async fn register_label(db: &Database, plugin_id: &str, decl: &PluginLabelDeclar
 
 #[cfg(test)]
 pub mod tests_helpers {
-    use super::*;
     pub fn load_entity_type_toml_pub(
         path: &std::path::Path,
         plugin_id: &str,
@@ -288,7 +287,7 @@ pub mod tests_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schema::{EntityTypeToml, FieldSchema, RelationTypeToml};
+    use crate::models::schema::{EntityTypeToml, RelationTypeToml};
     use tempfile::TempDir;
 
     // ── EntityTypeRegistry tests ──────────────────────────────────────────

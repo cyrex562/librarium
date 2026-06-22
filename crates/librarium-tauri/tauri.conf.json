@@ -28,8 +28,24 @@
     }
   },
   "bundle": {
-    "active": false,
-    "icon": []
+    "active": true,
+    "icon": [
+      "icons/icon-32x32.png",
+      "icons/icon-128x128.png"
+    ],
+    "targets": ["deb", "appimage", "nsis", "dmg"],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ]
+      }
+    },
+    "category": "Utility",
+    "shortDescription": "A local-first markdown knowledge base",
+    "longDescription": "Librarium is an offline-first, self-hosted markdown knowledge base with full-text search, entity relationships, and multi-user support."
   },
   "plugins": {
     "deep-link": {

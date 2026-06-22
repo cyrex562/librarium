@@ -549,7 +549,7 @@ impl FileService {
 
                     loop {
                         let new_name = if let Some(extension) = ext {
-                            format!("{} ({}) .{}", stem, counter, extension)
+                            format!("{} ({}).{}", stem, counter, extension)
                         } else {
                             format!("{} ({})", stem, counter)
                         };
@@ -649,6 +649,7 @@ impl FileService {
 
     /// Creates the temp directory and empty file for a chunked upload session.
     pub fn create_upload_session_temp(vault_path: &str, session_id: &str) -> AppResult<()> {
+        validate_session_id(session_id)?;
         let upload_dir = Path::new(vault_path).join(".obsidian").join("uploads");
         std::fs::create_dir_all(&upload_dir)?;
         let temp_file_path = upload_dir.join(session_id);
@@ -661,6 +662,7 @@ impl FileService {
     pub fn append_upload_chunk(vault_path: &str, session_id: &str, bytes: &[u8]) -> AppResult<u64> {
         use std::fs::OpenOptions;
         use std::io::Write;
+        validate_session_id(session_id)?;
         let temp_file_path = upload_temp_file_path(vault_path, session_id);
         if !temp_file_path.exists() {
             return Err(AppError::NotFound("Upload session not found".to_string()));
@@ -672,6 +674,7 @@ impl FileService {
 
     /// Returns the current byte size of an upload session temp file.
     pub fn get_upload_session_size(vault_path: &str, session_id: &str) -> AppResult<u64> {
+        validate_session_id(session_id)?;
         let temp_file_path = upload_temp_file_path(vault_path, session_id);
         if !temp_file_path.exists() {
             return Err(AppError::NotFound("Upload session not found".to_string()));
@@ -687,6 +690,7 @@ impl FileService {
         target_dir: &str,
         filename: &str,
     ) -> AppResult<String> {
+        validate_session_id(session_id)?;
         validate_upload_filename(filename)?;
 
         let temp_file_path = upload_temp_file_path(vault_path, session_id);
@@ -729,6 +733,7 @@ impl FileService {
 
     /// Removes the upload session temp file (on abort or after finalize).
     pub fn delete_upload_session_temp(vault_path: &str, session_id: &str) -> AppResult<()> {
+        validate_session_id(session_id)?;
         let temp_file_path = upload_temp_file_path(vault_path, session_id);
         if temp_file_path.exists() {
             std::fs::remove_file(temp_file_path)?;
@@ -763,6 +768,22 @@ impl FileService {
             }
         }
         Ok(files)
+    }
+}
+
+/// Validate that a session ID is a plain UUID (hex + hyphens only) so it
+/// cannot be used as a path traversal vector when joined into the uploads dir.
+fn validate_session_id(session_id: &str) -> AppResult<()> {
+    let ok = !session_id.is_empty()
+        && session_id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-');
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::InvalidInput(
+            "Invalid upload session ID".to_string(),
+        ))
     }
 }
 

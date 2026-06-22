@@ -142,13 +142,48 @@ class DailyNotesPlugin {
     }
 
     formatDate(date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
+        const fmt = (this.config && this.config.date_format) || 'YYYY-MM-DD';
 
-        // Simple YYYY-MM-DD format
-        // TODO: Support custom formats from config
-        return `${year}-${month}-${day}`;
+        const pad = (n) => String(n).padStart(2, '0');
+
+        const MONTHS_LONG  = ['January','February','March','April','May','June',
+                              'July','August','September','October','November','December'];
+        const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun',
+                              'Jul','Aug','Sep','Oct','Nov','Dec'];
+        const DAYS_LONG    = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        const DAYS_SHORT   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+        const YYYY  = date.getFullYear();
+        const YY    = String(YYYY).slice(-2);
+        const M     = date.getMonth() + 1;
+        const MM    = pad(M);
+        const D     = date.getDate();
+        const DD    = pad(D);
+        const MMMM  = MONTHS_LONG[date.getMonth()];
+        const MMM   = MONTHS_SHORT[date.getMonth()];
+        const dddd  = DAYS_LONG[date.getDay()];
+        const ddd   = DAYS_SHORT[date.getDay()];
+        const HH    = pad(date.getHours());
+        const hh    = pad(date.getHours() % 12 || 12);
+        const mm    = pad(date.getMinutes());
+        const ss    = pad(date.getSeconds());
+
+        // Replace tokens longest-first to avoid partial matches (e.g. MMMM before MM).
+        return fmt
+            .replace(/YYYY/g, YYYY)
+            .replace(/YY/g,   YY)
+            .replace(/MMMM/g, MMMM)
+            .replace(/MMM/g,  MMM)
+            .replace(/MM/g,   MM)
+            .replace(/M(?!M)/g, M)
+            .replace(/DD/g,   DD)
+            .replace(/D(?!D)/g, D)
+            .replace(/dddd/g, dddd)
+            .replace(/ddd/g,  ddd)
+            .replace(/HH/g,   HH)
+            .replace(/hh/g,   hh)
+            .replace(/mm/g,   mm)
+            .replace(/ss/g,   ss);
     }
 }
 

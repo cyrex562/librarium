@@ -8,16 +8,18 @@ Librarium is a full-stack application built with Rust (backend) and TypeScript (
 -   **Language**: Rust (Edition 2021)
 -   **Web Framework**: Actix Web
 -   **Database**: SQLx (SQLite)
--   **Search**: In-memory inverted index (custom implementation)
+-   **Search**: Tantivy (full-text search engine, persisted on disk)
 -   **File Watching**: `notify` (Cross-platform filesystem events)
 -   **Markdown**: `pulldown-cmark`
 -   **Template Engine**: None (API only, frontend is SPA)
 
 ### Frontend
+-   **Framework**: Vue 3 (Composition API) — single-page application
 -   **Language**: TypeScript
--   **Build Tool**: `tsc` (Simple custom build script)
--   **Rendering**: HTML5 / Vanilla JS / Web Components (CodeJar editor)
--   **Styling**: CSS Variables, Dark/Light mode support
+-   **Component Library**: Vuetify 3
+-   **State Management**: Pinia
+-   **Build Tool**: Vite
+-   **Editor**: CodeMirror (primary) / CodeJar (lightweight fallback)
 
 ## Core Components
 
@@ -34,10 +36,10 @@ Librarium is a full-stack application built with Rust (backend) and TypeScript (
 -   Operations: Read, Write, Create (recursive), Delete (move to `.trash`), Move/Rename.
 
 ### 3. `SearchIndex`
--   An in-memory structure mapping tokens to file paths and line numbers.
+-   Wraps a Tantivy search engine instance (persisted index on disk).
 -   Built on startup by scanning registered vaults.
--   Updated incrementally via file events.
--   Provides fast full-text search.
+-   Updated incrementally via file events and API-driven mutations.
+-   Provides fast full-text search with snippet highlighting.
 
 ### 4. `FileWatcher`
 -   Runs in a separate thread.
@@ -45,7 +47,12 @@ Librarium is a full-stack application built with Rust (backend) and TypeScript (
 -   Debounces events to prevent floods.
 -   Broadcasts events (`Created`, `Modified`, `Deleted`, `Renamed`) via a Tokio broadcast channel.
 
-### 5. `WebSocketHandler`
+### 5. `ReindexService`
+-   Two-pass entity/relation indexer: first upserts all entity frontmatter, then syncs relations between them.
+-   Acts as the single source of truth for entity state (distinct from the full-text `SearchIndex`).
+-   Called at startup (full vault scan), on watcher events, and directly by API handlers that mutate files.
+
+### 6. `WebSocketHandler`
 -   Accepts WebSocket connections from the frontend.
 -   Subscribes to the file event broadcast channel.
 -   Pushes updates to clients to trigger UI refreshes (e.g., file tree update, content reload).
@@ -65,12 +72,16 @@ Librarium is a full-stack application built with Rust (backend) and TypeScript (
 
 ## Directory Structure
 
--   `src/`: Backend Rust code
-    -   `config/`: Configuration logic
-    -   `db/`: Database migrations and repositories
+-   `crates/librarium-server/src/`: Backend Rust code
+    -   `config/`: Configuration loading (TOML + env vars)
+    -   `db/`: SQLite migrations and database layer
     -   `models/`: API and DB structs
-    -   `routes/`: Actix request handlers
-    -   `services/`: Core business logic (File, Search, Markdown)
--   `frontend/`: Frontend TypeScript code
-    -   `src/`: TS source
-    -   `public/`: Static assets (HTML, CSS)
+    -   `routes/`: Actix Web request handlers
+    -   `services/`: Core business logic (File, Search, Reindex, Plugin, …)
+    -   `middleware/`: Auth middleware (JWT, API key, vault-role enforcement)
+    -   `watcher/`: Filesystem event debouncer
+-   `frontend/`: Vue 3 SPA
+    -   `src/`: TypeScript source (components, pages, stores, api)
+    -   `public/`: Static assets
+-   `crates/librarium-tauri/`: Tauri desktop shell
+-   `plugins/`: Bundled first-party plugins

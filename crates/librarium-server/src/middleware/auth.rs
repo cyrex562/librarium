@@ -168,6 +168,13 @@ where
         }
 
         // If we have an API key, validate it asynchronously and resolve the user.
+        //
+        // API key auth (LIB-006): API keys are session-independent credentials
+        // intended for programmatic/automation access. They bypass the TOTP
+        // verification gate by design — TOTP is a human-facing second factor
+        // and must not be imposed on non-interactive callers. A valid, non-revoked,
+        // non-expired API key is sufficient to authenticate a request; no TOTP
+        // challenge is ever issued or required.
         if let Some(raw_key) = api_key_header {
             let state_clone = state_for_api_key.clone();
 
@@ -328,19 +335,34 @@ where
                 match user_role {
                     Ok(Some(role)) if role_allows(&role, required_role) => {}
                     Ok(Some(_)) | Ok(None) => {
-                        let vault_exists = state.db.get_vault(&vault_id).await.is_ok();
-                        let response = if vault_exists {
-                            HttpResponse::Forbidden().json(serde_json::json!({
-                                "error": "FORBIDDEN",
-                                "message": "You do not have access to this vault"
-                            }))
-                        } else {
-                            HttpResponse::NotFound().json(serde_json::json!({
-                                "error": "NOT_FOUND",
-                                "message": "Vault not found"
-                            }))
-                        };
-                        return Ok(req.into_response(response).map_into_right_body());
+                        // LIB-008: An authenticated user who is not a vault member should
+                        // still be able to read a public vault, just like an anonymous
+                        // visitor. Without this check, logged-in non-members would be
+                        // blocked while anonymous users could freely access the same vault.
+                        let is_read = matches!(required_role, RequiredVaultRole::Read);
+                        let is_public = is_read
+                            && state
+                                .db
+                                .get_vault_visibility(&vault_id)
+                                .await
+                                .map(|v| v == "public")
+                                .unwrap_or(false);
+
+                        if !is_public {
+                            let vault_exists = state.db.get_vault(&vault_id).await.is_ok();
+                            let response = if vault_exists {
+                                HttpResponse::Forbidden().json(serde_json::json!({
+                                    "error": "FORBIDDEN",
+                                    "message": "You do not have access to this vault"
+                                }))
+                            } else {
+                                HttpResponse::NotFound().json(serde_json::json!({
+                                    "error": "NOT_FOUND",
+                                    "message": "Vault not found"
+                                }))
+                            };
+                            return Ok(req.into_response(response).map_into_right_body());
+                        }
                     }
                     Err(_) => {
                         let response =
@@ -375,6 +397,12 @@ fn should_skip_auth(req: &ServiceRequest) -> bool {
         || path == "/api/auth/refresh"
         || path.starts_with("/api/auth/oidc/")
         || path == "/api/invitations/accept"
+        // POST /api/render is a stateless markdown-to-HTML converter with no
+        // vault or user context.  It accepts arbitrary markdown and returns
+        // sanitised HTML; it exposes no stored data and performs no mutations,
+        // so requiring authentication would break the live-preview panel for
+        // unauthenticated sessions (LIB-042).
+        || path == "/api/render"
     {
         return true;
     }

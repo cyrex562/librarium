@@ -144,7 +144,7 @@ export const useFilesStore = defineStore('files', () => {
         vaultId: string,
         from: string,
         to: string,
-        strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
+        strategy: 'fail' | 'overwrite' | 'rename' = 'fail',
     ): Promise<string> {
         const result = await apiRenameFile(vaultId, from, to, strategy);
         await loadTree(vaultId);
@@ -154,7 +154,7 @@ export const useFilesStore = defineStore('files', () => {
     async function moveFiles(
         vaultId: string,
         moves: Array<{ from: string; to: string }>,
-        strategy: 'fail' | 'overwrite' | 'rename' | 'autorename' = 'fail',
+        strategy: 'fail' | 'overwrite' | 'rename' = 'fail',
     ): Promise<Array<{ from: string; to: string }>> {
         const completed: Array<{ from: string; to: string }> = [];
         try {

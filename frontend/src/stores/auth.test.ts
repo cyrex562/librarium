@@ -145,6 +145,20 @@ describe('useAuthStore', () => {
         expect(store.accessToken).toBe('fresh-access');
     });
 
+    it('flagPendingTotp sets pendingTotp and persists to localStorage without clearing the token', () => {
+        localStorage.setItem('obsidian_access_token', 'existing-token');
+        localStorage.setItem('obsidian_pending_totp', 'false');
+
+        const store = useAuthStore();
+        store.flagPendingTotp();
+
+        expect(store.pendingTotp).toBe(true);
+        expect(store.isAuthenticated).toBe(false);
+        // Access token is preserved so the TOTP verify call can still be made.
+        expect(store.accessToken).toBe('existing-token');
+        expect(localStorage.getItem('obsidian_pending_totp')).toBe('true');
+    });
+
     it('loads the profile immediately for a non-TOTP login', async () => {
         vi.mocked(apiLogin).mockResolvedValueOnce({
             access_token: 'access-token',

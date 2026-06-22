@@ -1,12 +1,21 @@
+use crate::error::{AppError, AppResult};
+use crate::middleware::AuthenticatedUser;
 use crate::routes::AppState;
 use crate::services::entity_service::EntityService;
 use crate::services::reindex_service::ReindexService;
 use crate::services::relation_service::RelationService;
 use crate::services::TemplateService;
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, ResponseError as _};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
+
+fn require_authenticated_user(req: &HttpRequest) -> AppResult<AuthenticatedUser> {
+    req.extensions()
+        .get::<AuthenticatedUser>()
+        .cloned()
+        .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))
+}
 
 #[derive(Deserialize)]
 pub struct EntityListQuery {
@@ -230,7 +239,10 @@ async fn trigger_reindex(path: web::Path<String>, state: web::Data<AppState>) ->
     }))
 }
 
-async fn list_labels(state: web::Data<AppState>) -> HttpResponse {
+async fn list_labels(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     match crate::services::LabelService::list(&state.db).await {
         Ok(labels) => HttpResponse::Ok().json(json!({ "labels": labels })),
         Err(e) => {
@@ -240,7 +252,10 @@ async fn list_labels(state: web::Data<AppState>) -> HttpResponse {
     }
 }
 
-async fn list_entity_types(state: web::Data<AppState>) -> HttpResponse {
+async fn list_entity_types(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     let types = state.entity_type_registry.all().await;
     HttpResponse::Ok().json(json!({ "entity_types": types }))
 }
@@ -248,7 +263,11 @@ async fn list_entity_types(state: web::Data<AppState>) -> HttpResponse {
 async fn get_entity_type_template(
     path: web::Path<String>,
     state: web::Data<AppState>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     let type_id = path.into_inner();
     match TemplateService::get_template(&state.entity_type_registry, &type_id, &state.plugins_dir)
         .await
@@ -261,7 +280,10 @@ async fn get_entity_type_template(
     }
 }
 
-async fn list_relation_types(state: web::Data<AppState>) -> HttpResponse {
+async fn list_relation_types(state: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     let types = state.relation_type_registry.all().await;
     HttpResponse::Ok().json(json!({ "relation_types": types }))
 }

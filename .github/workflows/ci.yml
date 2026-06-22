@@ -30,7 +30,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  # ── Gate 2: Rust tests ─────────────────────────────────────────────────────
+  # ── Gate 2: Rust unit tests ────────────────────────────────────────────────
   rust-test:
     name: Rust tests
     runs-on: ubuntu-latest
@@ -44,8 +44,35 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             libsqlite3-dev pkg-config libssl-dev
-      - name: Run all Rust tests
+      - name: Run all Rust tests (unit + integration)
         run: cargo test --workspace
+        env:
+          RUST_LOG: debug
+
+  # ── Gate 2b: Backend integration tests (explicit suite) ────────────────────
+  backend-integration:
+    name: Backend integration tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libsqlite3-dev pkg-config libssl-dev
+      - name: Run backend integration tests
+        run: |
+          cargo test -p librarium-server \
+            --test api_integration \
+            --test entity_api_tests \
+            --test import_archive_tests \
+            --test auth_group_sharing \
+            --test ws_authorization_tests \
+            --test oidc_state_tests \
+            -- --nocapture
         env:
           RUST_LOG: debug
 
@@ -71,7 +98,7 @@ jobs:
   e2e:
     name: Playwright E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    needs: [rust-test, vitest]
+    needs: [rust-test, backend-integration, vitest]
     strategy:
       fail-fast: false
       matrix:
@@ -95,27 +122,39 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: Install Playwright browsers
+      # Cache Playwright browser binaries keyed by browser + package-lock.json so
+      # the ~200 MB download is only repeated when the Playwright version changes.
+      - name: Cache Playwright browser binaries
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install Playwright browser + system deps (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Install Playwright system deps only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps ${{ matrix.browser }}
       - name: Build frontend
         working-directory: frontend
         run: npm run build
       - name: Build server
         working-directory: .
-        run: cargo build -p codex-server
-      - name: Start codex-server in background
+        run: cargo build -p librarium-server
+      - name: Start librarium-server in background
         working-directory: .
         run: |
-          mkdir -p /tmp/codex-e2e
-          cat > /tmp/codex-e2e/config.toml <<'EOF'
+          mkdir -p /tmp/librarium-e2e
+          cat > /tmp/librarium-e2e/config.toml <<'EOF'
           [server]
           host = "127.0.0.1"
           port = 4173
 
           [database]
-          path = "/tmp/codex-e2e/codex.db"
+          path = "/tmp/librarium-e2e/librarium.db"
           EOF
-          ./target/debug/codex-server --config /tmp/codex-e2e/config.toml &
+          ./target/debug/librarium-server --config /tmp/librarium-e2e/config.toml &
           echo "SERVER_PID=$!" >> $GITHUB_ENV
           # Wait for the health endpoint to come up (max 30s).
           for i in $(seq 1 300); do
@@ -129,6 +168,7 @@ jobs:
         run: npx playwright test --project=${{ matrix.browser }}
         env:
           CI: true
+          PLAYWRIGHT_INCLUDE_WEBKIT: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -140,7 +180,7 @@ jobs:
   webkit-compat:
     name: WebKitGTK 2.36 compat (Ubuntu 22.04)
     runs-on: ubuntu-22.04
-    needs: [rust-test, vitest]
+    needs: [rust-test, backend-integration, vitest]
     defaults:
       run:
         working-directory: frontend
@@ -164,26 +204,36 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
-      - name: Install Playwright webkit browser
+      - name: Cache Playwright browser binaries (webkit / Ubuntu 22.04)
+        uses: actions/cache@v4
+        id: playwright-cache-webkit-22
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-ubuntu-22.04-webkit-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install Playwright webkit browser + system deps (cache miss)
+        if: steps.playwright-cache-webkit-22.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps webkit
+      - name: Install Playwright webkit system deps only (cache hit)
+        if: steps.playwright-cache-webkit-22.outputs.cache-hit == 'true'
+        run: npx playwright install-deps webkit
       - name: Build frontend
         run: npm run build
       - name: Build server
         working-directory: .
-        run: cargo build -p codex-server
-      - name: Start codex-server in background
+        run: cargo build -p librarium-server
+      - name: Start librarium-server in background
         working-directory: .
         run: |
-          mkdir -p /tmp/codex-e2e
-          cat > /tmp/codex-e2e/config.toml <<'EOF'
+          mkdir -p /tmp/librarium-e2e
+          cat > /tmp/librarium-e2e/config.toml <<'EOF'
           [server]
           host = "127.0.0.1"
           port = 4173
 
           [database]
-          path = "/tmp/codex-e2e/codex.db"
+          path = "/tmp/librarium-e2e/librarium.db"
           EOF
-          ./target/debug/codex-server --config /tmp/codex-e2e/config.toml &
+          ./target/debug/librarium-server --config /tmp/librarium-e2e/config.toml &
           for i in $(seq 1 300); do
             if curl -sf http://127.0.0.1:4173/api/health > /dev/null 2>&1; then
               echo "Server ready after ${i} attempts"
@@ -195,6 +245,7 @@ jobs:
         run: npx playwright test --project=webkit
         env:
           CI: true
+          PLAYWRIGHT_INCLUDE_WEBKIT: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

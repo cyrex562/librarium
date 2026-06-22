@@ -4,9 +4,9 @@ Because the two branches introduced entirely divergent, fully featured auth sche
 
 ## 1. Core Module Reorganization
 Instead of simple `auth.rs` files, we will create explicit modules for authentication to encapsulate both strategies.
-* `crates/obsidian-server/src/auth/mod.rs` (Unified auth models, User/Session representations)
-* `crates/obsidian-server/src/auth/jwt.rs` (Password / JWT logic ported from `main`)
-* `crates/obsidian-server/src/auth/oidc.rs` (OAuth / Session logic imported from OIDC branch)
+* `crates/librarium-server/src/auth/mod.rs` (Unified auth models, User/Session representations)
+* `crates/librarium-server/src/auth/jwt.rs` (Password / JWT logic ported from `main`)
+* `crates/librarium-server/src/auth/oidc.rs` (OAuth / Session logic imported from OIDC branch)
 
 ## 2. Middleware & Extractors
 We will modify the middleware layer to accept cookies (OIDC) *or* authorization headers (JWT):
@@ -17,4 +17,4 @@ The incoming OIDC branch includes several new tables and methods. The `main` bra
 * We will merge the SQLite logic.
 
 ## 4. Routes
-* All routes mapped under `crates/obsidian-server/src/routes/auth/`.
+* All routes mapped under `crates/librarium-server/src/routes/auth/`.

@@ -1,9 +1,28 @@
 use crate::config::AppConfig;
 use crate::middleware::AuthenticatedUser;
+use crate::models::WsMessage;
 use crate::routes::vaults::AppState;
 use actix_web::{get, web, Error, HttpMessage, HttpRequest, HttpResponse};
 use actix_ws::Message;
+use std::time::Duration;
 use tracing::info;
+
+/// Return the vault ID that a `WsMessage` is scoped to, or `None` for
+/// global messages that should be delivered to every connected client.
+///
+/// This function is an **exhaustive** match with no wildcard arm.  Any new
+/// variant added to `WsMessage` will cause a compile error here, forcing the
+/// author to decide whether it is vault-scoped (add a `Some(...)` arm) or
+/// global (add a `None` arm).  This keeps auth filtering centralized rather
+/// than scattered across the WebSocket handler as ad-hoc per-type checks.
+fn ws_msg_vault_id(msg: &WsMessage) -> Option<&str> {
+    match msg {
+        WsMessage::FileChanged { vault_id, .. } => Some(vault_id),
+        WsMessage::ReindexComplete { vault_id, .. } => Some(vault_id),
+        // Global / connection-level messages — deliver to all authenticated clients.
+        WsMessage::SyncPing | WsMessage::SyncPong { .. } | WsMessage::Error { .. } => None,
+    }
+}
 
 #[get("/api/ws")]
 async fn websocket(
@@ -21,8 +40,24 @@ async fn websocket(
     let current_user = req.extensions().get::<AuthenticatedUser>().cloned();
 
     actix_web::rt::spawn(async move {
+        let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+        ping_interval.tick().await; // discard the immediate first tick
+
         loop {
             tokio::select! {
+                // Send a SyncPing every 30 seconds to keep idle connections alive
+                // through reverse-proxy idle-timeout policies.
+                _ = ping_interval.tick() => {
+                    let server_time = chrono::Utc::now().timestamp_millis();
+                    let msg = WsMessage::SyncPing;
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        if session.text(json).await.is_err() {
+                            break;
+                        }
+                    }
+                    let _ = server_time; // available for future SyncPong matching
+                }
+
                 // Receive messages from the client
                 Some(Ok(msg)) = msg_stream.recv() => {
                     match msg {
@@ -88,14 +123,13 @@ async fn websocket(
                             continue;
                         };
 
-                        match &ws_msg {
-                            crate::models::WsMessage::ReindexComplete { vault_id, .. } => {
-                                match state.db.get_vault_role_for_user(vault_id, &current_user.user_id).await {
-                                    Ok(Some(_)) => {}
-                                    _ => continue,
-                                }
+                        // Vault-scoped messages are filtered by membership.
+                        // Global messages (SyncPing, SyncPong, Error) pass through.
+                        if let Some(vault_id) = ws_msg_vault_id(&ws_msg) {
+                            match state.db.get_vault_role_for_user(vault_id, &current_user.user_id).await {
+                                Ok(Some(_)) => {}
+                                _ => continue,
                             }
-                            _ => {}
                         }
                     }
 

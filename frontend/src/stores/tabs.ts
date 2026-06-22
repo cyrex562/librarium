@@ -8,6 +8,7 @@ function getFileType(filePath: string): FileType {
     if (ext === 'md') return 'markdown';
     if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'image';
     if (ext === 'pdf') return 'pdf';
+    if (ext === 'canvas') return 'canvas';
     if (['mp3', 'wav', 'ogg'].includes(ext)) return 'audio';
     if (['mp4', 'webm'].includes(ext)) return 'video';
     if (['txt', 'json', 'js', 'ts', 'css', 'html', 'xml', 'rs', 'py', 'java', 'c', 'cpp', 'h', 'go', 'yaml', 'yml', 'toml', 'ini', 'sh', 'bat', 'mdx'].includes(ext)) return 'text';

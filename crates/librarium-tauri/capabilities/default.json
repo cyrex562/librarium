@@ -1,5 +1,5 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema/acl/capability.json",
+  "$schema": "https://schema.tauri.app/config/2/acl/capability.json",
   "identifier": "default",
   "description": "Default capability set for the Librarium desktop app",
   "windows": ["main"],

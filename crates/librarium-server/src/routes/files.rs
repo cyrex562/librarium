@@ -3,7 +3,7 @@ use crate::models::{
     CreateFileRequest, CreateUploadSessionRequest, UpdateFileRequest, UploadSessionResponse,
 };
 use crate::routes::vaults::AppState;
-use crate::services::{file_service::TrashItem, FileService, ImageService, WikiLinkResolver};
+use crate::services::{file_service::TrashItem, FileService, ImageService, ReindexService, WikiLinkResolver};
 use actix_multipart::Multipart;
 use actix_web::http::header::{ETAG, IF_NONE_MATCH};
 use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse};
@@ -459,8 +459,11 @@ async fn delete_file(
         )
         .await?;
 
-    // Remove from search index
+    // Remove from search index and entity state.
     state.search_index.remove_file(&vault_id, &file_path)?;
+    if let Err(e) = ReindexService::remove_file(&state.db, &vault_id, &file_path).await {
+        tracing::warn!("Entity remove_file failed after delete of {file_path}: {e}");
+    }
 
     Ok(HttpResponse::NoContent().finish())
 }
@@ -522,15 +525,24 @@ async fn rename_file(
         )
         .await?;
 
-    // Update search index if it's a markdown file
+    // Update search index and entity state for the rename.
     if from.ends_with(".md") {
         state.search_index.remove_file(&vault_id, from)?;
+    }
+    if let Err(e) = ReindexService::remove_file(&state.db, &vault_id, from).await {
+        tracing::warn!("Entity remove_file failed after rename of {from}: {e}");
     }
     if new_path.ends_with(".md") {
         if let Ok(content) = FileService::read_file(&vault.path, &new_path) {
             state
                 .search_index
                 .update_file(&vault_id, &new_path, content.content)?;
+        }
+        let abs_path = format!("{}/{}", vault.path.trim_end_matches('/'), new_path);
+        if let Err(e) =
+            ReindexService::index_file(&state.db, &vault_id, &new_path, &abs_path).await
+        {
+            tracing::warn!("Entity index_file failed after rename to {new_path}: {e}");
         }
     }
 
@@ -1208,7 +1220,7 @@ async fn import_archive(
     state: web::Data<AppState>,
     vault_id: web::Path<String>,
     query: web::Query<ImportArchiveQuery>,
-    body: web::Bytes,
+    mut payload: web::Payload,
 ) -> AppResult<HttpResponse> {
     let vault_id = vault_id.into_inner();
     let vault = state.db.get_vault(&vault_id).await?;
@@ -1223,18 +1235,44 @@ async fn import_archive(
         std::fs::create_dir_all(&target_dir)?;
     }
 
-    // Detect archive type from the query parameter (or sniff the magic bytes).
+    // Stream the request body to a temp file to avoid buffering the entire
+    // archive in memory (LIB-044).  ZIP requires seeking so we can't feed it
+    // directly from a network stream; using a temp file gives both ZIP and TAR
+    // a seekable, file-backed reader at the cost of disk I/O rather than RAM.
+    let tmp = tempfile::NamedTempFile::new()
+        .map_err(|e| AppError::InternalError(format!("Failed to create temp file: {e}")))?;
+    let tmp_path = tmp.path().to_path_buf();
+    {
+        use std::io::Write as _;
+        let mut tmp_file = std::fs::File::create(&tmp_path)?;
+        while let Some(chunk) = payload.next().await {
+            let chunk = chunk
+                .map_err(|e| AppError::InternalError(format!("Payload read error: {e}")))?;
+            tmp_file.write_all(&chunk)?;
+        }
+    }
+
+    // Detect archive type from the query parameter or magic bytes in the temp file.
     let archive_type = query.archive_type.to_ascii_lowercase();
+    let mut magic = [0u8; 265];
+    let magic_len = {
+        use std::io::{Read as _, Seek as _};
+        let mut f = std::fs::File::open(&tmp_path)?;
+        let n = f.read(&mut magic).unwrap_or(0);
+        let _ = f.seek(std::io::SeekFrom::Start(0));
+        n
+    };
+    let magic = &magic[..magic_len];
     let is_zip =
-        archive_type == "zip" || (archive_type.is_empty() && body.starts_with(b"PK\x03\x04"));
+        archive_type == "zip" || (archive_type.is_empty() && magic.starts_with(b"PK\x03\x04"));
     let is_tar_gz = !is_zip
         && (archive_type == "tar.gz"
             || archive_type == "tgz"
-            || (archive_type.is_empty() && body.starts_with(b"\x1f\x8b")));
+            || (archive_type.is_empty() && magic.starts_with(b"\x1f\x8b")));
     let is_tar = !is_zip
         && !is_tar_gz
         && (archive_type == "tar"
-            || (archive_type.is_empty() && body.len() >= 265 && &body[257..262] == b"ustar"));
+            || (archive_type.is_empty() && magic_len >= 265 && &magic[257..262] == b"ustar"));
 
     if !is_zip && !is_tar_gz && !is_tar {
         return Err(AppError::InvalidInput(
@@ -1246,9 +1284,35 @@ async fn import_archive(
     let mut skipped: Vec<String> = Vec::new();
 
     if is_zip {
-        let cursor = Cursor::new(body.as_ref());
-        let mut archive = zip::ZipArchive::new(cursor)
+        let file = std::fs::File::open(&tmp_path)?;
+        let mut archive = zip::ZipArchive::new(file)
             .map_err(|e| AppError::InvalidInput(format!("Invalid zip: {}", e)))?;
+
+        // For the Fail strategy, pre-scan all entries for conflicts before
+        // writing anything so the operation stays atomic (all-or-nothing).
+        if query.conflict == ConflictStrategy::Fail {
+            for i in 0..archive.len() {
+                let zf = archive
+                    .by_index(i)
+                    .map_err(|e| AppError::InternalError(format!("Zip read error: {}", e)))?;
+                if zf.is_dir() {
+                    continue;
+                }
+                let Some(safe_name) = zf.enclosed_name().map(|p| p.to_path_buf()) else {
+                    continue;
+                };
+                let dest = target_dir.join(&safe_name);
+                if dest.exists() {
+                    return Err(AppError::Conflict(format!(
+                        "Archive entry already exists: {}",
+                        dest.strip_prefix(&vault.path)
+                            .unwrap_or(&dest)
+                            .to_string_lossy()
+                    )));
+                }
+            }
+        }
+
         for i in 0..archive.len() {
             let mut zf = archive
                 .by_index(i)
@@ -1266,6 +1330,8 @@ async fn import_archive(
             }
             let final_dest = match (dest.exists(), query.conflict) {
                 (true, ConflictStrategy::Fail) => {
+                    // Should not be reached after the pre-scan above, but kept
+                    // as a safe fallback for the race window.
                     return Err(AppError::Conflict(format!(
                         "Archive entry already exists: {}",
                         dest.strip_prefix(&vault.path)
@@ -1297,13 +1363,13 @@ async fn import_archive(
         }
     } else {
         // tar or tar.gz – decompress first if gzip-compressed.
-        let cursor = Cursor::new(body.as_ref());
+        let file = std::fs::File::open(&tmp_path)?;
         let mut tar = if is_tar_gz {
             tar::Archive::new(
-                Box::new(flate2::read::GzDecoder::new(cursor)) as Box<dyn std::io::Read>
+                Box::new(flate2::read::GzDecoder::new(file)) as Box<dyn std::io::Read>
             )
         } else {
-            tar::Archive::new(Box::new(cursor) as Box<dyn std::io::Read>)
+            tar::Archive::new(Box::new(file) as Box<dyn std::io::Read>)
         };
         for entry in tar
             .entries()
@@ -1319,6 +1385,7 @@ async fn import_archive(
                 continue;
             }
             let raw_name = entry_path.to_string_lossy().to_string();
+            // String-level pre-check for the most obvious traversal forms.
             if raw_name.starts_with('/') || raw_name.contains("..") {
                 continue;
             }
@@ -1326,8 +1393,30 @@ async fn import_archive(
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            // Canonicalize the resolved destination and verify it stays inside
+            // target_dir. The parent directory was just created above so
+            // canonicalize should succeed; if it doesn't, skip the entry rather
+            // than risk writing outside the vault.
+            let canonical_dest = match dest.canonicalize() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let canonical_target = match target_dir.canonicalize() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !canonical_dest.starts_with(&canonical_target) {
+                continue;
+            }
             let final_dest = match (dest.exists(), query.conflict) {
                 (true, ConflictStrategy::Fail) => {
+                    // TAR is a streaming format so we cannot pre-scan; clean up
+                    // the files already extracted before returning the error.
+                    for already in &extracted {
+                        let _ = std::fs::remove_file(
+                            std::path::Path::new(&vault.path).join(already),
+                        );
+                    }
                     return Err(AppError::Conflict(format!(
                         "Archive entry already exists: {}",
                         dest.strip_prefix(&vault.path)

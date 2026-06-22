@@ -1,16 +1,16 @@
 # Plan: Vue Frontend Port + REST API for Native Desktop Client
 
-**Status**: Phases A-C largely implemented; Phase D onward not started  
+**Status**: All phases complete — Vue 3 + Pinia + Vuetify frontend fully ported; Tauri desktop shell (`crates/librarium-tauri`) replaces the originally-planned egui/iced target  
 **Date created**: 2026-03-11  
 **Decisions**:
 
 - Vue 3 Composition API + Pinia + Vue Router 4
-- Vuetify 3 component library (dark Obsidian theme)
-- Pure native Rust GUI target (egui / iced) using a shared `obsidian-client` crate
+- Vuetify 3 component library (dark theme)
+- Native desktop target: Tauri 2 (`crates/librarium-tauri`) — wraps the Vite frontend in a WebView
 - Keep existing `/api/` URL paths (no versioning prefix)
 - JWT auth with config opt-out (`auth.enabled = false`) for local installs
 
-**TL;DR**: Replace the vanilla TS + tsc frontend with a **Vite + Vue 3 + Pinia + Vuetify** app. Update `rust-embed` to point at Vite's output directory. Then convert Cargo to a **workspace** with a shared `obsidian-types` crate and a typed `obsidian-client` crate, add JWT auth, and expose delta-sync endpoints for the future egui/iced desktop app.
+**TL;DR**: Replaced the vanilla TS + HTMX frontend with a **Vite + Vue 3 + Pinia + Vuetify** app embedded via `rust-embed`. Cargo workspace has shared `librarium-types` and `librarium-client` crates. JWT + TOTP + OIDC auth, WebSocket sync, and a Tauri 2 desktop shell are all complete.
 
 ---
 
@@ -198,36 +198,36 @@
 
 > Steps 30–33 are sequential.
 
-> **Kickoff progress (2026-03-11):** Workspace is now rooted at `crates/obsidian-server`, `crates/obsidian-types`, and `crates/obsidian-client`. Server source has been moved to `crates/obsidian-server/src`, and `cargo build --workspace` compiles all members (existing server warnings remain). Core shared DTOs/enums from `models/mod.rs` have been extracted into `obsidian-types` and re-exported by the server models module.
+> **Kickoff progress (2026-03-11):** Workspace is now rooted at `crates/librarium-server`, `crates/librarium-types`, and `crates/librarium-client`. Server source has been moved to `crates/librarium-server/src`, and `cargo build --workspace` compiles all members (existing server warnings remain). Core shared DTOs/enums from `models/mod.rs` have been extracted into `librarium-types` and re-exported by the server models module.
 
 - [x] **Step 30**: Convert root `Cargo.toml` to a workspace manifest:
 
   ```toml
   [workspace]
   members = [
-      "crates/obsidian-server",
-      "crates/obsidian-types",
-      "crates/obsidian-client",
+      "crates/librarium-server",
+      "crates/librarium-types",
+      "crates/librarium-client",
   ]
   resolver = "2"
   ```
 
-- [x] **Step 31**: Create `crates/obsidian-types/`
+- [x] **Step 31**: Create `crates/librarium-types/`
   - Extract all `#[derive(Serialize, Deserialize)]` structs from `src/models/mod.rs`:
     `Vault`, `FileNode`, `FileContent`, `SearchResult`, `SearchMatch`,
     `FileChangeEvent`, `FileChangeType`, `UserPreferences`, `CreateVaultRequest`, etc.
   - Add new `WsMessage` enum (see Phase F Step 43)
   - Deps: only `serde`, `chrono`, `uuid` — keep it minimal, `no_std`-compatible where possible
 
-- [x] **Step 32**: Move `src/` → `crates/obsidian-server/src/`
+- [x] **Step 32**: Move `src/` → `crates/librarium-server/src/`
   - Update `Cargo.toml` for the new crate name and path
-  - Add `obsidian-types = { path = "../obsidian-types" }` as dependency
-  - Replace duplicated struct definitions with imports from `obsidian-types`
+  - Add `librarium-types = { path = "../librarium-types" }` as dependency
+  - Replace duplicated struct definitions with imports from `librarium-types`
   - Keep `rust-embed` assets pointing at `../../target/frontend/` (relative to new crate root)
 
-- [x] **Step 33**: Create `crates/obsidian-client/`
+- [x] **Step 33**: Create `crates/librarium-client/`
   - Typed `ObsidianClient` struct
-  - Deps: `reqwest` (with TLS features), `tokio-tungstenite`, `serde_json`, `obsidian-types`
+  - Deps: `reqwest` (with TLS features), `tokio-tungstenite`, `serde_json`, `librarium-types`
   - Methods (one per API endpoint): `list_vaults()`, `create_vault()`, `get_file_tree()`,
     `read_file()`, `write_file()`, `create_file()`, `delete_file()`, `rename_file()`,
     `search()`, `get_random_note()`, `get_daily_note()`, `get_preferences()`, `update_preferences()`,
@@ -239,9 +239,9 @@
 
 ## Phase E — JWT Authentication
 
-> Depends on Phase D. Step 39 also updates `obsidian-client`.
+> Depends on Phase D. Step 39 also updates `librarium-client`.
 
-- [x] **Step 34**: Add to `crates/obsidian-server/Cargo.toml`:
+- [x] **Step 34**: Add to `crates/librarium-server/Cargo.toml`:
   - `jsonwebtoken = "9"`
   - `argon2 = "0.5"` (password hashing)
   - `rand = "0.9"` (already in root Cargo.toml, confirm available)
@@ -286,7 +286,7 @@
   refresh_token_ttl = 604800
   ```
 
-- [x] **Step 39**: Update `obsidian-client` crate:
+- [x] **Step 39**: Update `librarium-client` crate:
   - `login(username, password)` stores access + refresh tokens
   - All request methods attach `Authorization` header
   - Token auto-refresh: check `expires_at` before each request, refresh if within 60 seconds
@@ -327,7 +327,7 @@
   - Response: `{ "stale": ["path1", ...], "deleted": ["path2", ...], "server_newer": [...] }`
   - Used by desktop client on startup or reconnect to reconcile state in one round trip
 
-- [x] **Step 43**: Formalized `WsMessage` enum in `obsidian-types`:
+- [x] **Step 43**: Formalized `WsMessage` enum in `librarium-types`:
 
   ```rust
   #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -344,7 +344,7 @@
   - Update frontend `useWebSocket.ts` to parse typed `WsMessage`
 
 - [x] **Step 44**: CORS middleware:
-  - Add `actix-cors` to `crates/obsidian-server/Cargo.toml`
+  - Add `actix-cors` to `crates/librarium-server/Cargo.toml`
   - Configure in `main.rs` with allowed origins from `config.toml`:
 
     ```toml
@@ -368,8 +368,8 @@
 - [x] `POST /api/auth/login` returns JWT; protected routes reject `401` without token; `/` serves SPA
 - [x] `GET /api/vaults/{id}/changes?since=0` returns populated change log entries
 - [x] Connect WebSocket, edit file → receive `{ "type": "FileChanged", "etag": "...", ... }` message
-- [x] `cargo build -p obsidian-client` compiles the client crate standalone
-- [x] `cargo build -p obsidian-types` compiles with no server or client deps
+- [x] `cargo build -p librarium-client` compiles the client crate standalone
+- [x] `cargo build -p librarium-types` compiles with no server or client deps
 
 ---
 
@@ -377,9 +377,9 @@
 
 1. **CodeJar vs. CodeMirror 6**: CodeJar is kept for initial port to reduce scope. CodeMirror 6 would give syntax highlighting keybindings and better mobile support — deferred.
 2. **Plugin system in Vue**: Plugins currently inject raw HTML/JS. A defined Vue component slot API or iframe sandbox is needed — deferred.
-3. **egui vs. iced**: Both are Rust-native; egui is simpler to prototype, iced is more declarative. The `obsidian-client` crate is framework-agnostic — decision deferred.
-4. **Desktop crate location**: The future `crates/obsidian-desktop/` crate depends on both `obsidian-types` and `obsidian-client`. Adding it to the workspace later requires no changes to existing crates.
-5. **Test migration**: Existing integration tests in `tests/` use relative import paths. After moving server code to `crates/obsidian-server/`, update test harness paths — minimal changes expected.
+3. **Desktop target**: Tauri 2 was chosen over egui/iced. `librarium-tauri` embeds the Vite/Vue frontend in a WebView and spawns `librarium-server` in-process. The `librarium-client` crate remains useful for CLI tooling or future non-browser clients.
+4. **Desktop crate location**: The future `crates/librarium-tauri/` crate depends on both `librarium-types` and `librarium-client`. Adding it to the workspace later requires no changes to existing crates.
+5. **Test migration**: Existing integration tests in `tests/` use relative import paths. After moving server code to `crates/librarium-server/`, update test harness paths — minimal changes expected.
 6. **Sync conflicts**: The current `ConflictResolver` uses a "last write wins with user prompt" strategy. For the desktop client, the `/changes` endpoint enables more sophisticated 3-way merge in the future.
 
 ---
@@ -395,7 +395,7 @@
 | `frontend/src/App.vue` + `frontend/src/**/*.vue` styles | C | Vuetify theme tokens + component-scoped styling |
 | `src/assets.rs` | A | Update `#[folder]` path |
 | `src/main.rs` | A, E | Update static path; register auth middleware |
-| `src/models/mod.rs` | D | Extract types to `obsidian-types` crate |
-| `src/routes/` (all) | D, E | Move to `crates/obsidian-server/src/routes/`; add `auth.rs` |
+| `src/models/mod.rs` | D | Extract types to `librarium-types` crate |
+| `src/routes/` (all) | D, E | Move to `crates/librarium-server/src/routes/`; add `auth.rs` |
 | `Cargo.toml` | D | Convert to workspace |
 | `config.toml` | E, F | Add `[auth]` and `[cors]` sections |

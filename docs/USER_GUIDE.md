@@ -67,7 +67,22 @@ Welcome to Librarium! This application allows you to host and edit your Obsidian
 -   **Window Layout**: Save your current split/tab layout.
 
 ## Multi-User Usage
-Currently, the application is designed for single-user or trusted-network usage. Multiple users can access the interface simultaneously, and changes are synchronized in real-time via WebSockets. However, there is no user authentication or permission system yet.
+
+Librarium supports multiple concurrent users with role-based access control.
+
+- **Authentication**: Password login, LDAP, or OIDC (configured in `config.toml`).
+  Two-factor authentication (TOTP) and API keys are also supported.
+- **Roles**: Each vault member has an Owner, Editor, or Viewer role.
+  Owners can share vaults and manage members; Editors can read and write;
+  Viewers can read only.
+- **Groups**: Users can be organized into groups for bulk vault sharing.
+- **Public vaults**: A vault can be made public to allow unauthenticated
+  read-only access.
+- **Admin panel**: Administrators can manage users, audit logs, and trigger
+  vault reindexing from the `/admin` section of the UI.
+
+See [docs/DEPLOYMENT.md](DEPLOYMENT.md) for instructions on setting up the
+first admin account on a fresh installation.
 
 ## Troubleshooting
 

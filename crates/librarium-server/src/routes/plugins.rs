@@ -1,12 +1,36 @@
+use crate::error::{AppError, AppResult};
+use crate::middleware::AuthenticatedUser;
 use crate::routes::AppState;
 use crate::services::PluginService;
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::ResponseError as _;
 use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Deserialize)]
 struct PluginActionRequest {
     enabled: bool,
+}
+
+fn require_authenticated_user(req: &HttpRequest) -> AppResult<AuthenticatedUser> {
+    req.extensions()
+        .get::<AuthenticatedUser>()
+        .cloned()
+        .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))
+}
+
+async fn require_admin_user(
+    state: &web::Data<AppState>,
+    req: &HttpRequest,
+) -> AppResult<AuthenticatedUser> {
+    let user = require_authenticated_user(req)?;
+    let is_admin = state.db.is_user_admin(&user.user_id).await?;
+    if !is_admin {
+        return Err(AppError::Forbidden(
+            "Administrator privileges are required".to_string(),
+        ));
+    }
+    Ok(user)
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -25,7 +49,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         );
 }
 
-async fn list_plugins(state: web::Data<AppState>) -> impl Responder {
+async fn list_plugins(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     let mut service = PluginService::new(state.plugins_dir.clone());
     let plugins = match service.discover_plugins() {
         Ok(plugins) => plugins,
@@ -42,9 +69,13 @@ async fn list_plugins(state: web::Data<AppState>) -> impl Responder {
 
 async fn toggle_plugin(
     path: web::Path<String>,
-    req: web::Json<PluginActionRequest>,
+    req_body: web::Json<PluginActionRequest>,
     state: web::Data<AppState>,
+    req: HttpRequest,
 ) -> impl Responder {
+    if let Err(e) = require_admin_user(&state, &req).await {
+        return e.error_response();
+    }
     let plugin_id = path.into_inner();
     let mut service = PluginService::new(state.plugins_dir.clone());
 
@@ -56,7 +87,7 @@ async fn toggle_plugin(
         }));
     }
 
-    let result = if req.enabled {
+    let result = if req_body.enabled {
         service.enable_plugin(&plugin_id)
     } else {
         service.disable_plugin(&plugin_id)
@@ -66,7 +97,7 @@ async fn toggle_plugin(
         Ok(_) => HttpResponse::Ok().json(json!({
             "success": true,
             "plugin_id": plugin_id,
-            "enabled": req.enabled
+            "enabled": req_body.enabled
         })),
         Err(e) => {
             tracing::error!("Failed to toggle plugin {}: {}", plugin_id, e);
@@ -78,7 +109,14 @@ async fn toggle_plugin(
 }
 
 /// Get a single plugin by ID (includes manifest, config, and config_schema).
-async fn get_plugin(path: web::Path<String>, state: web::Data<AppState>) -> impl Responder {
+async fn get_plugin(
+    path: web::Path<String>,
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     let plugin_id = path.into_inner();
     let mut service = PluginService::new(state.plugins_dir.clone());
     if let Err(e) = service.discover_plugins() {
@@ -96,7 +134,11 @@ async fn update_plugin_config(
     path: web::Path<String>,
     body: web::Json<serde_json::Value>,
     state: web::Data<AppState>,
+    req: HttpRequest,
 ) -> impl Responder {
+    if let Err(e) = require_admin_user(&state, &req).await {
+        return e.error_response();
+    }
     let plugin_id = path.into_inner();
     let mut service = PluginService::new(state.plugins_dir.clone());
     if let Err(e) = service.discover_plugins() {
@@ -117,7 +159,11 @@ async fn update_plugin_config(
 async fn serve_plugin_file(
     path: web::Path<(String, String)>,
     state: web::Data<AppState>,
+    req: HttpRequest,
 ) -> HttpResponse {
+    if let Err(e) = require_authenticated_user(&req) {
+        return e.error_response();
+    }
     let (plugin_id, filename) = path.into_inner();
 
     // Reject obvious traversal attempts before touching the filesystem
