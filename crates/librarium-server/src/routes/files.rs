@@ -1220,7 +1220,7 @@ async fn import_archive(
     state: web::Data<AppState>,
     vault_id: web::Path<String>,
     query: web::Query<ImportArchiveQuery>,
-    body: web::Bytes,
+    mut payload: web::Payload,
 ) -> AppResult<HttpResponse> {
     let vault_id = vault_id.into_inner();
     let vault = state.db.get_vault(&vault_id).await?;
@@ -1235,18 +1235,44 @@ async fn import_archive(
         std::fs::create_dir_all(&target_dir)?;
     }
 
-    // Detect archive type from the query parameter (or sniff the magic bytes).
+    // Stream the request body to a temp file to avoid buffering the entire
+    // archive in memory (LIB-044).  ZIP requires seeking so we can't feed it
+    // directly from a network stream; using a temp file gives both ZIP and TAR
+    // a seekable, file-backed reader at the cost of disk I/O rather than RAM.
+    let tmp = tempfile::NamedTempFile::new()
+        .map_err(|e| AppError::InternalError(format!("Failed to create temp file: {e}")))?;
+    let tmp_path = tmp.path().to_path_buf();
+    {
+        use std::io::Write as _;
+        let mut tmp_file = std::fs::File::create(&tmp_path)?;
+        while let Some(chunk) = payload.next().await {
+            let chunk = chunk
+                .map_err(|e| AppError::InternalError(format!("Payload read error: {e}")))?;
+            tmp_file.write_all(&chunk)?;
+        }
+    }
+
+    // Detect archive type from the query parameter or magic bytes in the temp file.
     let archive_type = query.archive_type.to_ascii_lowercase();
+    let mut magic = [0u8; 265];
+    let magic_len = {
+        use std::io::{Read as _, Seek as _};
+        let mut f = std::fs::File::open(&tmp_path)?;
+        let n = f.read(&mut magic).unwrap_or(0);
+        let _ = f.seek(std::io::SeekFrom::Start(0));
+        n
+    };
+    let magic = &magic[..magic_len];
     let is_zip =
-        archive_type == "zip" || (archive_type.is_empty() && body.starts_with(b"PK\x03\x04"));
+        archive_type == "zip" || (archive_type.is_empty() && magic.starts_with(b"PK\x03\x04"));
     let is_tar_gz = !is_zip
         && (archive_type == "tar.gz"
             || archive_type == "tgz"
-            || (archive_type.is_empty() && body.starts_with(b"\x1f\x8b")));
+            || (archive_type.is_empty() && magic.starts_with(b"\x1f\x8b")));
     let is_tar = !is_zip
         && !is_tar_gz
         && (archive_type == "tar"
-            || (archive_type.is_empty() && body.len() >= 265 && &body[257..262] == b"ustar"));
+            || (archive_type.is_empty() && magic_len >= 265 && &magic[257..262] == b"ustar"));
 
     if !is_zip && !is_tar_gz && !is_tar {
         return Err(AppError::InvalidInput(
@@ -1258,8 +1284,8 @@ async fn import_archive(
     let mut skipped: Vec<String> = Vec::new();
 
     if is_zip {
-        let cursor = Cursor::new(body.as_ref());
-        let mut archive = zip::ZipArchive::new(cursor)
+        let file = std::fs::File::open(&tmp_path)?;
+        let mut archive = zip::ZipArchive::new(file)
             .map_err(|e| AppError::InvalidInput(format!("Invalid zip: {}", e)))?;
 
         // For the Fail strategy, pre-scan all entries for conflicts before
@@ -1337,13 +1363,13 @@ async fn import_archive(
         }
     } else {
         // tar or tar.gz – decompress first if gzip-compressed.
-        let cursor = Cursor::new(body.as_ref());
+        let file = std::fs::File::open(&tmp_path)?;
         let mut tar = if is_tar_gz {
             tar::Archive::new(
-                Box::new(flate2::read::GzDecoder::new(cursor)) as Box<dyn std::io::Read>
+                Box::new(flate2::read::GzDecoder::new(file)) as Box<dyn std::io::Read>
             )
         } else {
-            tar::Archive::new(Box::new(cursor) as Box<dyn std::io::Read>)
+            tar::Archive::new(Box::new(file) as Box<dyn std::io::Read>)
         };
         for entry in tar
             .entries()

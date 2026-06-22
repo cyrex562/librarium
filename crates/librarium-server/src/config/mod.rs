@@ -59,7 +59,20 @@ fn default_document_format() -> String {
 pub struct AuthConfig {
     #[serde(default = "default_auth_enabled")]
     pub enabled: bool,
-    /// Authentication provider. Valid values: `"password"` (default), `"ldap"`, `"oidc"`.
+    /// Authentication provider. Valid values:
+    ///   - `"password"` (default) — local username/password with Argon2 hashing.
+    ///     Fully self-contained; makes no outbound network calls. This is the
+    ///     correct choice for air-gapped / offline-first lab deployments.
+    ///   - `"ldap"` — delegates credential verification to an LDAP/AD server.
+    ///     Requires `ldap_url` and related settings. Makes outbound TCP connections
+    ///     to the LDAP host only at login time; no call is made at startup.
+    ///   - `"oidc"` — OAuth2 Authorization Code flow via an external OIDC provider.
+    ///     Requires `oidc_issuer_url`, `oidc_client_id`, `oidc_client_secret`, and
+    ///     `oidc_redirect_uri`. Makes outbound HTTPS calls to the provider's discovery
+    ///     endpoint and token endpoint **only when a user initiates an OIDC login**;
+    ///     no outbound call is made at startup. OIDC is therefore safe to leave
+    ///     unconfigured on air-gapped networks — it will return an error only if
+    ///     someone actually tries to use the OIDC login path.
     ///
     /// Note: `"mtls"` was removed — mutual TLS requires a reverse proxy to extract and
     /// forward the client certificate; it cannot be implemented as an application-layer

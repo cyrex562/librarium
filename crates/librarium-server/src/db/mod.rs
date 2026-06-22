@@ -627,6 +627,28 @@ impl Database {
         Ok(())
     }
 
+    // ── LIB-041: per-user recent files ──────────────────────────────────────
+    // Run separately from run_migrations() so it can be called after the users
+    // table exists (the FK reference requires it to already be created).
+    pub async fn run_recent_files_migration(&self) -> AppResult<()> {
+        // Add user_id column if it doesn't already exist (idempotent).
+        let _ = sqlx::query(
+            "ALTER TABLE recent_files ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE",
+        )
+        .execute(&self.pool)
+        .await;
+
+        // Index for fast per-user per-vault lookups.
+        let _ = sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_recent_files_user_vault \
+             ON recent_files(user_id, vault_id)",
+        )
+        .execute(&self.pool)
+        .await;
+
+        Ok(())
+    }
+
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
@@ -1719,55 +1741,107 @@ impl Database {
         self.update_preferences_for_user(user_id, &default).await
     }
 
-    // Recent files operations
-    pub async fn record_recent_file(&self, vault_id: &str, path: &str) -> AppResult<()> {
+    // Recent files operations — scoped per user (LIB-041).
+    // `user_id` is None only when auth is disabled; in that case the legacy
+    // per-vault behaviour is preserved so unauthenticated installs still work.
+    pub async fn record_recent_file(
+        &self,
+        vault_id: &str,
+        path: &str,
+        user_id: Option<&str>,
+    ) -> AppResult<()> {
         sqlx::query(
             r#"
-            INSERT INTO recent_files (vault_id, path, last_accessed)
-            VALUES (?, ?, ?)
-            ON CONFLICT(vault_id, path) DO UPDATE SET last_accessed = excluded.last_accessed
+            INSERT INTO recent_files (vault_id, path, last_accessed, user_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(vault_id, path) DO UPDATE
+                SET last_accessed = excluded.last_accessed,
+                    user_id = excluded.user_id
             "#,
         )
         .bind(vault_id)
         .bind(path)
         .bind(Utc::now().to_rfc3339())
+        .bind(user_id)
         .execute(&self.pool)
         .await?;
 
-        // Enforce limit of 20
-        sqlx::query(
-            r#"
-            DELETE FROM recent_files 
-            WHERE vault_id = ? AND path NOT IN (
-                SELECT path FROM recent_files 
-                WHERE vault_id = ? 
-                ORDER BY last_accessed DESC 
-                LIMIT 20
+        // Enforce per-scope limit of 20 entries.
+        if let Some(uid) = user_id {
+            sqlx::query(
+                r#"
+                DELETE FROM recent_files
+                WHERE vault_id = ? AND user_id = ? AND path NOT IN (
+                    SELECT path FROM recent_files
+                    WHERE vault_id = ? AND user_id = ?
+                    ORDER BY last_accessed DESC
+                    LIMIT 20
+                )
+                "#,
             )
-            "#,
-        )
-        .bind(vault_id)
-        .bind(vault_id)
-        .execute(&self.pool)
-        .await?;
+            .bind(vault_id)
+            .bind(uid)
+            .bind(vault_id)
+            .bind(uid)
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"
+                DELETE FROM recent_files
+                WHERE vault_id = ? AND user_id IS NULL AND path NOT IN (
+                    SELECT path FROM recent_files
+                    WHERE vault_id = ? AND user_id IS NULL
+                    ORDER BY last_accessed DESC
+                    LIMIT 20
+                )
+                "#,
+            )
+            .bind(vault_id)
+            .bind(vault_id)
+            .execute(&self.pool)
+            .await?;
+        }
 
         Ok(())
     }
 
-    pub async fn get_recent_files(&self, vault_id: &str, limit: i32) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            r#"
-            SELECT path FROM recent_files 
-            WHERE vault_id = ? 
-            ORDER BY last_accessed DESC 
-            LIMIT ?
-            "#,
-        )
-        .bind(vault_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(AppError::from)?;
+    pub async fn get_recent_files(
+        &self,
+        vault_id: &str,
+        user_id: Option<&str>,
+        limit: i32,
+    ) -> AppResult<Vec<String>> {
+        let rows: Vec<(String,)> = if let Some(uid) = user_id {
+            sqlx::query_as(
+                r#"
+                SELECT path FROM recent_files
+                WHERE vault_id = ? AND user_id = ?
+                ORDER BY last_accessed DESC
+                LIMIT ?
+                "#,
+            )
+            .bind(vault_id)
+            .bind(uid)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AppError::from)?
+        } else {
+            sqlx::query_as(
+                r#"
+                SELECT path FROM recent_files
+                WHERE vault_id = ? AND user_id IS NULL
+                ORDER BY last_accessed DESC
+                LIMIT ?
+                "#,
+            )
+            .bind(vault_id)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AppError::from)?
+        };
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }

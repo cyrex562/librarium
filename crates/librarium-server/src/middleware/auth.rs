@@ -397,6 +397,12 @@ fn should_skip_auth(req: &ServiceRequest) -> bool {
         || path == "/api/auth/refresh"
         || path.starts_with("/api/auth/oidc/")
         || path == "/api/invitations/accept"
+        // POST /api/render is a stateless markdown-to-HTML converter with no
+        // vault or user context.  It accepts arbitrary markdown and returns
+        // sanitised HTML; it exposes no stored data and performs no mutations,
+        // so requiring authentication would break the live-preview panel for
+        // unauthenticated sessions (LIB-042).
+        || path == "/api/render"
     {
         return true;
     }
