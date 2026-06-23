@@ -25,5 +25,8 @@ target
 
 /target
 
+# Portable / packaged build output
+/dist
+
 *.log
 *.env

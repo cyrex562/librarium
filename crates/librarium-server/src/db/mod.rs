@@ -13,6 +13,23 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::str::FromStr;
 use uuid::Uuid;
 
+/// Generate a strong random password for an auto-provisioned admin account.
+///
+/// Draws from the OS CSPRNG (`OsRng`) over an unambiguous alphanumeric
+/// alphabet (no `0/O`, `1/l/I`). At 24 characters over 56 symbols this yields
+/// ~139 bits of entropy — the account is forced to rotate it at first login.
+fn generate_initial_password() -> String {
+    use argon2::password_hash::rand_core::RngCore;
+    const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    const LEN: usize = 24;
+    let mut bytes = [0u8; LEN];
+    OsRng.fill_bytes(&mut bytes);
+    bytes
+        .iter()
+        .map(|b| ALPHABET[(*b as usize) % ALPHABET.len()] as char)
+        .collect()
+}
+
 fn parse_vault_role(role: &str) -> Option<VaultRole> {
     match role {
         "owner" => Some(VaultRole::Owner),
@@ -80,6 +97,19 @@ pub struct Database {
 
 impl Database {
     pub async fn new(database_url: &str) -> AppResult<Self> {
+        // `create_if_missing` creates the database *file* but not its parent
+        // directory. Pre-create the parent so a configured path pointing into a
+        // not-yet-existing folder (e.g. "./data/librarium.db" in a fresh
+        // portable install) opens successfully instead of failing.
+        if let Some(fs_path) = database_url.strip_prefix("sqlite:") {
+            let fs_path = fs_path.split('?').next().unwrap_or(fs_path);
+            if let Some(parent) = std::path::Path::new(fs_path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
+        }
+
         let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
 
         let pool = SqlitePoolOptions::new()
@@ -1171,6 +1201,45 @@ impl Database {
         self.create_user_with_options(username, &password_hash, true, false)
             .await?;
         Ok(true)
+    }
+
+    /// Bootstrap a first admin with a randomly generated password when the
+    /// user table is empty.
+    ///
+    /// Unlike [`Self::bootstrap_admin_if_empty`], the caller supplies only the
+    /// username; a strong password is generated here and returned in plaintext
+    /// so the caller can surface it once (e.g. write it to a first-run
+    /// credentials file). The created admin has `must_change_password = true`,
+    /// forcing a rotation at first login.
+    ///
+    /// Returns `Ok(None)` when users already exist (no-op).
+    pub async fn bootstrap_admin_generated_if_empty(
+        &self,
+        username: &str,
+    ) -> AppResult<Option<String>> {
+        if self.user_count().await? > 0 {
+            return Ok(None);
+        }
+
+        let username = username.trim();
+        if username.is_empty() {
+            return Err(AppError::InvalidInput(
+                "Bootstrap admin username cannot be empty".to_string(),
+            ));
+        }
+
+        let password = generate_initial_password();
+        let salt = SaltString::generate(&mut OsRng);
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|e| {
+                AppError::InternalError(format!("Failed to hash bootstrap password: {e}"))
+            })?
+            .to_string();
+
+        self.create_user_with_options(username, &password_hash, true, true)
+            .await?;
+        Ok(Some(password))
     }
 
     // Vault operations

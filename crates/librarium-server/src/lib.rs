@@ -116,6 +116,46 @@ fn configure_static(cfg: &mut web::ServiceConfig) {
         .route("/{filename:.*}", web::get().to(serve_dev_file));
 }
 
+/// Write the first-run administrator credentials to `FIRST-RUN-CREDENTIALS.txt`
+/// alongside the database file.
+///
+/// The directory is taken from the database path's parent (falling back to the
+/// current directory for a bare filename). On Unix the file is created with
+/// `0600` permissions so other local users cannot read it.
+fn write_first_run_credentials(
+    db_path: &str,
+    username: &str,
+    password: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    let dir = std::path::Path::new(db_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create credentials directory {}", dir.display()))?;
+
+    let path = dir.join("FIRST-RUN-CREDENTIALS.txt");
+    let contents = format!(
+        "Librarium — first-run administrator account\n\
+         ============================================\n\n\
+         username: {username}\n\
+         password: {password}\n\n\
+         You will be required to choose a new password the first time you log in.\n\
+         Once you have logged in and changed the password, delete this file.\n"
+    );
+    std::fs::write(&path, contents)
+        .with_context(|| format!("Failed to write {}", path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(path)
+}
+
 /// Start the Librarium HTTP server with the given configuration.
 ///
 /// Sets up logging, initialises the database, file watcher, search index,
@@ -209,31 +249,61 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
         .expect("Failed to run recent_files user_id migration");
     info!("Database initialized at {}", config.database.path);
 
-    match db
-        .bootstrap_admin_if_empty(
-            config.auth.bootstrap_admin_username.as_deref(),
-            config.auth.bootstrap_admin_password.as_deref(),
-        )
-        .await
-    {
-        Ok(true) => {
+    // --- First-run admin bootstrap ----------------------------------------
+    // Precedence:
+    //   1. Explicit username + password in config  → create that admin as-is.
+    //   2. Auth enabled, password omitted          → generate a random password,
+    //      force a change at first login, and write it to a credentials file
+    //      next to the database (portable / first-launch flow).
+    //   3. Otherwise                               → nothing to bootstrap.
+    let bootstrap_username = config
+        .auth
+        .bootstrap_admin_username
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let bootstrap_password = config
+        .auth
+        .bootstrap_admin_password
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    match (bootstrap_username, bootstrap_password) {
+        (Some(username), Some(password)) => {
+            match db.bootstrap_admin_if_empty(Some(username), Some(password)).await {
+                Ok(true) => info!(
+                    "No users were found. Bootstrapped admin user '{username}' from config.toml"
+                ),
+                Ok(false) => info!("User bootstrap skipped (existing users found)"),
+                Err(e) => warn!("User bootstrap skipped: {e}"),
+            }
+        }
+        _ if config.auth.enabled => {
+            let username = bootstrap_username.unwrap_or("admin");
+            match db.bootstrap_admin_generated_if_empty(username).await {
+                Ok(Some(password)) => {
+                    match write_first_run_credentials(&config.database.path, username, &password) {
+                        Ok(path) => info!(
+                            "No users were found. Generated first-run admin '{username}'. \
+                             Credentials written to {} — you must change the password at \
+                             first login.",
+                            path.display()
+                        ),
+                        Err(e) => warn!(
+                            "Generated first-run admin '{username}' but could not write the \
+                             credentials file: {e}. One-time password: {password}"
+                        ),
+                    }
+                }
+                Ok(None) => info!("User bootstrap skipped (existing users found)"),
+                Err(e) => warn!("First-run admin bootstrap failed: {e}"),
+            }
+        }
+        _ => {
             info!(
-                "No users were found. Bootstrapped admin user '{}' from config.toml",
-                config
-                    .auth
-                    .bootstrap_admin_username
-                    .as_deref()
-                    .unwrap_or("<unknown>")
-            );
-        }
-        Ok(false) => {
-            info!("User bootstrap skipped (existing users found)");
-        }
-        Err(e) => {
-            warn!(
-                "User bootstrap skipped: {}. Configure [auth] bootstrap_admin_username/\
-                 bootstrap_admin_password in config.toml to create the first admin.",
-                e
+                "No bootstrap admin configured and auth is disabled; skipping first-run admin. \
+                 Set [auth] enabled=true (and optionally bootstrap_admin_username) to create one."
             );
         }
     }

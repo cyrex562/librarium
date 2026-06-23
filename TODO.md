@@ -45,6 +45,15 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [x] **LIB-014** Audit committed docs for stale statements about the app architecture, frontend stack, auth providers, and configuration defaults.
 - [x] **LIB-015** Document the system dependencies required for the Tauri target on Linux (`webkit2gtk`, `libsoup`, `javascriptcoregtk`) so workspace validation is reproducible.
 
+## TLS And Transport Security
+
+- [ ] **LIB-046** Document that the portable/localhost deployment is intentionally plain HTTP and that this is safe: loopback traffic never hits a network interface, and browsers already treat `http://localhost` / `http://127.0.0.1` as a secure context. Goal: prevent anyone from adding self-signed TLS to the localhost path, which only adds browser warnings for zero security benefit.
+- [ ] **LIB-047** Add an opt-in self-signed certificate generator CLI subcommand (e.g. `librarium gen-cert --host <addr>`) using `rcgen` that writes `cert.pem` / `key.pem` into the data directory and prints the `[tls].cert_file` / `key_file` lines to paste into `config.toml`. Intended only for quick LAN testing; must clearly warn about browser trust prompts and must never be wired into the localhost default.
+- [ ] **LIB-048** Add an admin "TLS certificate" screen (and supporting API) to upload a PEM certificate chain + private key, persist them next to the database, and point `[tls].cert_file` / `key_file` at them without hand-editing `config.toml`. Validate that the key matches the certificate, surface clear parse/mismatch errors, and document that a restart is required to rebind. This is the highest-value piece — it covers internal-CA, Let's Encrypt, and corp-issued certs.
+- [ ] **LIB-049** Document the recommended production HTTPS path in `docs/DEPLOYMENT.md`: a reverse proxy (e.g. Caddy with automatic HTTPS) terminating TLS in front of Librarium bound on loopback. This matches the existing "mTLS requires a reverse proxy" stance and is the most practical way to get warning-free, auto-renewing certificates for sustained network exposure.
+- [ ] **LIB-050** Decide whether to support in-app CSR generation (generate a keypair + CSR for an internal/enterprise CA, then import the signed chain). Currently deferred as low value because external key generation plus the upload flow (LIB-048) covers the same need; revisit only on real demand.
+- [ ] **LIB-051** When TLS is enabled, decide the scope of hardening additions: (a) an optional HTTP→HTTPS redirect listener, (b) an HSTS response header, and (c) hot-reloading certificates on renewal without a full restart. Document which are in scope versus intentionally deferred.
+
 ## Frontend And API Contract
 
 - [x] **LIB-016** Clean up duplicate or stale API helpers in `frontend/src/api/client.ts`, especially around reindex and auth lifecycle responses.
