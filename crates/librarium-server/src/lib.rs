@@ -331,87 +331,158 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     let search_index_clone = search_index.clone();
     let db_clone = db.clone();
     tokio::spawn(async move {
-        while let Some(change_event) = change_rx.recv().await {
-            info!("File change detected: {:?}", change_event);
+        while let Some(first_event) = change_rx.recv().await {
+            // Drain all queued events so we can batch search-index commits.
+            // A single Tantivy commit covers all docs added in one writer session;
+            // without batching, 100 uploads produce 100 separate fsyncs.
+            let mut events = vec![first_event];
+            while let Ok(next) = change_rx.try_recv() {
+                events.push(next);
+            }
 
-            match &change_event.event_type {
-                models::FileChangeType::Created | models::FileChangeType::Modified => {
-                    if change_event.path.ends_with(".md") {
-                        if let Ok(vault) = db_clone.get_vault(&change_event.vault_id).await {
-                            if let Ok(content) =
-                                services::FileService::read_file(&vault.path, &change_event.path)
-                            {
-                                let _ = search_index_clone.update_file(
-                                    &change_event.vault_id,
-                                    &change_event.path,
-                                    content.content,
-                                );
-                            }
-                            let abs_path = format!(
-                                "{}/{}",
-                                vault.path.trim_end_matches('/'),
-                                change_event.path
-                            );
-                            if let Err(e) = ReindexService::index_file(
-                                &db_clone,
-                                &change_event.vault_id,
-                                &change_event.path,
-                                &abs_path,
-                            )
-                            .await
-                            {
-                                warn!("Entity index_file failed for {}: {e}", change_event.path);
-                            }
-                        }
-                    }
-                }
-                models::FileChangeType::Deleted => {
-                    let _ =
-                        search_index_clone.remove_file(&change_event.vault_id, &change_event.path);
-                    if let Err(e) = ReindexService::remove_file(
-                        &db_clone,
-                        &change_event.vault_id,
-                        &change_event.path,
-                    )
-                    .await
-                    {
-                        warn!("Entity remove_file failed for {}: {e}", change_event.path);
-                    }
-                }
-                models::FileChangeType::Renamed { from, to } => {
-                    let _ = search_index_clone.remove_file(&change_event.vault_id, from);
-                    if let Err(e) =
-                        ReindexService::remove_file(&db_clone, &change_event.vault_id, from).await
-                    {
-                        warn!("Entity remove_file (rename from) failed for {from}: {e}");
-                    }
-                    if to.ends_with(".md") {
-                        if let Ok(vault) = db_clone.get_vault(&change_event.vault_id).await {
-                            if let Ok(content) = services::FileService::read_file(&vault.path, to) {
-                                let _ = search_index_clone.update_file(
-                                    &change_event.vault_id,
-                                    to,
-                                    content.content,
-                                );
-                            }
-                            let abs_path = format!("{}/{}", vault.path.trim_end_matches('/'), to);
-                            if let Err(e) = ReindexService::index_file(
-                                &db_clone,
-                                &change_event.vault_id,
-                                to,
-                                &abs_path,
-                            )
-                            .await
-                            {
-                                warn!("Entity index_file (rename to) failed for {to}: {e}");
+            if events.len() > 1 {
+                info!("Processing batch of {} file change events", events.len());
+            }
+
+            // ── 1. Batch-read markdown content and group by vault ─────────────
+            // We collect (vault_id, path, content) for Created/Modified .md files
+            // so we can do one Tantivy commit per vault instead of one per file.
+            let mut vault_cache: HashMap<String, String> = HashMap::new(); // vault_id → vault.path
+            let mut batch_by_vault: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+            for event in &events {
+                match &event.event_type {
+                    models::FileChangeType::Created | models::FileChangeType::Modified => {
+                        if event.path.ends_with(".md") {
+                            let vault_path = if let Some(p) = vault_cache.get(&event.vault_id) {
+                                Some(p.clone())
+                            } else if let Ok(vault) = db_clone.get_vault(&event.vault_id).await {
+                                vault_cache.insert(event.vault_id.clone(), vault.path.clone());
+                                Some(vault.path)
+                            } else {
+                                None
+                            };
+
+                            if let Some(vpath) = vault_path {
+                                if let Ok(content) =
+                                    services::FileService::read_file(&vpath, &event.path)
+                                {
+                                    batch_by_vault
+                                        .entry(event.vault_id.clone())
+                                        .or_default()
+                                        .push((event.path.clone(), content.content));
+                                }
                             }
                         }
                     }
+                    _ => {}
                 }
             }
 
-            if let Err(e) = event_tx_clone.send(change_event) {
-                error!("Failed to broadcast event: {}", e);
+            // One Tantivy commit per vault covers all files in this batch.
+            for (vault_id, files) in &batch_by_vault {
+                if let Err(e) = search_index_clone.update_files_batch(vault_id, files) {
+                    warn!("Batch search index update failed for vault {vault_id}: {e}");
+                }
+            }
+
+            // ── 2. Per-event processing (entity DB writes + non-md removes) ───
+            for change_event in &events {
+                match &change_event.event_type {
+                    models::FileChangeType::Created | models::FileChangeType::Modified => {
+                        if change_event.path.ends_with(".md") {
+                            let vault_path = if let Some(p) = vault_cache.get(&change_event.vault_id) {
+                                Some(p.clone())
+                            } else if let Ok(vault) = db_clone.get_vault(&change_event.vault_id).await {
+                                vault_cache.insert(change_event.vault_id.clone(), vault.path.clone());
+                                Some(vault.path)
+                            } else {
+                                None
+                            };
+
+                            if let Some(vpath) = vault_path {
+                                let abs_path = format!(
+                                    "{}/{}",
+                                    vpath.trim_end_matches('/'),
+                                    change_event.path
+                                );
+                                if let Err(e) = ReindexService::index_file(
+                                    &db_clone,
+                                    &change_event.vault_id,
+                                    &change_event.path,
+                                    &abs_path,
+                                )
+                                .await
+                                {
+                                    warn!("Entity index_file failed for {}: {e}", change_event.path);
+                                }
+                            }
+                        }
+                    }
+                    models::FileChangeType::Deleted => {
+                        let _ = search_index_clone
+                            .remove_file(&change_event.vault_id, &change_event.path);
+                        if let Err(e) = ReindexService::remove_file(
+                            &db_clone,
+                            &change_event.vault_id,
+                            &change_event.path,
+                        )
+                        .await
+                        {
+                            warn!("Entity remove_file failed for {}: {e}", change_event.path);
+                        }
+                    }
+                    models::FileChangeType::Renamed { from, to } => {
+                        let _ =
+                            search_index_clone.remove_file(&change_event.vault_id, from);
+                        if let Err(e) =
+                            ReindexService::remove_file(&db_clone, &change_event.vault_id, from)
+                                .await
+                        {
+                            warn!("Entity remove_file (rename from) failed for {from}: {e}");
+                        }
+                        if to.ends_with(".md") {
+                            let vault_path = if let Some(p) = vault_cache.get(&change_event.vault_id) {
+                                Some(p.clone())
+                            } else if let Ok(vault) =
+                                db_clone.get_vault(&change_event.vault_id).await
+                            {
+                                vault_cache.insert(change_event.vault_id.clone(), vault.path.clone());
+                                Some(vault.path)
+                            } else {
+                                None
+                            };
+
+                            if let Some(vpath) = vault_path {
+                                if let Ok(content) =
+                                    services::FileService::read_file(&vpath, to)
+                                {
+                                    let _ = search_index_clone.update_file(
+                                        &change_event.vault_id,
+                                        to,
+                                        content.content,
+                                    );
+                                }
+                                let abs_path =
+                                    format!("{}/{}", vpath.trim_end_matches('/'), to);
+                                if let Err(e) = ReindexService::index_file(
+                                    &db_clone,
+                                    &change_event.vault_id,
+                                    to,
+                                    &abs_path,
+                                )
+                                .await
+                                {
+                                    warn!("Entity index_file (rename to) failed for {to}: {e}");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Err(e) = event_tx_clone.send(change_event.clone()) {
+                    error!("Failed to broadcast event: {}", e);
+                }
             }
         }
     });
