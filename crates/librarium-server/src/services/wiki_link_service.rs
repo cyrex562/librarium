@@ -385,6 +385,158 @@ impl FileIndex {
     }
 }
 
+/// Rewrite `[[wiki-link]]` / `![[embed]]` targets in `content` that point at a
+/// renamed note, swapping `old_stem` for `new_stem`. Returns the rewritten
+/// content and the number of link occurrences changed.
+///
+/// Matching is by basename stem (case-insensitive). Path-qualified links
+/// (`[[folder/note]]`) are only rewritten when their directory equals `old_dir`
+/// (normalized, may be empty for vault root); bare links (`[[note]]`) are always
+/// rewritten, mirroring Obsidian's basename resolution. Alias (`|`), heading
+/// (`#`), block (`^`) suffixes and an optional `.md` extension are preserved.
+pub fn rewrite_wiki_links(
+    content: &str,
+    old_stem: &str,
+    new_stem: &str,
+    old_dir: &str,
+) -> (String, usize) {
+    let mut result = String::with_capacity(content.len());
+    let mut count = 0usize;
+    let bytes = content.as_bytes();
+    let mut i = 0usize;
+
+    while i < content.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'[' && bytes[i + 1] == b'[' {
+            if let Some(rel_end) = content[i + 2..].find("]]") {
+                let inner = &content[i + 2..i + 2 + rel_end];
+                result.push_str("[[");
+                match rewrite_link_inner(inner, old_stem, new_stem, old_dir) {
+                    Some(new_inner) => {
+                        result.push_str(&new_inner);
+                        count += 1;
+                    }
+                    None => result.push_str(inner),
+                }
+                result.push_str("]]");
+                i = i + 2 + rel_end + 2;
+                continue;
+            }
+        }
+
+        let ch = content[i..].chars().next().unwrap();
+        result.push(ch);
+        i += ch.len_utf8();
+    }
+
+    (result, count)
+}
+
+/// Transform the inside of a single `[[...]]` if its target matches the renamed
+/// note. Returns `None` when it does not match (caller keeps the original).
+fn rewrite_link_inner(
+    inner: &str,
+    old_stem: &str,
+    new_stem: &str,
+    old_dir: &str,
+) -> Option<String> {
+    // Target is everything before the first alias/heading/block marker.
+    let target_end = inner
+        .find(['|', '#', '^'])
+        .unwrap_or(inner.len());
+    let target = inner[..target_end].trim();
+    let suffix = &inner[target_end..];
+    if target.is_empty() {
+        return None;
+    }
+
+    let norm = target.replace('\\', "/");
+    let had_md = norm.to_lowercase().ends_with(".md");
+    let without_md = if had_md {
+        &norm[..norm.len() - 3]
+    } else {
+        norm.as_str()
+    };
+
+    let (dir_part, stem_part) = match without_md.rfind('/') {
+        Some(p) => (&without_md[..p], &without_md[p + 1..]),
+        None => ("", without_md),
+    };
+
+    if !stem_part.eq_ignore_ascii_case(old_stem) {
+        return None;
+    }
+
+    let dir_norm = dir_part.trim_matches('/');
+    let old_dir_norm = old_dir.replace('\\', "/");
+    let old_dir_norm = old_dir_norm.trim_matches('/');
+    if !dir_norm.is_empty() && !dir_norm.eq_ignore_ascii_case(old_dir_norm) {
+        return None;
+    }
+
+    let mut new_target = String::new();
+    if !dir_part.is_empty() {
+        new_target.push_str(dir_part);
+        new_target.push('/');
+    }
+    new_target.push_str(new_stem);
+    if had_md {
+        new_target.push_str(".md");
+    }
+
+    Some(format!("{}{}", new_target, suffix))
+}
+
+#[cfg(test)]
+mod rewrite_tests {
+    use super::rewrite_wiki_links;
+
+    #[test]
+    fn rewrites_bare_link_and_preserves_alias_and_heading() {
+        let content = "See [[Old Note]] and [[Old Note#Section|the alias]] plus ![[Old Note]].";
+        let (out, n) = rewrite_wiki_links(content, "Old Note", "New Note", "");
+        assert_eq!(n, 3);
+        assert!(out.contains("[[New Note]]"));
+        assert!(out.contains("[[New Note#Section|the alias]]"));
+        assert!(out.contains("![[New Note]]"));
+    }
+
+    #[test]
+    fn matches_case_insensitively_and_keeps_md_extension() {
+        let content = "[[old note.md]] and [[OLD NOTE]]";
+        let (out, n) = rewrite_wiki_links(content, "Old Note", "New Note", "");
+        assert_eq!(n, 2);
+        assert!(out.contains("[[New Note.md]]"));
+        assert!(out.contains("[[New Note]]"));
+    }
+
+    #[test]
+    fn path_qualified_link_only_rewritten_in_matching_dir() {
+        let content = "[[notes/Old]] and [[other/Old]] and [[Old]]";
+        let (out, n) = rewrite_wiki_links(content, "Old", "New", "notes");
+        // notes/Old -> notes/New, bare Old -> New, but other/Old is untouched.
+        assert_eq!(n, 2);
+        assert!(out.contains("[[notes/New]]"));
+        assert!(out.contains("[[other/Old]]"));
+        assert!(out.contains("[[New]]"));
+    }
+
+    #[test]
+    fn non_matching_links_untouched() {
+        let content = "[[Different]] and [[Old Notes]] text";
+        let (out, n) = rewrite_wiki_links(content, "Old", "New", "");
+        assert_eq!(n, 0);
+        assert_eq!(out, content);
+    }
+
+    #[test]
+    fn rewrite_is_reversible() {
+        let content = "[[Old]] and [[folder/Old#h|a]]";
+        let (fwd, _) = rewrite_wiki_links(content, "Old", "New", "folder");
+        let (back, _) = rewrite_wiki_links(&fwd, "New", "Old", "folder");
+        assert_eq!(back, content);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

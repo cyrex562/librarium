@@ -34,4 +34,4 @@ pub use relation_service::{Relation, RelationService};
 pub use schema_service::{EntityTypeRegistry, RelationTypeRegistry, SchemaService};
 pub use search_service::SearchIndex;
 pub use template_service::TemplateService;
-pub use wiki_link_service::{FileIndex, ResolvedLink, WikiLinkResolver};
+pub use wiki_link_service::{rewrite_wiki_links, FileIndex, ResolvedLink, WikiLinkResolver};

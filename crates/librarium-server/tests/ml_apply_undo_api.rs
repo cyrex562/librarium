@@ -290,3 +290,127 @@ async fn undo_receipt_persists_across_app_reinitialization() {
     let content_after_undo = std::fs::read_to_string(&note_abs).unwrap();
     assert!(!content_after_undo.contains("persisted"));
 }
+
+#[actix_web::test]
+async fn apply_rename_rewrites_inbound_links_and_undo_restores() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("ml-rename-undo.db");
+    let db_url = format!("sqlite://{}", db_path.display());
+    let db = Database::new(&db_url).await.unwrap();
+
+    let vault_path = temp_dir.path().join("vault");
+    std::fs::create_dir_all(&vault_path).unwrap();
+
+    // The note to rename, plus two notes linking to it (bare + path-qualified).
+    let target_rel = "target.md";
+    let target_abs = vault_path.join(target_rel);
+    std::fs::write(&target_abs, "# Target\n\nbody\n").unwrap();
+
+    let linker_abs = vault_path.join("linker.md");
+    std::fs::write(
+        &linker_abs,
+        "See [[target]] and [[target#Heading|alias]] here.\n",
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(vault_path.join("sub")).unwrap();
+    let other_abs = vault_path.join("sub/other.md");
+    std::fs::write(&other_abs, "Refers to [[target]] from a subfolder.\n").unwrap();
+
+    let vault = db
+        .create_vault(
+            "ML Rename Vault".to_string(),
+            vault_path.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap();
+
+    let search_index = SearchIndex::new();
+    let (watcher, _) = FileWatcher::new().unwrap();
+    let watcher = Arc::new(Mutex::new(watcher));
+    let (event_tx, _) = broadcast::channel(100);
+
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        search_index,
+        watcher,
+        event_broadcaster: event_tx,
+        ws_broadcaster: tokio::sync::broadcast::channel::<librarium::models::WsMessage>(16).0,
+        change_log_retention_days: 7,
+        ml_undo_store: Arc::new(Mutex::new(HashMap::new())),
+        shutdown_tx: tokio::sync::broadcast::channel::<()>(1).0,
+        document_parser: Arc::new(MarkdownParser),
+        entity_type_registry: librarium::services::EntityTypeRegistry::new(),
+        relation_type_registry: librarium::services::RelationTypeRegistry::new(),
+        plugins_dir: std::path::PathBuf::new(),
+    });
+
+    let app = test::init_service(App::new().app_data(state.clone()).configure(ml::configure)).await;
+
+    let rename_suggestion = json!({
+        "id": "s-rename-1",
+        "kind": "rename",
+        "confidence": 0.72,
+        "rationale": "Canonical name",
+        "new_name": "renamed.md"
+    });
+
+    // Dry run: reports the inbound-link count without mutating anything.
+    let dry_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/apply-suggestion", vault.id))
+        .set_json(json!({
+            "file_path": target_rel,
+            "dry_run": true,
+            "suggestion": rename_suggestion,
+        }))
+        .to_request();
+    let dry_resp = test::call_service(&app, dry_req).await;
+    assert!(dry_resp.status().is_success());
+    let dry_body: serde_json::Value = test::read_body_json(dry_resp).await;
+    assert_eq!(dry_body["applied"], false);
+    assert_eq!(dry_body["updated_links"], 2);
+    assert!(target_abs.exists());
+
+    // Apply for real.
+    let apply_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/apply-suggestion", vault.id))
+        .set_json(json!({
+            "file_path": target_rel,
+            "dry_run": false,
+            "suggestion": rename_suggestion,
+        }))
+        .to_request();
+    let apply_resp = test::call_service(&app, apply_req).await;
+    assert!(apply_resp.status().is_success());
+    let apply_body: serde_json::Value = test::read_body_json(apply_resp).await;
+    assert_eq!(apply_body["applied"], true);
+    assert_eq!(apply_body["updated_file_path"], "renamed.md");
+    assert_eq!(apply_body["updated_links"], 2);
+    let receipt_id = apply_body["receipt_id"].as_str().unwrap().to_string();
+
+    assert!(!target_abs.exists());
+    assert!(vault_path.join("renamed.md").exists());
+    let linker_after = std::fs::read_to_string(&linker_abs).unwrap();
+    assert!(linker_after.contains("[[renamed]]"));
+    assert!(linker_after.contains("[[renamed#Heading|alias]]"));
+    assert!(!linker_after.contains("[[target"));
+    let other_after = std::fs::read_to_string(&other_abs).unwrap();
+    assert!(other_after.contains("[[renamed]]"));
+
+    // Undo: file moves back and links are restored.
+    let undo_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/undo", vault.id))
+        .set_json(json!({ "receipt_id": receipt_id }))
+        .to_request();
+    let undo_resp = test::call_service(&app, undo_req).await;
+    assert!(undo_resp.status().is_success());
+
+    assert!(target_abs.exists());
+    assert!(!vault_path.join("renamed.md").exists());
+    let linker_restored = std::fs::read_to_string(&linker_abs).unwrap();
+    assert!(linker_restored.contains("[[target]]"));
+    assert!(linker_restored.contains("[[target#Heading|alias]]"));
+    assert!(!linker_restored.contains("renamed"));
+    let other_restored = std::fs::read_to_string(&other_abs).unwrap();
+    assert!(other_restored.contains("[[target]]"));
+}

@@ -435,6 +435,7 @@ pub enum OrganizationSuggestionKind {
     Tag,
     Category,
     MoveToFolder,
+    Rename,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -449,6 +450,9 @@ pub struct OrganizationSuggestion {
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_folder: Option<String>,
+    /// Proposed new filename (including extension) for a `rename` suggestion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
     /// Where the suggestion came from: `rule` (keyword heuristics), `keyphrase`
     /// (statistical extraction), or `semantic` (embeddings). Optional for
     /// backward compatibility with older clients.
@@ -476,6 +480,34 @@ pub struct ApplyOrganizationSuggestionRequest {
     pub dry_run: bool,
 }
 
+/// Request a canonical-filename suggestion for a single note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameSuggestionRequest {
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Override the configured naming scheme for this request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub naming_scheme: Option<String>,
+}
+
+/// A proposed rename. `suggestion` is `None` when the note name is already
+/// canonical or no good name could be derived.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameSuggestionResponse {
+    pub file_path: String,
+    pub current_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_path: Option<String>,
+    pub naming_scheme: String,
+    pub rationale: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<OrganizationSuggestion>,
+    pub generated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplyChange {
     pub kind: String,
@@ -493,6 +525,10 @@ pub struct ApplyOrganizationSuggestionResponse {
     pub applied_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_id: Option<String>,
+    /// Number of other notes whose inbound wiki-links were (or would be)
+    /// rewritten by a rename. Present for `rename` applies, including dry-run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_links: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -501,6 +537,15 @@ pub enum ReverseAction {
     RemoveTag { tag: String },
     RestoreCategory { previous_value: Option<String> },
     MoveBack { from_path: String, to_path: String },
+    /// Undo a link-safe rename: move the note back and restore the wiki-link
+    /// references in the listed files (rewriting `new_stem` back to `old_stem`).
+    RenameWithLinks {
+        from_path: String,
+        to_path: String,
+        old_stem: String,
+        new_stem: String,
+        link_files: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

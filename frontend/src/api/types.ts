@@ -309,7 +309,7 @@ export interface GenerateOrganizationSuggestionsRequest {
     max_suggestions?: number;
 }
 
-export type OrganizationSuggestionKind = 'tag' | 'category' | 'move_to_folder';
+export type OrganizationSuggestionKind = 'tag' | 'category' | 'move_to_folder' | 'rename';
 
 export type OrganizationSuggestionSource = 'rule' | 'keyphrase' | 'semantic';
 
@@ -321,6 +321,7 @@ export interface OrganizationSuggestion {
     tag?: string;
     category?: string;
     target_folder?: string;
+    new_name?: string;
     source?: OrganizationSuggestionSource;
 }
 
@@ -350,6 +351,24 @@ export interface ApplyOrganizationSuggestionResponse {
     changes: ApplyChange[];
     applied_at: string;
     receipt_id?: string;
+    updated_links?: number;
+}
+
+export interface RenameSuggestionRequest {
+    file_path: string;
+    content?: string;
+    naming_scheme?: string;
+}
+
+export interface RenameSuggestionResponse {
+    file_path: string;
+    current_name: string;
+    proposed_name?: string;
+    proposed_path?: string;
+    naming_scheme: string;
+    rationale: string;
+    suggestion?: OrganizationSuggestion;
+    generated_at: string;
 }
 
 export interface UndoMlActionResponse {

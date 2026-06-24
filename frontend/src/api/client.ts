@@ -33,6 +33,8 @@ import type {
     NoteAnalysis,
     GenerateOrganizationSuggestionsRequest,
     OrganizationSuggestionsResponse,
+    RenameSuggestionRequest,
+    RenameSuggestionResponse,
     ApplyOrganizationSuggestionResponse,
     OrganizationSuggestion,
     UndoMlActionResponse,
@@ -298,6 +300,15 @@ export const apiGenerateOrganizationSuggestions = (
     data: GenerateOrganizationSuggestionsRequest,
 ): Promise<OrganizationSuggestionsResponse> =>
     request(`/api/vaults/${vaultId}/ml/suggestions`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+
+export const apiRenameSuggestion = (
+    vaultId: string,
+    data: RenameSuggestionRequest,
+): Promise<RenameSuggestionResponse> =>
+    request(`/api/vaults/${vaultId}/ml/rename-suggestion`, {
         method: 'POST',
         body: JSON.stringify(data),
     });

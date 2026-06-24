@@ -158,16 +158,20 @@ research citations, and rationale.
 
 ### Phase 3 — Rename (new verb)
 
-- [ ] **LIB-057** Add rename suggestions: derive a canonical filename from frontmatter
+- [x] **LIB-057** Add rename suggestions: derive a canonical filename from frontmatter
   `title` → first H1 → top keyphrases, formatted by the configured `naming_scheme`
   (`kebab-case` | `title-case` | `date-prefixed` | `category-slug`). New
-  `POST /ml/rename-suggestion` endpoint and a `rename` suggestion kind in apply. Unit-test
-  each naming scheme and slugification.
-- [ ] **LIB-058** Make rename link-safe: before renaming, find inbound `[[wiki-links]]` and
-  `![[embeds]]` (via `wiki_link_service` / search index) and rewrite them in the same
-  operation; report the affected-link count in dry-run. Extend `ReverseAction` with a
-  `RenameWithLinks` variant so undo restores both the filename and the rewritten links.
-  Integration-test that apply rewrites links and undo fully restores them.
+  `POST /ml/rename-suggestion` endpoint (`MlService::suggest_rename`) and a `rename`
+  suggestion kind in apply (carrying `new_name`). Renames keep the note in its folder.
+  Unit tests cover each naming scheme, slugification, no-op detection, and keyphrase
+  fallback.
+- [x] **LIB-058** Make rename link-safe: on apply, rename the file then find inbound
+  `[[wiki-links]]`/`![[embeds]]` across the vault and rewrite them (new
+  `wiki_link_service::rewrite_wiki_links` — basename match, alias/heading/`.md` preserved,
+  path-qualified links gated on directory). The affected-link count is reported in dry-run
+  and apply via `updated_links`. `ReverseAction::RenameWithLinks` restores both the filename
+  and the rewritten links on undo. Unit tests for the rewriter (reversibility, case, dir
+  gating) plus an integration test for apply→links-rewritten→undo→restored.
 
 ### Phase 4 — Local embeddings (Tier 2, opt-in)
 

@@ -189,6 +189,7 @@ impl MlService {
                 tag: Some(tag.to_string()),
                 category: None,
                 target_folder: None,
+                new_name: None,
                 source: Some("rule".to_string()),
             });
             covered_tags.insert(tag.to_string());
@@ -215,6 +216,7 @@ impl MlService {
                 tag: Some(tag),
                 category: None,
                 target_folder: None,
+                new_name: None,
                 source: Some("keyphrase".to_string()),
             });
         }
@@ -235,6 +237,7 @@ impl MlService {
                     tag: None,
                     category: Some(category.to_string()),
                     target_folder: None,
+                    new_name: None,
                     source: Some("rule".to_string()),
                 });
             }
@@ -250,6 +253,7 @@ impl MlService {
                     tag: None,
                     category: Some(category.to_string()),
                     target_folder: Some(target_folder),
+                    new_name: None,
                     source: Some("rule".to_string()),
                 });
             }
@@ -401,6 +405,167 @@ impl MlService {
             return None;
         }
         Some(tag)
+    }
+
+    /// Propose a canonical filename (including extension) for `file_path` under
+    /// the given naming `scheme`. Returns `None` when no good name can be derived
+    /// or the current name is already canonical.
+    ///
+    /// Schemes: `kebab-case` (default), `title-case`, `date-prefixed` (uses a
+    /// frontmatter `date`/`created` value when present), `category-slug` (prefixes
+    /// the frontmatter/inferred category).
+    pub fn suggest_rename(
+        file_path: &str,
+        content: &str,
+        frontmatter: Option<&Value>,
+        keyphrases: &[Keyphrase],
+        scheme: &str,
+    ) -> Option<String> {
+        let current_name = Path::new(file_path).file_name().and_then(|n| n.to_str())?;
+        let ext = Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("md");
+
+        // Title from frontmatter/H1 only (not the filename stem — renaming to the
+        // current stem would be a no-op).
+        let sections = Self::collect_sections(content);
+        let base = Self::title_from_frontmatter_or_heading(frontmatter, &sections)
+            .or_else(|| Self::keyphrase_base(keyphrases))?;
+
+        let slug = Self::slugify_kebab(&base);
+        if slug.is_empty() {
+            return None;
+        }
+
+        let stem = match scheme {
+            "title-case" => Self::slugify_title_case(&base),
+            "date-prefixed" => match Self::frontmatter_date(frontmatter) {
+                Some(date) => format!("{}-{}", date, slug),
+                None => slug,
+            },
+            "category-slug" => {
+                match Self::category_for_rename(file_path, content, frontmatter) {
+                    Some(cat) => format!("{}-{}", Self::slugify_kebab(&cat), slug),
+                    None => slug,
+                }
+            }
+            // "kebab-case" and anything unrecognized.
+            _ => slug,
+        };
+
+        if stem.trim().is_empty() {
+            return None;
+        }
+        let proposed = format!("{}.{}", stem, ext);
+        if proposed.eq_ignore_ascii_case(current_name) {
+            return None;
+        }
+        Some(proposed)
+    }
+
+    fn title_from_frontmatter_or_heading(
+        frontmatter: Option<&Value>,
+        sections: &[OutlineSection],
+    ) -> Option<String> {
+        if let Some(title) = frontmatter
+            .and_then(|fm| fm.get("title"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            return Some(title.to_string());
+        }
+        sections
+            .iter()
+            .find(|s| s.level == 1)
+            .or_else(|| sections.first())
+            .map(|s| s.title.clone())
+    }
+
+    fn keyphrase_base(keyphrases: &[Keyphrase]) -> Option<String> {
+        keyphrases
+            .iter()
+            .map(|k| k.phrase.trim())
+            .find(|p| !p.is_empty())
+            .map(str::to_string)
+    }
+
+    fn frontmatter_date(frontmatter: Option<&Value>) -> Option<String> {
+        let raw = frontmatter.and_then(|fm| {
+            fm.get("date")
+                .or_else(|| fm.get("created"))
+                .and_then(Value::as_str)
+        })?;
+        // Accept a leading ISO date (YYYY-MM-DD); reject anything else.
+        let candidate: String = raw.chars().take(10).collect();
+        let valid = candidate.len() == 10
+            && candidate.as_bytes()[4] == b'-'
+            && candidate.as_bytes()[7] == b'-'
+            && candidate
+                .bytes()
+                .enumerate()
+                .all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
+        valid.then_some(candidate)
+    }
+
+    fn category_for_rename(
+        file_path: &str,
+        content: &str,
+        frontmatter: Option<&Value>,
+    ) -> Option<String> {
+        if let Some(cat) = frontmatter
+            .and_then(|fm| fm.get("category"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            return Some(cat.to_string());
+        }
+        Self::infer_category(file_path, &content.to_lowercase()).map(str::to_string)
+    }
+
+    /// `Some Note Title!` -> `some-note-title`.
+    fn slugify_kebab(text: &str) -> String {
+        let mut out = String::new();
+        let mut prev_hyphen = false;
+        for ch in text.chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch.to_ascii_lowercase());
+                prev_hyphen = false;
+            } else if ch == '_' {
+                out.push('_');
+                prev_hyphen = false;
+            } else if !out.is_empty() && !prev_hyphen {
+                out.push('-');
+                prev_hyphen = true;
+            }
+        }
+        out.trim_matches('-').to_string()
+    }
+
+    /// `some note title` -> `Some Note Title`, stripping characters that are
+    /// invalid in filenames.
+    fn slugify_title_case(text: &str) -> String {
+        text.split_whitespace()
+            .map(|word| {
+                let cleaned: String = word
+                    .chars()
+                    .filter(|c| {
+                        c.is_alphanumeric() || matches!(c, '-' | '_' | '&' | '(' | ')')
+                    })
+                    .collect();
+                let mut chars = cleaned.chars();
+                match chars.next() {
+                    Some(first) => {
+                        first.to_uppercase().collect::<String>() + chars.as_str()
+                    }
+                    None => String::new(),
+                }
+            })
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Extract inline `#tags` from the body per `docs/TAG_SYSTEM_SPEC.md`
@@ -762,6 +927,71 @@ mod tests {
             .suggestions
             .iter()
             .any(|s| s.tag.as_deref() == Some("revenue-growth-strategy")));
+    }
+
+    #[test]
+    fn slugify_schemes() {
+        assert_eq!(MlService::slugify_kebab("  My Great Note! "), "my-great-note");
+        assert_eq!(MlService::slugify_kebab("a/b:c"), "a-b-c");
+        assert_eq!(
+            MlService::slugify_title_case("my great note"),
+            "My Great Note"
+        );
+        // Filename-invalid characters are dropped in title case.
+        assert_eq!(
+            MlService::slugify_title_case("plan: phase/one"),
+            "Plan Phaseone"
+        );
+    }
+
+    #[test]
+    fn suggest_rename_kebab_from_h1() {
+        let content = "# Quarterly Planning Notes\n\nbody";
+        let proposed =
+            MlService::suggest_rename("inbox/Untitled 1.md", content, None, &[], "kebab-case");
+        assert_eq!(proposed.as_deref(), Some("quarterly-planning-notes.md"));
+    }
+
+    #[test]
+    fn suggest_rename_prefers_frontmatter_title_and_schemes() {
+        let fm = serde_json::json!({ "title": "Budget Review", "date": "2026-06-24T10:00:00Z", "category": "Finance" });
+        let c = "# Ignored Heading\n\nbody";
+
+        assert_eq!(
+            MlService::suggest_rename("n.md", c, Some(&fm), &[], "kebab-case").as_deref(),
+            Some("budget-review.md")
+        );
+        assert_eq!(
+            MlService::suggest_rename("n.md", c, Some(&fm), &[], "title-case").as_deref(),
+            Some("Budget Review.md")
+        );
+        assert_eq!(
+            MlService::suggest_rename("n.md", c, Some(&fm), &[], "date-prefixed").as_deref(),
+            Some("2026-06-24-budget-review.md")
+        );
+        assert_eq!(
+            MlService::suggest_rename("n.md", c, Some(&fm), &[], "category-slug").as_deref(),
+            Some("finance-budget-review.md")
+        );
+    }
+
+    #[test]
+    fn suggest_rename_noop_when_already_canonical() {
+        let content = "# My Note\n\nbody";
+        // Current stem already equals the kebab slug -> no suggestion.
+        assert!(
+            MlService::suggest_rename("dir/my-note.md", content, None, &[], "kebab-case").is_none()
+        );
+    }
+
+    #[test]
+    fn suggest_rename_falls_back_to_keyphrases_when_no_title() {
+        let content = "no heading here, just prose about revenue forecasting models";
+        let keyphrases = MlService::extract_keyphrases(content, 5);
+        let proposed =
+            MlService::suggest_rename("inbox/note.md", content, None, &keyphrases, "kebab-case");
+        assert!(proposed.is_some());
+        assert!(proposed.unwrap().ends_with(".md"));
     }
 
     #[test]
