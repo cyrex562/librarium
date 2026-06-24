@@ -95,6 +95,24 @@ pub struct Database {
     pool: SqlitePool,
 }
 
+/// Copy the SQLite file to `{path}.bak-YYYY-MM-DD` if that backup does not
+/// already exist. Called once per startup so upgrades never destroy old data.
+/// Silently skips if the db file does not yet exist (fresh install).
+fn backup_database_if_needed(db_path: &std::path::Path) {
+    if !db_path.exists() {
+        return;
+    }
+    let today = Utc::now().format("%Y-%m-%d");
+    let bak = db_path.with_extension(format!("db.bak-{today}"));
+    if bak.exists() {
+        return;
+    }
+    match std::fs::copy(db_path, &bak) {
+        Ok(_) => tracing::info!("Pre-upgrade backup written to {:?}", bak),
+        Err(e) => tracing::warn!("Could not write database backup to {:?}: {e}", bak),
+    }
+}
+
 impl Database {
     pub async fn new(database_url: &str) -> AppResult<Self> {
         // `create_if_missing` creates the database *file* but not its parent
@@ -103,11 +121,15 @@ impl Database {
         // portable install) opens successfully instead of failing.
         if let Some(fs_path) = database_url.strip_prefix("sqlite:") {
             let fs_path = fs_path.split('?').next().unwrap_or(fs_path);
-            if let Some(parent) = std::path::Path::new(fs_path).parent() {
+            let db_path = std::path::Path::new(fs_path);
+            if let Some(parent) = db_path.parent() {
                 if !parent.as_os_str().is_empty() {
                     let _ = std::fs::create_dir_all(parent);
                 }
             }
+            // Snapshot the database before running migrations so that a version
+            // upgrade that modifies the schema never destroys existing data.
+            backup_database_if_needed(db_path);
         }
 
         let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);

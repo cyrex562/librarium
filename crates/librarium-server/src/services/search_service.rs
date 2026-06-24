@@ -304,6 +304,68 @@ impl SearchIndex {
         Ok(count)
     }
 
+    /// Update (or insert) multiple files in the index with a single commit.
+    /// Dramatically cheaper than calling `update_file` in a loop: one fsync instead of N.
+    pub fn update_files_batch(
+        &self,
+        vault_id: &str,
+        files: &[(String, String)],
+    ) -> AppResult<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+
+        let writer_lock = self.writer_lock_for(vault_id)?;
+        let _writer_guard = writer_lock
+            .lock()
+            .map_err(|_| AppError::InternalError("Writer lock error".to_string()))?;
+
+        let vaults = self
+            .vaults
+            .read()
+            .map_err(|_| AppError::InternalError("Lock error".to_string()))?;
+        let vi = match vaults.get(vault_id) {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+
+        let mut writer = vi
+            .index
+            .writer::<TantivyDocument>(50_000_000)
+            .map_err(|e| AppError::InternalError(format!("Writer error: {e}")))?;
+
+        for (file_path, content) in files {
+            writer.delete_term(Term::from_field_text(vi.fields.path, file_path));
+
+            let title = Path::new(file_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let meta = extract_entity_meta(content);
+
+            writer
+                .add_document(doc!(
+                    vi.fields.path => file_path.to_string(),
+                    vi.fields.title => title,
+                    vi.fields.body => content.to_string(),
+                    vi.fields.entity_type => meta.entity_type.unwrap_or_default(),
+                    vi.fields.labels => meta.labels.join(" "),
+                ))
+                .map_err(|e| AppError::InternalError(format!("Add doc error: {e}")))?;
+        }
+
+        writer
+            .commit()
+            .map_err(|e| AppError::InternalError(format!("Commit error: {e}")))?;
+
+        vi.reader
+            .reload()
+            .map_err(|e| AppError::InternalError(format!("Reload error: {e}")))?;
+
+        Ok(())
+    }
+
     /// Update (or insert) a single file in the index.
     pub fn update_file(&self, vault_id: &str, file_path: &str, content: String) -> AppResult<()> {
         let writer_lock = self.writer_lock_for(vault_id)?;
