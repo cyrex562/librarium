@@ -120,4 +120,89 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 ## Not Sorted
 
 - [ ] **LIB-052** Design an alternate set of views for viewing the server on an Android device. Add tasks for design additions and other needed feature improvements to support mobile.
-- [ ] **LIB-053** Organization - explore possible methods to auto organize and categorize files using local compute resources only (cant use *online* LLMs).
+- [ ] **LIB-053** Organization — auto parse, tag, rename, and organize Markdown docs using local compute only (no *online* LLMs). Full design in `docs/ORGANIZATION_ML_PLAN.md`. Evolves the existing rule-based AI Insights surface (`MlService`, `routes/ml.rs`, `MlInsightsPanel.vue`) into a tiered local-ML pipeline (heuristic → classical NLP → local embeddings) and adds the missing rename verb plus a vault-wide batch mode. Broken into LIB-054 … LIB-066 below.
+
+## Organization Feature (LIB-053)
+
+Tiered, local-only document organization. Tier 0 (heuristics) exists today; Tier 1
+(classical NLP, no model download) is the default; Tier 2 (local ONNX embeddings) is
+opt-in and air-gap-safe. See `docs/ORGANIZATION_ML_PLAN.md` for the full design,
+research citations, and rationale.
+
+### Phase 1 — Foundations
+
+- [ ] **LIB-054** Refactor `MlService` from standalone static functions into a parse-first
+  pipeline that builds a shared `NoteAnalysis` (title, frontmatter, outline, inline tags,
+  wiki-links, tasks/dates, word count, language hint) once per note, then runs
+  tag/rename/organize suggesters over it. Preserve current outline/suggestion behavior
+  as the Tier 0 path. Add unit tests for the parse layer.
+- [ ] **LIB-055** Add an `[ml]` config section in `crates/librarium-server/src/config/mod.rs`
+  (`enabled`, `tier`, `model`, `cache_dir`, `allow_model_download`, `auto_suggest_on_open`,
+  `naming_scheme`, `min_confidence`, `max_suggestions`) with air-gap-safe defaults
+  (`tier = "classical"`, `allow_model_download = false`). Document in
+  `docs/CONFIGURATION.md` and `config.example.toml`. Wire tier selection through the ML routes.
+
+### Phase 2 — Tag upgrade (Tier 1, no model download)
+
+- [ ] **LIB-056** Add classical keyphrase extraction (TF-IDF / YAKE! / TextRank via the
+  pure-Rust `keyword_extraction` crate) and surface keyphrase-derived tag candidates in
+  the existing `/ml/suggestions` response. Merge with Tier 0 rule tags, dedup, and
+  normalize per `docs/TAG_SYSTEM_SPEC.md` (lowercase-canonical, nested `/`). Score by
+  confidence and source. Reuse the existing frontmatter-tag apply/undo path.
+
+### Phase 3 — Rename (new verb)
+
+- [ ] **LIB-057** Add rename suggestions: derive a canonical filename from frontmatter
+  `title` → first H1 → top keyphrases, formatted by the configured `naming_scheme`
+  (`kebab-case` | `title-case` | `date-prefixed` | `category-slug`). New
+  `POST /ml/rename-suggestion` endpoint and a `rename` suggestion kind in apply. Unit-test
+  each naming scheme and slugification.
+- [ ] **LIB-058** Make rename link-safe: before renaming, find inbound `[[wiki-links]]` and
+  `![[embeds]]` (via `wiki_link_service` / search index) and rewrite them in the same
+  operation; report the affected-link count in dry-run. Extend `ReverseAction` with a
+  `RenameWithLinks` variant so undo restores both the filename and the rewritten links.
+  Integration-test that apply rewrites links and undo fully restores them.
+
+### Phase 4 — Local embeddings (Tier 2, opt-in)
+
+- [ ] **LIB-059** Integrate `fastembed-rs` for local ONNX sentence embeddings (default
+  `bge-small-en-v1.5`). Lazy-load the model once behind a `OnceCell`/`Mutex`; honor
+  `cache_dir` and `allow_model_download`. When `tier = "embeddings"` but no model is
+  present and downloads are disabled, log once and fall back to Tier 1 instead of erroring.
+- [ ] **LIB-060** Add a `note_embeddings` SQLite table (vault_id, file_path, model, dim,
+  vector BLOB, content_hash, updated_at) in `db::run_migrations`. Compute embeddings
+  incrementally off the request path inside `reindex_service::index_file`, batched with
+  `rayon` (mirror the batched-commit pattern in `5a9ea70`); skip recompute when
+  `content_hash` is unchanged. Provide a vault-wide backfill path.
+- [ ] **LIB-061** Add controlled-vocabulary semantic tagging: build prototype vectors for the
+  vault's existing tags (mean embedding of notes carrying each tag) and suggest the nearest
+  tags above `min_confidence`, so suggestions stay consistent with the user's existing
+  vocabulary. Surface alongside Tier 1 keyphrase tags with a `semantic` source label.
+
+### Phase 5 — Organize (single-note + vault-wide)
+
+- [ ] **LIB-062** Replace the string-match `infer_category` with semantic folder placement:
+  kNN over existing folders' embeddings (Tier 2) or TF-IDF nearest folder (Tier 1) to
+  suggest a target folder. Reuse the existing `MoveToFolder` apply/undo path.
+- [ ] **LIB-063** Add vault-wide clustering: cluster note embeddings with `hdbscan`
+  (variable cluster count; K-Means via `linfa-clustering` as a fixed-k alternative), label
+  each cluster from its top keyphrases (c-TF-IDF style), and produce a reviewable
+  organization **plan** of `{file, suggested_tags, suggested_name, target_folder,
+  confidence}` rows. Nothing mutates until applied.
+- [ ] **LIB-064** Add the batch organize API: `POST /ml/organize-vault` (kick job, return
+  `plan_id` + plan, report progress over the existing authorized WebSocket channel) and
+  `POST /ml/apply-plan` (apply selected rows as one batch with a single undo group). Extend
+  `/ml/undo` to consume receipt groups for bulk undo. Integration-test plan apply + bulk undo.
+
+### Phase 6 — Frontend, provisioning, tests
+
+- [ ] **LIB-065** Upgrade the UI: in `MlInsightsPanel.vue` show extracted keyphrases, tag
+  suggestions with confidence + source, and a rename card ("N inbound links will be
+  updated"). Add an **Organize Vault** modal showing the batch plan in a checkbox table
+  (tag / rename / move) with "Apply selected" and "Undo last organize", behind the existing
+  suggest-only framing.
+- [ ] **LIB-066** Air-gap model provisioning + coverage: document how to pre-seed `cache_dir`
+  with the ONNX model for isolated hosts (manual copy or installer bundle); add an
+  offline-mode integration test proving the server performs no network I/O for ML when
+  `allow_model_download = false` (mirrors `LIB-043`); extend `benches/markdown_benchmarks.rs`
+  with embedding-throughput and clustering benchmarks on a synthetic large vault.
