@@ -233,3 +233,53 @@ research citations, and rationale.
   `allow_model_download = false` (mirrors `LIB-043`); extended `benches/markdown_benchmarks.rs`
   with clustering, c-TF-IDF labelling, TF-IDF folder placement, keyphrase, and a
   (feature-gated, degrade-to-noop) embedding-throughput benchmark on a synthetic large vault.
+
+### Phase 7 — Local verification & follow-ups (test on Windows)
+
+> These are the carry-overs from Phases 1–6 that could not be fully verified in the CI/agent
+> sandbox (no native ONNX build, no GUI). Each is a concrete thing to run on a local Windows
+> machine. Check the box once verified; file a bug if it fails.
+
+- [ ] **LIB-067** Verify the Tier-2 `embeddings` feature builds and runs on Windows. The agent
+  sandbox can't compile it (the `ort-sys` build script downloads an onnxruntime binary from a
+  proxy-blocked host), so the entire neural path is mock-tested only. Steps:
+  1. `cargo build -p librarium-server --features embeddings` (needs network for the ONNX
+     runtime + model download the first time).
+  2. Run with `[ml] tier="embeddings", allow_model_download=true, cache_dir="./ml-models"`;
+     confirm the model downloads once and the startup log shows "ML embeddings backend ready".
+  3. Open a few notes, run **Suggest organization**, and confirm `semantic`-sourced tag and
+     folder suggestions appear; run **Organize vault…** and confirm clusters are formed
+     (`cluster_count > 0`) and cluster-labelled target folders are proposed.
+  4. Confirm embeddings populate the `note_embeddings` table after a reindex and that editing
+     a note refreshes only that row (content-hash skip).
+- [ ] **LIB-068** Verify air-gapped provisioning end-to-end on Windows (the LIB-066 flow):
+  copy a pre-seeded `ml-models` dir to a host with no network, set
+  `allow_model_download=false`, and confirm the server loads the model from disk with zero
+  outbound calls — and that a *missing/empty* cache logs one warning and falls back to Tier 1
+  without erroring. Validate the Windows `cache_dir` path handling (drive letters, backslashes).
+- [ ] **LIB-069** Verify ML file mutations on Windows paths (rename / move / organize-plan).
+  The server normalizes vault-relative paths to forward slashes in several places
+  (`parent_dir`, `rewrite_wiki_links`, `compute_rename_link_changes`, the TF-IDF corpus),
+  while `FileService::list_markdown_files` yields native (`\`) separators via
+  `to_string_lossy`. Confirm on Windows that: (a) a link-safe **rename** rewrites inbound
+  `[[wiki-links]]` in notes located in subfolders; (b) **move-to-folder** and the batch
+  **apply-plan** move files correctly and **bulk undo** restores them; (c) the renamed file
+  itself is correctly excluded from the inbound-link scan (no path-separator mismatch). If any
+  fail, normalize `list_markdown_files` output to forward slashes at the boundary.
+- [ ] **LIB-070** Verify the AI Insights UI manually in the desktop/web app: key-phrase chips,
+  source chips, the rename card's "N inbound links will be updated" dry-run count, and the
+  **Organize Vault** modal (checkbox table, Apply selected, Undo last organize, tree refresh
+  after moves). Confirm the `OrganizeComplete` WebSocket event is received by clients scoped
+  to the vault.
+- [ ] **LIB-071** (Pre-existing, not from this feature) Fix the 3 failing
+  `entity_api_tests` (`test_list_entity_types_*`, `test_list_relation_types_*`) — they return
+  non-success and fail on `main` independently of the ML work; likely an endpoint/registry
+  setup issue surfaced only in the test harness.
+- [ ] **LIB-072** (Pre-existing) Fix the 2 frontend type errors blocking `npm run build`:
+  `CanvasView.vue` (`CSSProperties.position` typed as `string`) and `OidcCallbackPage.vue`
+  (`loginWithOidc` missing on the auth store). Unrelated to the ML feature but they break the
+  production build.
+- [ ] **LIB-073** Share the link-safe rename logic with the plain `/api/vaults/{id}/rename`
+  route. Today only the ML rename path rewrites inbound `[[wiki-links]]`/`![[embeds]]`; a
+  manual rename via the file tree still orphans links. Extract the rewrite + receipt logic so
+  both paths stay link-safe.
