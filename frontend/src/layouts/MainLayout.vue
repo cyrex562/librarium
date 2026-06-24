@@ -148,11 +148,9 @@ onMounted(async () => {
 
   useWebSocket();
 
+  // The file tree / recent files load reactively via the activeVaultId watcher
+  // below, so we only need to populate the vault list here.
   await vaultsStore.loadVaults();
-  if (vaultsStore.activeVaultId) {
-    await filesStore.loadTree(vaultsStore.activeVaultId);
-    await filesStore.loadRecentFiles(vaultsStore.activeVaultId);
-  }
 
   if (prefsStore.prefs.editor_mode) {
     editorStore.setMode(prefsStore.prefs.editor_mode);
@@ -165,15 +163,27 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown);
 });
 
-async function onVaultChange(id: string) {
+function onVaultChange(id: string) {
   vaultsStore.setActiveVault(id);
-  // Close all tabs when switching vaults
+  // Close all tabs when switching vaults. The file tree and recent files are
+  // refreshed reactively by the activeVaultId watcher below.
   tabsStore.closeAllTabs();
-  if (id) {
+}
+
+// Load the file tree and recent files whenever the active vault changes,
+// regardless of where the change originates (initial restore, the vault
+// selector, or the Vault Manager modal). This mirrors how TagsPanel,
+// BookmarksPanel and RecentFilesPanel react to activeVaultId, so the file
+// listing can never get out of sync with the selected vault.
+watch(
+  () => vaultsStore.activeVaultId,
+  async (id) => {
+    if (!id) return;
     await filesStore.loadTree(id);
     await filesStore.loadRecentFiles(id);
-  }
-}
+  },
+  { immediate: true },
+);
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {

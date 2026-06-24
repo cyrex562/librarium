@@ -1,5 +1,6 @@
 use anyhow::Context;
 use librarium::config::LibrariumPaths;
+use tauri::Manager;
 
 /// Resolve application directories, preferring portable mode when applicable.
 ///

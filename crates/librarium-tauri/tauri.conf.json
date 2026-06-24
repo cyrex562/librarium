@@ -31,7 +31,8 @@
     "active": true,
     "icon": [
       "icons/icon-32x32.png",
-      "icons/icon-128x128.png"
+      "icons/icon-128x128.png",
+      "icons/icon.ico"
     ],
     "targets": ["deb", "appimage", "nsis", "dmg"],
     "linux": {
