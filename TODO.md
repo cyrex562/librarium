@@ -221,13 +221,15 @@ research citations, and rationale.
 
 ### Phase 6 — Frontend, provisioning, tests
 
-- [ ] **LIB-065** Upgrade the UI: in `MlInsightsPanel.vue` show extracted keyphrases, tag
-  suggestions with confidence + source, and a rename card ("N inbound links will be
-  updated"). Add an **Organize Vault** modal showing the batch plan in a checkbox table
-  (tag / rename / move) with "Apply selected" and "Undo last organize", behind the existing
-  suggest-only framing.
-- [ ] **LIB-066** Air-gap model provisioning + coverage: document how to pre-seed `cache_dir`
-  with the ONNX model for isolated hosts (manual copy or installer bundle); add an
-  offline-mode integration test proving the server performs no network I/O for ML when
-  `allow_model_download = false` (mirrors `LIB-043`); extend `benches/markdown_benchmarks.rs`
-  with embedding-throughput and clustering benchmarks on a synthetic large vault.
+- [x] **LIB-065** Upgraded the UI: `MlInsightsPanel.vue` shows extracted key phrases, tag
+  suggestions with confidence + source chip (rule/keyphrase/semantic), and a rename card
+  ("N inbound link(s) will be updated" from a dry run). New `OrganizeVaultModal.vue` shows
+  the batch plan in a checkbox table (tag / rename / move) with "Apply selected" (one batch)
+  and "Undo last organize" (group undo), behind the existing suggest-only framing.
+- [x] **LIB-066** Air-gap model provisioning + coverage: documented pre-seeding `cache_dir`
+  with the ONNX model for isolated hosts (step-by-step in `docs/ORGANIZATION_ML_PLAN.md`);
+  added an offline-mode integration test (`tests/ml_offline.rs`) proving the embedder is
+  never constructed and ML endpoints fall back to Tier 1 with no network when
+  `allow_model_download = false` (mirrors `LIB-043`); extended `benches/markdown_benchmarks.rs`
+  with clustering, c-TF-IDF labelling, TF-IDF folder placement, keyphrase, and a
+  (feature-gated, degrade-to-noop) embedding-throughput benchmark on a synthetic large vault.

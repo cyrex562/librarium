@@ -237,6 +237,38 @@ max_suggestions = 8
 For air-gapped hosts: pre-seed `cache_dir` with the ONNX model (manual copy or bundled
 in the installer) and set `tier = "embeddings"` with `allow_model_download = false`.
 
+### Provisioning the model on an isolated host
+
+The server never reaches the network when `allow_model_download = false`; the model files
+must already exist under `[ml].cache_dir`. To provision them:
+
+1. **On an internet-connected machine** with the same OS/arch, build the server with the
+   feature and let `fastembed` download the default model once:
+   ```bash
+   cargo run -p librarium-server --features embeddings -- --config online.toml
+   # online.toml: [ml] tier="embeddings", allow_model_download=true, cache_dir="./ml-models"
+   ```
+   `fastembed` writes the ONNX weights + tokenizer into `./ml-models` using the
+   HuggingFace cache layout (`models--Qdrant--bge-small-en-v1.5/...`). Alternatively,
+   download the model snapshot manually from the model card and place it there.
+2. **Copy** the entire `ml-models/` directory to the isolated host (USB, internal artifact
+   store, or bundle it in your installer image).
+3. **On the isolated host**, point `[ml].cache_dir` at the copied directory and keep
+   `allow_model_download = false`:
+   ```toml
+   [ml]
+   enabled = true
+   tier = "embeddings"
+   cache_dir = "/opt/librarium/ml-models"
+   allow_model_download = false
+   ```
+   On startup the server loads the model from disk with zero outbound calls. If the
+   directory is missing or empty it logs a single warning and falls back to Tier 1
+   (classical) — requests still succeed, just without semantic features.
+
+The server binary itself must be built `--features embeddings`; the default build omits the
+ONNX runtime entirely and always runs Tiers 0/1.
+
 ## Privacy & Air-Gap Guarantees
 
 - Tiers 0/1 require no network ever.
