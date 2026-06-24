@@ -292,6 +292,135 @@ async fn undo_receipt_persists_across_app_reinitialization() {
 }
 
 #[actix_web::test]
+async fn organize_vault_then_apply_plan_and_bulk_undo() {
+    use librarium::config::AppConfig;
+
+    let temp_dir = TempDir::new().unwrap();
+    let db = Database::new(&format!(
+        "sqlite://{}",
+        temp_dir.path().join("ml-organize.db").display()
+    ))
+    .await
+    .unwrap();
+
+    let vault_path = temp_dir.path().join("vault");
+    std::fs::create_dir_all(vault_path.join("projects")).unwrap();
+    std::fs::create_dir_all(vault_path.join("inbox")).unwrap();
+    std::fs::write(
+        vault_path.join("projects/alpha.md"),
+        "# Alpha\n\nrust project roadmap milestone deliverable\n",
+    )
+    .unwrap();
+    std::fs::write(
+        vault_path.join("projects/beta.md"),
+        "# Beta\n\nrust project sprint planning milestone\n",
+    )
+    .unwrap();
+    let stray = vault_path.join("inbox/stray.md");
+    std::fs::write(&stray, "# Stray\n\nrust project roadmap notes\n").unwrap();
+
+    let vault = db
+        .create_vault(
+            "Organize Vault".to_string(),
+            vault_path.to_string_lossy().to_string(),
+        )
+        .await
+        .unwrap();
+
+    let search_index = SearchIndex::new();
+    let (watcher, _) = FileWatcher::new().unwrap();
+    let watcher = Arc::new(Mutex::new(watcher));
+    let (event_tx, _) = broadcast::channel(100);
+
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        search_index,
+        watcher,
+        event_broadcaster: event_tx,
+        ws_broadcaster: tokio::sync::broadcast::channel::<librarium::models::WsMessage>(16).0,
+        change_log_retention_days: 7,
+        ml_undo_store: Arc::new(Mutex::new(HashMap::new())),
+        shutdown_tx: tokio::sync::broadcast::channel::<()>(1).0,
+        document_parser: Arc::new(MarkdownParser),
+        entity_type_registry: librarium::services::EntityTypeRegistry::new(),
+        relation_type_registry: librarium::services::RelationTypeRegistry::new(),
+        plugins_dir: std::path::PathBuf::new(),
+    });
+    let config = web::Data::new(AppConfig::default());
+
+    let app = test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .app_data(config.clone())
+            .configure(ml::configure),
+    )
+    .await;
+
+    // 1. Compute a plan for the whole vault.
+    let organize_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/organize-vault", vault.id))
+        .set_json(json!({}))
+        .to_request();
+    let organize_resp = test::call_service(&app, organize_req).await;
+    assert!(organize_resp.status().is_success());
+    let plan: serde_json::Value = test::read_body_json(organize_resp).await;
+    assert_eq!(plan["rows"].as_array().unwrap().len(), 3);
+
+    // 2. Apply a batch: tag two notes and move the stray one into projects.
+    let apply_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/apply-plan", vault.id))
+        .set_json(json!({
+            "dry_run": false,
+            "rows": [
+                { "file_path": "inbox/stray.md", "apply_tags": ["triaged"], "apply_folder": "projects" },
+                { "file_path": "projects/alpha.md", "apply_tags": ["reviewed"] }
+            ]
+        }))
+        .to_request();
+    let apply_resp = test::call_service(&app, apply_req).await;
+    assert!(apply_resp.status().is_success());
+    let apply_body: serde_json::Value = test::read_body_json(apply_resp).await;
+    assert_eq!(apply_body["applied"], true);
+    let group_id = apply_body["group_id"].as_str().unwrap().to_string();
+
+    // The stray note moved and both notes gained their tags.
+    assert!(!stray.exists());
+    let moved = vault_path.join("projects/stray.md");
+    assert!(moved.exists());
+    assert!(std::fs::read_to_string(&moved).unwrap().contains("triaged"));
+    assert!(std::fs::read_to_string(vault_path.join("projects/alpha.md"))
+        .unwrap()
+        .contains("reviewed"));
+
+    // 3. Bulk-undo the whole group.
+    let undo_req = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/undo", vault.id))
+        .set_json(json!({ "group_id": group_id }))
+        .to_request();
+    let undo_resp = test::call_service(&app, undo_req).await;
+    assert!(undo_resp.status().is_success());
+    let undo_body: serde_json::Value = test::read_body_json(undo_resp).await;
+    assert_eq!(undo_body["undone"], true);
+    assert!(undo_body["undone_count"].as_u64().unwrap() >= 3);
+
+    // Everything is back: stray returned to inbox, tags removed.
+    assert!(stray.exists());
+    assert!(!moved.exists());
+    assert!(!std::fs::read_to_string(&stray).unwrap().contains("triaged"));
+    assert!(!std::fs::read_to_string(vault_path.join("projects/alpha.md"))
+        .unwrap()
+        .contains("reviewed"));
+
+    // The group is single-use.
+    let undo_again = test::TestRequest::post()
+        .uri(&format!("/api/vaults/{}/ml/undo", vault.id))
+        .set_json(json!({ "group_id": group_id }))
+        .to_request();
+    let undo_again_resp = test::call_service(&app, undo_again).await;
+    assert_eq!(undo_again_resp.status().as_u16(), 404);
+}
+
+#[actix_web::test]
 async fn apply_rename_rewrites_inbound_links_and_undo_restores() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("ml-rename-undo.db");

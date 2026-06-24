@@ -732,6 +732,13 @@ pub enum WsMessage {
         file_count: i64,
         duration_ms: i64,
     },
+    /// Broadcast when a vault-wide organization plan finishes computing.
+    OrganizeComplete {
+        vault_id: String,
+        plan_id: String,
+        row_count: usize,
+        cluster_count: usize,
+    },
     SyncPing,
     SyncPong {
         server_time: i64,

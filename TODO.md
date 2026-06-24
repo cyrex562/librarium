@@ -199,18 +199,25 @@ research citations, and rationale.
 
 ### Phase 5 — Organize (single-note + vault-wide)
 
-- [ ] **LIB-062** Replace the string-match `infer_category` with semantic folder placement:
-  kNN over existing folders' embeddings (Tier 2) or TF-IDF nearest folder (Tier 1) to
-  suggest a target folder. Reuse the existing `MoveToFolder` apply/undo path.
-- [ ] **LIB-063** Add vault-wide clustering: cluster note embeddings with `hdbscan`
-  (variable cluster count; K-Means via `linfa-clustering` as a fixed-k alternative), label
-  each cluster from its top keyphrases (c-TF-IDF style), and produce a reviewable
-  organization **plan** of `{file, suggested_tags, suggested_name, target_folder,
-  confidence}` rows. Nothing mutates until applied.
-- [ ] **LIB-064** Add the batch organize API: `POST /ml/organize-vault` (kick job, return
-  `plan_id` + plan, report progress over the existing authorized WebSocket channel) and
-  `POST /ml/apply-plan` (apply selected rows as one batch with a single undo group). Extend
-  `/ml/undo` to consume receipt groups for bulk undo. Integration-test plan apply + bulk undo.
+- [x] **LIB-062** Replaced the string-match folder inference with layered semantic folder
+  placement: Tier 2 embedding kNN (`embedding_service::suggest_folder`, vote the nearest
+  notes' folder) and Tier 1 TF-IDF nearest folder (`MlService::nearest_folder_tfidf`), with
+  the heuristic `infer_category` as the final fallback. Surfaced via the existing
+  `move_to_folder` apply/undo path (source `semantic`/`tfidf`).
+- [x] **LIB-063** Added the vault-wide organization plan (`services/organize_service.rs`):
+  notes with cached embeddings are grouped by a pure cosine-threshold union-find clusterer
+  (variable cluster count) and each cluster labelled by a class-based TF-IDF (c-TF-IDF) of
+  its top terms (chose an in-house clusterer over `hdbscan`/`linfa-clustering`, which are
+  only meaningful with the unbuildable-here embeddings backend). `build_plan` produces a
+  reviewable `{file, suggested_tags, suggested_name, target_folder, cluster, confidence}`
+  plan; Tier 1 falls back to TF-IDF placement. Nothing mutates until applied.
+- [x] **LIB-064** Added the batch organize API: `POST /ml/organize-vault` (computes + returns
+  `plan_id` + plan, emits an `OrganizeComplete` event on the authorized WS channel) and
+  `POST /ml/apply-plan` (applies selected per-row tag/rename/folder actions as one batch
+  under a single `group_id`, reusing the extracted `apply_suggestion_core`). `/ml/undo` now
+  accepts a `group_id` to consume the whole receipt group (newest-first) for bulk undo.
+  Integration-tested: organize → apply-plan batch → bulk undo restores everything and is
+  single-use.
 
 ### Phase 6 — Frontend, provisioning, tests
 

@@ -847,7 +847,7 @@ impl Database {
             SELECT receipt_id, vault_id, file_path, description, reverse_action, applied_at, group_id
             FROM ml_undo_receipts
             WHERE vault_id = ? AND group_id = ?
-            ORDER BY applied_at DESC
+            ORDER BY applied_at DESC, rowid DESC
             "#,
         )
         .bind(vault_id)

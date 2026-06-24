@@ -376,6 +376,56 @@ export interface UndoMlActionResponse {
     undone: boolean;
     description: string;
     file_path: string;
+    undone_count?: number;
+}
+
+export interface OrganizationPlanRow {
+    file_path: string;
+    suggested_tags: string[];
+    suggested_name?: string;
+    target_folder?: string;
+    cluster?: string;
+    confidence: number;
+}
+
+export interface OrganizationPlan {
+    plan_id: string;
+    vault_id: string;
+    rows: OrganizationPlanRow[];
+    cluster_count: number;
+    generated_at: string;
+}
+
+export interface OrganizeVaultRequest {
+    max_files?: number;
+}
+
+export interface ApplyPlanRow {
+    file_path: string;
+    apply_tags?: string[];
+    apply_name?: string;
+    apply_folder?: string;
+}
+
+export interface ApplyPlanRequest {
+    plan_id?: string;
+    rows: ApplyPlanRow[];
+    dry_run?: boolean;
+}
+
+export interface ApplyPlanRowResult {
+    file_path: string;
+    changes: ApplyChange[];
+    final_path?: string;
+    error?: string;
+}
+
+export interface ApplyPlanResponse {
+    applied: boolean;
+    dry_run: boolean;
+    group_id?: string;
+    results: ApplyPlanRowResult[];
+    applied_at: string;
 }
 
 export interface SessionInfo {
@@ -575,6 +625,7 @@ export interface VaultShareList {
 export type WsMessage =
     | { type: 'FileChanged'; vault_id: string; path: string; event_type: FileChangeType; etag?: string; timestamp: number }
     | { type: 'ReindexComplete'; vault_id: string; file_count: number; duration_ms: number }
+    | { type: 'OrganizeComplete'; vault_id: string; plan_id: string; row_count: number; cluster_count: number }
     | { type: 'SyncPing' }
     | { type: 'SyncPong'; server_time: number }
     | { type: 'Error'; message: string };

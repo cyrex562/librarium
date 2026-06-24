@@ -38,6 +38,10 @@ import type {
     ApplyOrganizationSuggestionResponse,
     OrganizationSuggestion,
     UndoMlActionResponse,
+    OrganizeVaultRequest,
+    OrganizationPlan,
+    ApplyPlanRequest,
+    ApplyPlanResponse,
     Entity,
     EntityRelation,
     EntityTypeSchema,
@@ -335,6 +339,34 @@ export const apiUndoMlAction = (
     request(`/api/vaults/${vaultId}/ml/undo`, {
         method: 'POST',
         body: JSON.stringify({ receipt_id: receiptId }),
+    });
+
+/// Undo a whole apply-plan batch by its group id.
+export const apiUndoMlGroup = (
+    vaultId: string,
+    groupId: string,
+): Promise<UndoMlActionResponse> =>
+    request(`/api/vaults/${vaultId}/ml/undo`, {
+        method: 'POST',
+        body: JSON.stringify({ group_id: groupId }),
+    });
+
+export const apiOrganizeVault = (
+    vaultId: string,
+    data: OrganizeVaultRequest = {},
+): Promise<OrganizationPlan> =>
+    request(`/api/vaults/${vaultId}/ml/organize-vault`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+
+export const apiApplyPlan = (
+    vaultId: string,
+    data: ApplyPlanRequest,
+): Promise<ApplyPlanResponse> =>
+    request(`/api/vaults/${vaultId}/ml/apply-plan`, {
+        method: 'POST',
+        body: JSON.stringify(data),
     });
 
 // ── Markdown ──────────────────────────────────────────────────────────────────
