@@ -1,5 +1,6 @@
 pub mod auth_provider;
 pub mod entity_service;
+pub mod embedding_service;
 pub mod file_service;
 pub mod frontmatter_service;
 pub mod image_service;
@@ -8,6 +9,7 @@ pub mod ldap_provider;
 pub mod markdown_service;
 pub mod ml_service;
 pub mod oidc_provider;
+pub mod organize_service;
 pub mod plugin_api;
 pub mod plugin_service;
 pub mod reindex_service;
@@ -21,6 +23,7 @@ pub use auth_provider::{
     authenticate_username_password, validate_password_policy, AuthProviderKind,
     AuthenticatedPrincipal,
 };
+pub use embedding_service::{embedder, Embedder};
 pub use entity_service::{Entity, EntityService};
 pub use file_service::{FileService, RenameStrategy};
 pub use image_service::ImageService;
@@ -34,4 +37,4 @@ pub use relation_service::{Relation, RelationService};
 pub use schema_service::{EntityTypeRegistry, RelationTypeRegistry, SchemaService};
 pub use search_service::SearchIndex;
 pub use template_service::TemplateService;
-pub use wiki_link_service::{FileIndex, ResolvedLink, WikiLinkResolver};
+pub use wiki_link_service::{rewrite_wiki_links, FileIndex, ResolvedLink, WikiLinkResolver};

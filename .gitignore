@@ -30,3 +30,6 @@ target
 
 *.log
 *.env
+
+# Runtime/test-generated server data (tantivy indices, sqlite DBs, etc.)
+/crates/librarium-server/data/

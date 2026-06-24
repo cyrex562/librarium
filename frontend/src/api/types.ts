@@ -272,13 +272,46 @@ export interface NoteOutlineResponse {
     generated_at: string;
 }
 
+export interface AnalyzeNoteRequest {
+    file_path: string;
+    content?: string;
+}
+
+export interface NoteTask {
+    text: string;
+    done: boolean;
+    line_number: number;
+}
+
+export interface Keyphrase {
+    phrase: string;
+    score: number;
+}
+
+export interface NoteAnalysis {
+    file_path: string;
+    title?: string;
+    summary: string;
+    sections: OutlineSection[];
+    word_count: number;
+    inline_tags: string[];
+    frontmatter_tags: string[];
+    wiki_links: string[];
+    tasks: NoteTask[];
+    keyphrases: Keyphrase[];
+    tier: string;
+    generated_at: string;
+}
+
 export interface GenerateOrganizationSuggestionsRequest {
     file_path: string;
     content?: string;
     max_suggestions?: number;
 }
 
-export type OrganizationSuggestionKind = 'tag' | 'category' | 'move_to_folder';
+export type OrganizationSuggestionKind = 'tag' | 'category' | 'move_to_folder' | 'rename';
+
+export type OrganizationSuggestionSource = 'rule' | 'keyphrase' | 'semantic';
 
 export interface OrganizationSuggestion {
     id: string;
@@ -288,6 +321,8 @@ export interface OrganizationSuggestion {
     tag?: string;
     category?: string;
     target_folder?: string;
+    new_name?: string;
+    source?: OrganizationSuggestionSource;
 }
 
 export interface OrganizationSuggestionsResponse {
@@ -316,6 +351,24 @@ export interface ApplyOrganizationSuggestionResponse {
     changes: ApplyChange[];
     applied_at: string;
     receipt_id?: string;
+    updated_links?: number;
+}
+
+export interface RenameSuggestionRequest {
+    file_path: string;
+    content?: string;
+    naming_scheme?: string;
+}
+
+export interface RenameSuggestionResponse {
+    file_path: string;
+    current_name: string;
+    proposed_name?: string;
+    proposed_path?: string;
+    naming_scheme: string;
+    rationale: string;
+    suggestion?: OrganizationSuggestion;
+    generated_at: string;
 }
 
 export interface UndoMlActionResponse {
@@ -323,6 +376,56 @@ export interface UndoMlActionResponse {
     undone: boolean;
     description: string;
     file_path: string;
+    undone_count?: number;
+}
+
+export interface OrganizationPlanRow {
+    file_path: string;
+    suggested_tags: string[];
+    suggested_name?: string;
+    target_folder?: string;
+    cluster?: string;
+    confidence: number;
+}
+
+export interface OrganizationPlan {
+    plan_id: string;
+    vault_id: string;
+    rows: OrganizationPlanRow[];
+    cluster_count: number;
+    generated_at: string;
+}
+
+export interface OrganizeVaultRequest {
+    max_files?: number;
+}
+
+export interface ApplyPlanRow {
+    file_path: string;
+    apply_tags?: string[];
+    apply_name?: string;
+    apply_folder?: string;
+}
+
+export interface ApplyPlanRequest {
+    plan_id?: string;
+    rows: ApplyPlanRow[];
+    dry_run?: boolean;
+}
+
+export interface ApplyPlanRowResult {
+    file_path: string;
+    changes: ApplyChange[];
+    final_path?: string;
+    error?: string;
+}
+
+export interface ApplyPlanResponse {
+    applied: boolean;
+    dry_run: boolean;
+    group_id?: string;
+    results: ApplyPlanRowResult[];
+    applied_at: string;
 }
 
 export interface SessionInfo {
@@ -522,6 +625,7 @@ export interface VaultShareList {
 export type WsMessage =
     | { type: 'FileChanged'; vault_id: string; path: string; event_type: FileChangeType; etag?: string; timestamp: number }
     | { type: 'ReindexComplete'; vault_id: string; file_count: number; duration_ms: number }
+    | { type: 'OrganizeComplete'; vault_id: string; plan_id: string; row_count: number; cluster_count: number }
     | { type: 'SyncPing' }
     | { type: 'SyncPong'; server_time: number }
     | { type: 'Error'; message: string };

@@ -84,3 +84,24 @@ allowed_origins = ["http://localhost:5173", "http://localhost:8080"]
 
 [sync]
 change_log_retention_days = 30
+
+# ── Document organization / AI Insights (local compute only) ────────────────
+# All intelligence runs on local CPU — there is no online-LLM path. `tier`
+# layers capability so the baseline is always available offline:
+#   heuristic  — keyword rules only (no extra dependencies)
+#   classical  — adds statistical keyphrase extraction (no model download)
+#   embeddings — adds local ONNX sentence embeddings (semantic tags, clustering)
+# When tier = "embeddings" but no model is present and allow_model_download is
+# false, the service falls back to "classical" instead of failing. For air-gapped
+# hosts, pre-seed `cache_dir` with the model and keep allow_model_download = false.
+# See docs/ORGANIZATION_ML_PLAN.md.
+[ml]
+enabled = true
+tier = "classical"            # heuristic | classical | embeddings
+model = "bge-small-en-v1.5"   # used only when tier = "embeddings"
+cache_dir = ""                # empty -> {data_dir}/ml-models
+allow_model_download = false  # air-gap default: never fetch at runtime
+auto_suggest_on_open = false
+naming_scheme = "kebab-case"  # kebab-case | title-case | date-prefixed | category-slug
+min_confidence = 0.55
+max_suggestions = 8

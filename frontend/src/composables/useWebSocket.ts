@@ -72,6 +72,10 @@ function handleMessage(event: MessageEvent) {
             // Notification already fired via handleWsMessage above;
             // no additional UI state update needed here.
             break;
+        case 'OrganizeComplete':
+            // A vault-wide organization plan finished computing; the initiating
+            // view fetches the plan from the organize-vault response directly.
+            break;
         case 'SyncPing':
         case 'SyncPong':
             // Reserved for desktop sync heartbeat handling.

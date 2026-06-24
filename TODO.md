@@ -120,4 +120,166 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 ## Not Sorted
 
 - [ ] **LIB-052** Design an alternate set of views for viewing the server on an Android device. Add tasks for design additions and other needed feature improvements to support mobile.
-- [ ] **LIB-053** Organization - explore possible methods to auto organize and categorize files using local compute resources only (cant use *online* LLMs).
+- [ ] **LIB-053** Organization — auto parse, tag, rename, and organize Markdown docs using local compute only (no *online* LLMs). Full design in `docs/ORGANIZATION_ML_PLAN.md`. Evolves the existing rule-based AI Insights surface (`MlService`, `routes/ml.rs`, `MlInsightsPanel.vue`) into a tiered local-ML pipeline (heuristic → classical NLP → local embeddings) and adds the missing rename verb plus a vault-wide batch mode. Broken into LIB-054 … LIB-066 below.
+
+## Organization Feature (LIB-053)
+
+Tiered, local-only document organization. Tier 0 (heuristics) exists today; Tier 1
+(classical NLP, no model download) is the default; Tier 2 (local ONNX embeddings) is
+opt-in and air-gap-safe. See `docs/ORGANIZATION_ML_PLAN.md` for the full design,
+research citations, and rationale.
+
+### Phase 1 — Foundations
+
+- [x] **LIB-054** Refactor `MlService` from standalone static functions into a parse-first
+  pipeline that builds a shared `NoteAnalysis` (title, outline, inline tags, frontmatter tags,
+  wiki-links, tasks, word count) once per note, then runs tag/rename/organize suggesters over
+  it. Preserves current outline/suggestion behavior as the Tier 0 path. Exposed via
+  `POST /ml/analyze`; keyphrases/embeddings fields are reserved for later tiers. Unit tests
+  cover structure extraction, code-fence skipping, title fallback, and tag dedup.
+- [x] **LIB-055** Add an `[ml]` config section in `crates/librarium-server/src/config/mod.rs`
+  (`enabled`, `tier`, `model`, `cache_dir`, `allow_model_download`, `auto_suggest_on_open`,
+  `naming_scheme`, `min_confidence`, `max_suggestions`) with air-gap-safe defaults
+  (`tier = "classical"`, `allow_model_download = false`). Documented in
+  `docs/CONFIGURATION.md` and `config.example.toml`. Tier is plumbed into `/ml/analyze`.
+
+### Phase 2 — Tag upgrade (Tier 1, no model download)
+
+- [x] **LIB-056** Add classical keyphrase extraction (YAKE! via the MIT-licensed
+  `yake-rust` crate — the LGPL `keyword_extraction` crate was rejected as incompatible
+  with the project's MIT license and static binaries) and surface keyphrase-derived tag
+  candidates in the `/ml/suggestions` response. Keyphrases populate `NoteAnalysis` under
+  the `classical`/`embeddings` tiers (empty under `heuristic`); tag candidates are
+  normalized per `docs/TAG_SYSTEM_SPEC.md`, deduped against existing and rule tags, and
+  scored in a 0.50–0.74 confidence band below the curated rule tags. Each suggestion now
+  carries a `source` (`rule` | `keyphrase` | `semantic`). Reuses the existing
+  frontmatter-tag apply/undo path. Unit tests cover tag normalization, tier gating, and
+  dedup.
+
+### Phase 3 — Rename (new verb)
+
+- [x] **LIB-057** Add rename suggestions: derive a canonical filename from frontmatter
+  `title` → first H1 → top keyphrases, formatted by the configured `naming_scheme`
+  (`kebab-case` | `title-case` | `date-prefixed` | `category-slug`). New
+  `POST /ml/rename-suggestion` endpoint (`MlService::suggest_rename`) and a `rename`
+  suggestion kind in apply (carrying `new_name`). Renames keep the note in its folder.
+  Unit tests cover each naming scheme, slugification, no-op detection, and keyphrase
+  fallback.
+- [x] **LIB-058** Make rename link-safe: on apply, rename the file then find inbound
+  `[[wiki-links]]`/`![[embeds]]` across the vault and rewrite them (new
+  `wiki_link_service::rewrite_wiki_links` — basename match, alias/heading/`.md` preserved,
+  path-qualified links gated on directory). The affected-link count is reported in dry-run
+  and apply via `updated_links`. `ReverseAction::RenameWithLinks` restores both the filename
+  and the rewritten links on undo. Unit tests for the rewriter (reversibility, case, dir
+  gating) plus an integration test for apply→links-rewritten→undo→restored.
+
+### Phase 4 — Local embeddings (Tier 2, opt-in)
+
+- [x] **LIB-059** Integrate `fastembed-rs` for local ONNX sentence embeddings (default
+  `bge-small-en-v1.5`), behind an off-by-default `embeddings` Cargo feature so the native
+  `onnxruntime` dependency never burdens the default build. An `Embedder` trait + a
+  process-wide `OnceLock` provider lazily load the model once (primed at startup), honoring
+  `cache_dir` and `allow_model_download` (refuses to construct — no network — when downloads
+  are disabled and the cache is empty). When `tier = "embeddings"` but the backend/model is
+  unavailable, it logs once and the provider returns `None` so everything falls back to
+  Tier 1 instead of erroring.
+- [x] **LIB-060** Added a `note_embeddings` SQLite table (vault_id, file_path, model, dim,
+  vector BLOB, content_hash, tags, updated_at) in `db::run_migrations` with accessors.
+  Embeddings are computed off the request path in `reindex_service::index_file` (single
+  notes) and a batched vault-wide `backfill_vault` (run at the end of `reindex_vault`);
+  recompute is skipped when `content_hash` is unchanged, and deletions clean up the row. The
+  synchronous embedder runs on the blocking pool.
+- [x] **LIB-061** Added controlled-vocabulary semantic tagging: `build_tag_prototypes` builds
+  a prototype vector per existing tag (L2-normalized mean of notes carrying it) and
+  `suggest_semantic_tags` returns the nearest tags above `min_confidence`, excluding tags
+  already present/suggested. Surfaced alongside Tier 1 keyphrase tags in
+  `generate_suggestions` with a `semantic` source label, then re-sorted by confidence and
+  capped. (Verified end-to-end with a deterministic mock embedder; the native backend is
+  unbuildable in this sandbox because `ort-sys` downloads a binary from a blocked host.)
+
+### Phase 5 — Organize (single-note + vault-wide)
+
+- [x] **LIB-062** Replaced the string-match folder inference with layered semantic folder
+  placement: Tier 2 embedding kNN (`embedding_service::suggest_folder`, vote the nearest
+  notes' folder) and Tier 1 TF-IDF nearest folder (`MlService::nearest_folder_tfidf`), with
+  the heuristic `infer_category` as the final fallback. Surfaced via the existing
+  `move_to_folder` apply/undo path (source `semantic`/`tfidf`).
+- [x] **LIB-063** Added the vault-wide organization plan (`services/organize_service.rs`):
+  notes with cached embeddings are grouped by a pure cosine-threshold union-find clusterer
+  (variable cluster count) and each cluster labelled by a class-based TF-IDF (c-TF-IDF) of
+  its top terms (chose an in-house clusterer over `hdbscan`/`linfa-clustering`, which are
+  only meaningful with the unbuildable-here embeddings backend). `build_plan` produces a
+  reviewable `{file, suggested_tags, suggested_name, target_folder, cluster, confidence}`
+  plan; Tier 1 falls back to TF-IDF placement. Nothing mutates until applied.
+- [x] **LIB-064** Added the batch organize API: `POST /ml/organize-vault` (computes + returns
+  `plan_id` + plan, emits an `OrganizeComplete` event on the authorized WS channel) and
+  `POST /ml/apply-plan` (applies selected per-row tag/rename/folder actions as one batch
+  under a single `group_id`, reusing the extracted `apply_suggestion_core`). `/ml/undo` now
+  accepts a `group_id` to consume the whole receipt group (newest-first) for bulk undo.
+  Integration-tested: organize → apply-plan batch → bulk undo restores everything and is
+  single-use.
+
+### Phase 6 — Frontend, provisioning, tests
+
+- [x] **LIB-065** Upgraded the UI: `MlInsightsPanel.vue` shows extracted key phrases, tag
+  suggestions with confidence + source chip (rule/keyphrase/semantic), and a rename card
+  ("N inbound link(s) will be updated" from a dry run). New `OrganizeVaultModal.vue` shows
+  the batch plan in a checkbox table (tag / rename / move) with "Apply selected" (one batch)
+  and "Undo last organize" (group undo), behind the existing suggest-only framing.
+- [x] **LIB-066** Air-gap model provisioning + coverage: documented pre-seeding `cache_dir`
+  with the ONNX model for isolated hosts (step-by-step in `docs/ORGANIZATION_ML_PLAN.md`);
+  added an offline-mode integration test (`tests/ml_offline.rs`) proving the embedder is
+  never constructed and ML endpoints fall back to Tier 1 with no network when
+  `allow_model_download = false` (mirrors `LIB-043`); extended `benches/markdown_benchmarks.rs`
+  with clustering, c-TF-IDF labelling, TF-IDF folder placement, keyphrase, and a
+  (feature-gated, degrade-to-noop) embedding-throughput benchmark on a synthetic large vault.
+
+### Phase 7 — Local verification & follow-ups (test on Windows)
+
+> These are the carry-overs from Phases 1–6 that could not be fully verified in the CI/agent
+> sandbox (no native ONNX build, no GUI). Each is a concrete thing to run on a local Windows
+> machine. Check the box once verified; file a bug if it fails.
+
+- [ ] **LIB-067** Verify the Tier-2 `embeddings` feature builds and runs on Windows. The agent
+  sandbox can't compile it (the `ort-sys` build script downloads an onnxruntime binary from a
+  proxy-blocked host), so the entire neural path is mock-tested only. Steps:
+  1. `cargo build -p librarium-server --features embeddings` (needs network for the ONNX
+     runtime + model download the first time).
+  2. Run with `[ml] tier="embeddings", allow_model_download=true, cache_dir="./ml-models"`;
+     confirm the model downloads once and the startup log shows "ML embeddings backend ready".
+  3. Open a few notes, run **Suggest organization**, and confirm `semantic`-sourced tag and
+     folder suggestions appear; run **Organize vault…** and confirm clusters are formed
+     (`cluster_count > 0`) and cluster-labelled target folders are proposed.
+  4. Confirm embeddings populate the `note_embeddings` table after a reindex and that editing
+     a note refreshes only that row (content-hash skip).
+- [ ] **LIB-068** Verify air-gapped provisioning end-to-end on Windows (the LIB-066 flow):
+  copy a pre-seeded `ml-models` dir to a host with no network, set
+  `allow_model_download=false`, and confirm the server loads the model from disk with zero
+  outbound calls — and that a *missing/empty* cache logs one warning and falls back to Tier 1
+  without erroring. Validate the Windows `cache_dir` path handling (drive letters, backslashes).
+- [ ] **LIB-069** Verify ML file mutations on Windows paths (rename / move / organize-plan).
+  The server normalizes vault-relative paths to forward slashes in several places
+  (`parent_dir`, `rewrite_wiki_links`, `compute_rename_link_changes`, the TF-IDF corpus),
+  while `FileService::list_markdown_files` yields native (`\`) separators via
+  `to_string_lossy`. Confirm on Windows that: (a) a link-safe **rename** rewrites inbound
+  `[[wiki-links]]` in notes located in subfolders; (b) **move-to-folder** and the batch
+  **apply-plan** move files correctly and **bulk undo** restores them; (c) the renamed file
+  itself is correctly excluded from the inbound-link scan (no path-separator mismatch). If any
+  fail, normalize `list_markdown_files` output to forward slashes at the boundary.
+- [ ] **LIB-070** Verify the AI Insights UI manually in the desktop/web app: key-phrase chips,
+  source chips, the rename card's "N inbound links will be updated" dry-run count, and the
+  **Organize Vault** modal (checkbox table, Apply selected, Undo last organize, tree refresh
+  after moves). Confirm the `OrganizeComplete` WebSocket event is received by clients scoped
+  to the vault.
+- [ ] **LIB-071** (Pre-existing, not from this feature) Fix the 3 failing
+  `entity_api_tests` (`test_list_entity_types_*`, `test_list_relation_types_*`) — they return
+  non-success and fail on `main` independently of the ML work; likely an endpoint/registry
+  setup issue surfaced only in the test harness.
+- [ ] **LIB-072** (Pre-existing) Fix the 2 frontend type errors blocking `npm run build`:
+  `CanvasView.vue` (`CSSProperties.position` typed as `string`) and `OidcCallbackPage.vue`
+  (`loginWithOidc` missing on the auth store). Unrelated to the ML feature but they break the
+  production build.
+- [ ] **LIB-073** Share the link-safe rename logic with the plain `/api/vaults/{id}/rename`
+  route. Today only the ML rename path rewrites inbound `[[wiki-links]]`/`![[embeds]]`; a
+  manual rename via the file tree still orphans links. Extract the rewrite + receipt logic so
+  both paths stay link-safe.

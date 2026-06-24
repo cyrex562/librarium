@@ -41,6 +41,19 @@ refresh_token_ttl = 604800 # seconds
 # max_failed_logins = 0
 # lockout_minutes = 15
 
+[ml]
+# Document organization / AI Insights. All intelligence runs on local CPU
+# only — there is no online-LLM path. See docs/ORGANIZATION_ML_PLAN.md.
+enabled = true
+tier = "classical"            # heuristic | classical | embeddings
+model = "bge-small-en-v1.5"   # used only when tier = "embeddings"
+cache_dir = ""                # empty -> {data_dir}/ml-models
+allow_model_download = false  # air-gap default: never fetch a model at runtime
+auto_suggest_on_open = false
+naming_scheme = "kebab-case"  # kebab-case | title-case | date-prefixed | category-slug
+min_confidence = 0.55
+max_suggestions = 8
+
 [storage]
 backend = "local" # local (implemented), s3 (scaffolded)
 
@@ -67,6 +80,10 @@ Environment variables override file settings. Use double underscores `__` for ne
 | `LIBRARIUM__AUTH__JWT_SECRET` | `auth.jwt_secret` | `""` | JWT signing secret — **required in production** |
 | `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME` | `auth.bootstrap_admin_username` | — | First admin username (bootstrap only, see note below) |
 | `LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD` | `auth.bootstrap_admin_password` | — | First admin password (bootstrap only — remove after first login) |
+| `LIBRARIUM__ML__ENABLED` | `ml.enabled` | `true` | Enable the organization / AI-Insights feature |
+| `LIBRARIUM__ML__TIER` | `ml.tier` | `classical` | Intelligence tier (`heuristic`, `classical`, `embeddings`) |
+| `LIBRARIUM__ML__ALLOW_MODEL_DOWNLOAD` | `ml.allow_model_download` | `false` | Allow runtime model fetch (keep `false` for air-gapped hosts) |
+| `LIBRARIUM__ML__NAMING_SCHEME` | `ml.naming_scheme` | `kebab-case` | Rename suggestion scheme |
 | `LIBRARIUM__STORAGE__BACKEND` | `storage.backend` | `local` | Storage backend selection |
 | `LIBRARIUM__STORAGE__S3__ENDPOINT` | `storage.s3.endpoint` | `""` | S3/MinIO endpoint URL |
 | `LIBRARIUM__STORAGE__S3__BUCKET` | `storage.s3.bucket` | `""` | S3 bucket name |

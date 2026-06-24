@@ -365,6 +365,61 @@ pub struct NoteOutlineResponse {
     pub generated_at: DateTime<Utc>,
 }
 
+/// Request to run the parse-first analysis pipeline over a single note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeNoteRequest {
+    pub file_path: String,
+    /// Optional inline content. When absent the note is read from disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+/// A checklist item discovered in a note body (`- [ ]` / `- [x]`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteTask {
+    pub text: String,
+    pub done: bool,
+    pub line_number: usize,
+}
+
+/// A scored keyphrase. Populated by the classical-NLP tier (Tier 1); empty
+/// under the `heuristic` tier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Keyphrase {
+    pub phrase: String,
+    pub score: f32,
+}
+
+/// Structured analysis of a single note, built once by the parse pipeline and
+/// consumed by the tag / rename / organize suggesters. See
+/// `docs/ORGANIZATION_ML_PLAN.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteAnalysis {
+    pub file_path: String,
+    /// Best-effort note title: frontmatter `title` -> first `# H1` -> filename stem.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Short prose summary (same heuristic as the outline summary).
+    pub summary: String,
+    /// Heading outline.
+    pub sections: Vec<OutlineSection>,
+    /// Word count of the body (frontmatter excluded).
+    pub word_count: usize,
+    /// `#tags` found inline in the body, normalized lowercase.
+    pub inline_tags: Vec<String>,
+    /// Tags declared in frontmatter, normalized lowercase.
+    pub frontmatter_tags: Vec<String>,
+    /// `[[wiki-link]]` / `![[embed]]` targets referenced by this note.
+    pub wiki_links: Vec<String>,
+    /// Checklist items found in the body.
+    pub tasks: Vec<NoteTask>,
+    /// Scored keyphrases (Tier 1+); empty under the `heuristic` tier.
+    pub keyphrases: Vec<Keyphrase>,
+    /// The ML tier that produced this analysis (`heuristic` | `classical` | `embeddings`).
+    pub tier: String,
+    pub generated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateOrganizationSuggestionsRequest {
     pub file_path: String,
@@ -380,6 +435,7 @@ pub enum OrganizationSuggestionKind {
     Tag,
     Category,
     MoveToFolder,
+    Rename,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -394,6 +450,14 @@ pub struct OrganizationSuggestion {
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_folder: Option<String>,
+    /// Proposed new filename (including extension) for a `rename` suggestion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    /// Where the suggestion came from: `rule` (keyword heuristics), `keyphrase`
+    /// (statistical extraction), or `semantic` (embeddings). Optional for
+    /// backward compatibility with older clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -416,6 +480,34 @@ pub struct ApplyOrganizationSuggestionRequest {
     pub dry_run: bool,
 }
 
+/// Request a canonical-filename suggestion for a single note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameSuggestionRequest {
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Override the configured naming scheme for this request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub naming_scheme: Option<String>,
+}
+
+/// A proposed rename. `suggestion` is `None` when the note name is already
+/// canonical or no good name could be derived.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameSuggestionResponse {
+    pub file_path: String,
+    pub current_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_path: Option<String>,
+    pub naming_scheme: String,
+    pub rationale: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<OrganizationSuggestion>,
+    pub generated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplyChange {
     pub kind: String,
@@ -433,6 +525,10 @@ pub struct ApplyOrganizationSuggestionResponse {
     pub applied_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_id: Option<String>,
+    /// Number of other notes whose inbound wiki-links were (or would be)
+    /// rewritten by a rename. Present for `rename` applies, including dry-run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_links: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,6 +537,15 @@ pub enum ReverseAction {
     RemoveTag { tag: String },
     RestoreCategory { previous_value: Option<String> },
     MoveBack { from_path: String, to_path: String },
+    /// Undo a link-safe rename: move the note back and restore the wiki-link
+    /// references in the listed files (rewriting `new_stem` back to `old_stem`).
+    RenameWithLinks {
+        from_path: String,
+        to_path: String,
+        old_stem: String,
+        new_stem: String,
+        link_files: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -451,6 +556,10 @@ pub struct MlUndoReceipt {
     pub description: String,
     pub reverse_action: ReverseAction,
     pub applied_at: DateTime<Utc>,
+    /// Receipts produced by one batch (e.g. apply-plan) share a `group_id` so
+    /// they can be undone together. `None` for standalone single-suggestion applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,6 +568,91 @@ pub struct UndoMlActionResponse {
     pub undone: bool,
     pub description: String,
     pub file_path: String,
+    /// Number of receipts undone. 1 for a single receipt; >1 when a `group_id`
+    /// was undone as a batch.
+    #[serde(default = "default_one")]
+    pub undone_count: usize,
+}
+
+fn default_one() -> usize {
+    1
+}
+
+// ── LIB-063/064: vault-wide organization plan ─────────────────────────────────
+
+/// One note's proposed reorganization. Nothing is mutated until the row is
+/// applied via `apply-plan`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationPlanRow {
+    pub file_path: String,
+    #[serde(default)]
+    pub suggested_tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_folder: Option<String>,
+    /// Cluster label this note was grouped under (embeddings tier only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<String>,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationPlan {
+    pub plan_id: String,
+    pub vault_id: String,
+    pub rows: Vec<OrganizationPlanRow>,
+    /// Number of clusters discovered (0 when clustering did not run / Tier 1).
+    pub cluster_count: usize,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizeVaultRequest {
+    #[serde(default)]
+    pub max_files: Option<usize>,
+}
+
+/// A user-selected subset of a plan row's actions to apply. Each `Some` field
+/// opts that action in; `None`/absent fields are skipped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanRow {
+    pub file_path: String,
+    #[serde(default)]
+    pub apply_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub apply_name: Option<String>,
+    #[serde(default)]
+    pub apply_folder: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanRequest {
+    #[serde(default)]
+    pub plan_id: Option<String>,
+    pub rows: Vec<ApplyPlanRow>,
+    #[serde(default = "default_true")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanRowResult {
+    pub file_path: String,
+    pub changes: Vec<ApplyChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanResponse {
+    pub applied: bool,
+    pub dry_run: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    pub results: Vec<ApplyPlanRowResult>,
+    pub applied_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -537,6 +731,13 @@ pub enum WsMessage {
         vault_id: String,
         file_count: i64,
         duration_ms: i64,
+    },
+    /// Broadcast when a vault-wide organization plan finishes computing.
+    OrganizeComplete {
+        vault_id: String,
+        plan_id: String,
+        row_count: usize,
+        cluster_count: usize,
     },
     SyncPing,
     SyncPong {

@@ -88,6 +88,23 @@ struct MlUndoReceiptRow {
     description: String,
     reverse_action: String,
     applied_at: String,
+    group_id: Option<String>,
+}
+
+impl MlUndoReceiptRow {
+    fn into_receipt(self) -> AppResult<MlUndoReceipt> {
+        let reverse_action: ReverseAction = serde_json::from_str(&self.reverse_action)
+            .map_err(|e| AppError::InternalError(format!("Failed to parse reverse action: {e}")))?;
+        Ok(MlUndoReceipt {
+            receipt_id: self.receipt_id,
+            vault_id: self.vault_id,
+            file_path: self.file_path,
+            description: self.description,
+            reverse_action,
+            applied_at: parse_rfc3339_utc(&self.applied_at),
+            group_id: self.group_id,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -412,6 +429,7 @@ impl Database {
                 description TEXT NOT NULL,
                 reverse_action TEXT NOT NULL,
                 applied_at TEXT NOT NULL,
+                group_id TEXT,
                 FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
             )
             "#,
@@ -419,8 +437,19 @@ impl Database {
         .execute(&self.pool)
         .await?;
 
+        // LIB-064: group_id added later — backfill the column on existing DBs.
+        let _ = sqlx::query("ALTER TABLE ml_undo_receipts ADD COLUMN group_id TEXT")
+            .execute(&self.pool)
+            .await;
+
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_ml_undo_receipts_vault_id ON ml_undo_receipts(vault_id)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_ml_undo_receipts_group_id ON ml_undo_receipts(group_id)",
         )
         .execute(&self.pool)
         .await?;
@@ -676,6 +705,30 @@ impl Database {
         .execute(&self.pool)
         .await?;
 
+        // LIB-060: cached per-note sentence embeddings for the `embeddings` tier.
+        // `vector` is little-endian f32 little-endian bytes; `tags` is a JSON
+        // array of the note's tags captured at embedding time (used to build
+        // controlled-vocabulary prototypes without re-reading every note).
+        // `content_hash` lets reindex skip recompute when content is unchanged.
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS note_embeddings (
+                vault_id     TEXT NOT NULL,
+                file_path    TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                dim          INTEGER NOT NULL,
+                vector       BLOB NOT NULL,
+                content_hash TEXT NOT NULL,
+                tags         TEXT NOT NULL DEFAULT '[]',
+                updated_at   TEXT NOT NULL,
+                PRIMARY KEY (vault_id, file_path),
+                FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -721,8 +774,8 @@ impl Database {
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO ml_undo_receipts
-            (receipt_id, vault_id, file_path, description, reverse_action, applied_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (receipt_id, vault_id, file_path, description, reverse_action, applied_at, group_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&receipt.receipt_id)
@@ -731,6 +784,7 @@ impl Database {
         .bind(&receipt.description)
         .bind(reverse_action)
         .bind(receipt.applied_at.to_rfc3339())
+        .bind(&receipt.group_id)
         .execute(&self.pool)
         .await
         .map_err(AppError::from)?;
@@ -745,7 +799,7 @@ impl Database {
     ) -> AppResult<MlUndoReceipt> {
         let row = sqlx::query_as::<_, MlUndoReceiptRow>(
             r#"
-            SELECT receipt_id, vault_id, file_path, description, reverse_action, applied_at
+            SELECT receipt_id, vault_id, file_path, description, reverse_action, applied_at, group_id
             FROM ml_undo_receipts
             WHERE vault_id = ? AND receipt_id = ?
             "#,
@@ -777,17 +831,129 @@ impl Database {
             )));
         }
 
-        let reverse_action: ReverseAction = serde_json::from_str(&row.reverse_action)
-            .map_err(|e| AppError::InternalError(format!("Failed to parse reverse action: {e}")))?;
+        row.into_receipt()
+    }
 
-        Ok(MlUndoReceipt {
-            receipt_id: row.receipt_id,
-            vault_id: row.vault_id,
-            file_path: row.file_path,
-            description: row.description,
-            reverse_action,
-            applied_at: parse_rfc3339_utc(&row.applied_at),
-        })
+    /// Consume every receipt sharing a `group_id` (LIB-064 bulk undo), newest
+    /// first so file moves/renames unwind in reverse order. Errors if the group
+    /// is unknown/already consumed.
+    pub async fn consume_ml_undo_group(
+        &self,
+        vault_id: &str,
+        group_id: &str,
+    ) -> AppResult<Vec<MlUndoReceipt>> {
+        let rows = sqlx::query_as::<_, MlUndoReceiptRow>(
+            r#"
+            SELECT receipt_id, vault_id, file_path, description, reverse_action, applied_at, group_id
+            FROM ml_undo_receipts
+            WHERE vault_id = ? AND group_id = ?
+            ORDER BY applied_at DESC, rowid DESC
+            "#,
+        )
+        .bind(vault_id)
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+
+        if rows.is_empty() {
+            return Err(AppError::NotFound(format!(
+                "Undo group '{}' was not found (it may be expired or already used)",
+                group_id
+            )));
+        }
+
+        sqlx::query("DELETE FROM ml_undo_receipts WHERE vault_id = ? AND group_id = ?")
+            .bind(vault_id)
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .map_err(AppError::from)?;
+
+        rows.into_iter().map(|r| r.into_receipt()).collect()
+    }
+
+    // ── LIB-060: note embeddings ──────────────────────────────────────────────
+
+    /// Insert or replace the cached embedding for a note.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_note_embedding(
+        &self,
+        vault_id: &str,
+        file_path: &str,
+        model: &str,
+        dim: usize,
+        vector: &[u8],
+        content_hash: &str,
+        tags_json: &str,
+        updated_at: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO note_embeddings
+            (vault_id, file_path, model, dim, vector, content_hash, tags, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(vault_id)
+        .bind(file_path)
+        .bind(model)
+        .bind(dim as i64)
+        .bind(vector)
+        .bind(content_hash)
+        .bind(tags_json)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(())
+    }
+
+    /// Current stored content hash for a note's embedding, if any. Used to skip
+    /// recompute when the note content is unchanged.
+    pub async fn get_note_embedding_hash(
+        &self,
+        vault_id: &str,
+        file_path: &str,
+    ) -> AppResult<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT content_hash FROM note_embeddings WHERE vault_id = ? AND file_path = ?",
+        )
+        .bind(vault_id)
+        .bind(file_path)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// All cached embeddings for a vault, as `(file_path, vector_blob, tags_json)`.
+    pub async fn list_note_embeddings(
+        &self,
+        vault_id: &str,
+    ) -> AppResult<Vec<(String, Vec<u8>, String)>> {
+        let rows: Vec<(String, Vec<u8>, String)> = sqlx::query_as(
+            "SELECT file_path, vector, tags FROM note_embeddings WHERE vault_id = ?",
+        )
+        .bind(vault_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(rows)
+    }
+
+    pub async fn delete_note_embedding(
+        &self,
+        vault_id: &str,
+        file_path: &str,
+    ) -> AppResult<()> {
+        sqlx::query("DELETE FROM note_embeddings WHERE vault_id = ? AND file_path = ?")
+            .bind(vault_id)
+            .bind(file_path)
+            .execute(&self.pool)
+            .await
+            .map_err(AppError::from)?;
+        Ok(())
     }
 
     // ── Bookmarks ─────────────────────────────────────────────────────────────

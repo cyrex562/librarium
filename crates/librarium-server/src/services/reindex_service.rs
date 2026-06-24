@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::error::AppResult;
+use crate::services::embedding_service;
 use crate::services::entity_service::EntityService;
 use crate::services::relation_service::RelationService;
 use chrono::Utc;
@@ -127,6 +128,14 @@ impl ReindexService {
         .execute(db.pool())
         .await;
 
+        // LIB-060: backfill any missing/stale note embeddings (no-op unless the
+        // embeddings tier is active and a model is loaded).
+        match embedding_service::backfill_vault(db, vault_id, vault_path).await {
+            Ok(n) if n > 0 => info!("Embedded {n} note(s) during reindex of vault {vault_id}"),
+            Ok(_) => {}
+            Err(e) => warn!("Embedding backfill failed for vault {vault_id}: {e}"),
+        }
+
         Ok(indexed_count as i64)
     }
 
@@ -145,6 +154,13 @@ impl ReindexService {
                 return Ok(()); // Not a fatal error
             }
         };
+
+        // LIB-060: refresh the note's cached embedding (no-op unless the
+        // embeddings tier is active and a model is loaded). Best-effort: a
+        // failure here must not block entity indexing.
+        if let Err(e) = embedding_service::embed_note(db, vault_id, rel_path, &content).await {
+            warn!("index_file: embedding update failed for {rel_path}: {e}");
+        }
 
         if let Some(fm) = EntityService::parse_frontmatter(&content) {
             if fm.get("librarium_type").or_else(|| fm.get("codex_type")).is_some() {
@@ -175,6 +191,9 @@ impl ReindexService {
     /// Remove entity + relations for a deleted file.
     /// Called from the file-watcher event loop on Delete events.
     pub async fn remove_file(db: &Database, vault_id: &str, rel_path: &str) -> AppResult<()> {
+        if let Err(e) = embedding_service::remove_note(db, vault_id, rel_path).await {
+            warn!("remove_file: embedding cleanup failed for {rel_path}: {e}");
+        }
         EntityService::remove(db, vault_id, rel_path).await
     }
 }
