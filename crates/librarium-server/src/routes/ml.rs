@@ -148,6 +148,18 @@ async fn generate_suggestions(
         });
     }
 
+    // LIB-062: semantic/TF-IDF folder placement. When it yields a target, it
+    // replaces the heuristic `move_to_folder` suggestion from Tier 1.
+    if let Some(folder_suggestion) =
+        suggest_folder_placement(&state.db, &config.ml, &vault_id, &vault.path, &req.file_path, &content)
+            .await?
+    {
+        suggestions
+            .suggestions
+            .retain(|s| !matches!(s.kind, OrganizationSuggestionKind::MoveToFolder));
+        suggestions.suggestions.push(folder_suggestion);
+    }
+
     // Re-sort the merged list by confidence and re-apply the cap.
     suggestions.suggestions.sort_by(|a, b| {
         b.confidence
@@ -763,6 +775,60 @@ fn path_stem(path: &str) -> Option<String> {
         .file_stem()
         .and_then(|s| s.to_str())
         .map(str::to_string)
+}
+
+/// LIB-062: produce a folder-placement `move_to_folder` suggestion for a note,
+/// preferring Tier-2 embedding kNN, then Tier-1 TF-IDF nearest folder. Returns
+/// `None` when no confident, non-current folder is found (callers keep the Tier-1
+/// heuristic). The returned suggestion carries a `semantic`/`tfidf` source.
+async fn suggest_folder_placement(
+    db: &crate::db::Database,
+    ml: &crate::config::MlConfig,
+    vault_id: &str,
+    vault_path: &str,
+    file_path: &str,
+    content: &str,
+) -> AppResult<Option<OrganizationSuggestion>> {
+    // Tier 2: embedding kNN over the vault's cached note vectors.
+    if let Some((folder, confidence)) =
+        embedding_service::suggest_folder(db, ml, vault_id, file_path, content).await?
+    {
+        return Ok(Some(folder_move_suggestion(folder, confidence, "semantic")));
+    }
+
+    // Tier 1: TF-IDF nearest folder over the vault's notes (skip under the
+    // bare `heuristic` tier, which keeps the string-match fallback).
+    if ml.tier == crate::config::MlTier::Heuristic {
+        return Ok(None);
+    }
+
+    let current = parent_dir(file_path);
+    let notes: Vec<(String, String)> = FileService::list_markdown_files(vault_path)?
+        .into_iter()
+        .filter(|(rel, _)| rel.trim_start_matches('/') != file_path)
+        .map(|(rel, raw)| (parent_dir(rel.trim_start_matches('/')), raw))
+        .collect();
+
+    if let Some((folder, score)) = MlService::nearest_folder_tfidf(content, &notes, ml.min_confidence) {
+        if folder != current {
+            return Ok(Some(folder_move_suggestion(folder, score, "tfidf")));
+        }
+    }
+    Ok(None)
+}
+
+fn folder_move_suggestion(folder: String, confidence: f32, source: &str) -> OrganizationSuggestion {
+    OrganizationSuggestion {
+        id: format!("move:{}", folder),
+        kind: OrganizationSuggestionKind::MoveToFolder,
+        confidence: confidence.clamp(0.0, 1.0),
+        rationale: "Similar notes live in this folder.".to_string(),
+        tag: None,
+        category: None,
+        target_folder: Some(folder),
+        new_name: None,
+        source: Some(source.to_string()),
+    }
 }
 
 fn remove_tag_from_frontmatter(frontmatter: &mut Value, tag: &str) {

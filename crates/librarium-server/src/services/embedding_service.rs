@@ -359,6 +359,108 @@ pub async fn suggest_semantic_tags(
     ))
 }
 
+/// Tier-2 semantic folder placement (LIB-062): embed the target note, find its
+/// nearest neighbours among the vault's cached embeddings, and vote on the
+/// folder those neighbours live in (weighted by cosine similarity). Returns the
+/// winning folder and its vote share, or `None` when the embedder is
+/// unavailable, there is too little signal, or the winner is the note's current
+/// folder / below `config.min_confidence`.
+pub async fn suggest_folder(
+    db: &Database,
+    config: &MlConfig,
+    vault_id: &str,
+    file_path: &str,
+    body: &str,
+) -> AppResult<Option<(String, f32)>> {
+    const K: usize = 10;
+
+    let Some(emb) = embedder(config) else {
+        return Ok(None);
+    };
+
+    let rows = db.list_note_embeddings(vault_id).await?;
+    // Need a few neighbours other than the note itself for a meaningful vote.
+    if rows.len() < 4 {
+        return Ok(None);
+    }
+
+    let input = embedding_input(file_path, body);
+    let target = embed_one(&emb, input).await?;
+
+    let neighbours: Vec<(String, Vec<f32>)> = rows
+        .iter()
+        .filter(|(p, _, _)| p != file_path)
+        .map(|(p, blob, _)| (parent_dir(p), blob_to_vector(blob)))
+        .collect();
+
+    Ok(knn_folder_vote(
+        &target,
+        &neighbours,
+        K,
+        config.min_confidence,
+        &parent_dir(file_path),
+    ))
+}
+
+/// Pure kNN folder vote: rank `neighbours` by cosine similarity to `target`,
+/// keep the top `k`, and pick the folder with the highest similarity-weighted
+/// vote share. Returns `None` when the winner is `current` or its share is below
+/// `min_confidence`.
+pub(crate) fn knn_folder_vote(
+    target: &[f32],
+    neighbours: &[(String, Vec<f32>)],
+    k: usize,
+    min_confidence: f32,
+    current: &str,
+) -> Option<(String, f32)> {
+    let mut scored: Vec<(&str, f32)> = neighbours
+        .iter()
+        .map(|(folder, vec)| (folder.as_str(), cosine_similarity(target, vec)))
+        .filter(|(_, sim)| *sim > 0.0)
+        .collect();
+    if scored.is_empty() {
+        return None;
+    }
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(k);
+
+    let total: f32 = scored.iter().map(|(_, s)| s).sum();
+    if total <= 0.0 {
+        return None;
+    }
+
+    let mut folder_score: HashMap<String, f32> = HashMap::new();
+    for (folder, sim) in &scored {
+        *folder_score.entry((*folder).to_string()).or_insert(0.0) += sim;
+    }
+
+    let (best_folder, score) = folder_score
+        .into_iter()
+        .max_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.0.cmp(&a.0))
+        })
+        .unwrap();
+
+    let confidence = score / total;
+    if best_folder == current || confidence < min_confidence {
+        return None;
+    }
+    Some((best_folder, confidence))
+}
+
+/// Vault-relative parent folder of a path (forward slashes, no trailing slash;
+/// empty string for the vault root).
+fn parent_dir(path: &str) -> String {
+    std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default()
+        .trim_matches('/')
+        .to_string()
+}
+
 type PendingNote = (String, String, String, Option<serde_json::Value>, String);
 
 /// Embed a batch of notes in one embedder call and persist each. The embedder is
@@ -727,6 +829,37 @@ mod tests {
         // Deleting the embedding removes it from the store.
         remove_note(&db, vid, "ml.md").await.unwrap();
         assert!(db.get_note_embedding_hash(vid, "ml.md").await.unwrap().is_none());
+    }
+
+    #[test]
+    fn knn_folder_vote_picks_dominant_neighbour_folder() {
+        let target = vec![1.0, 0.0, 0.0];
+        let neighbours = vec![
+            ("projects".to_string(), vec![1.0, 0.0, 0.0]),
+            ("projects".to_string(), vec![0.9, 0.1, 0.0]),
+            ("journal".to_string(), vec![0.0, 1.0, 0.0]),
+            ("journal".to_string(), vec![0.0, 0.9, 0.1]),
+        ];
+        let out = knn_folder_vote(&target, &neighbours, 10, 0.3, "inbox");
+        assert_eq!(out.unwrap().0, "projects");
+    }
+
+    #[test]
+    fn knn_folder_vote_skips_current_and_low_confidence() {
+        let target = vec![1.0, 0.0, 0.0];
+        // Winner folder is the note's current folder -> no move suggested.
+        let same = vec![
+            ("inbox".to_string(), vec![1.0, 0.0, 0.0]),
+            ("inbox".to_string(), vec![0.9, 0.0, 0.0]),
+        ];
+        assert!(knn_folder_vote(&target, &same, 10, 0.3, "inbox").is_none());
+
+        // A perfectly split vote (0.5 share each) is below a 0.6 threshold.
+        let split = vec![
+            ("a".to_string(), vec![1.0, 0.0, 0.0]),
+            ("b".to_string(), vec![1.0, 0.0, 0.0]),
+        ];
+        assert!(knn_folder_vote(&target, &split, 10, 0.6, "inbox").is_none());
     }
 
     #[test]

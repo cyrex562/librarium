@@ -5,7 +5,7 @@ use crate::models::{
 use crate::services::frontmatter_service;
 use chrono::Utc;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub struct MlService;
@@ -770,6 +770,114 @@ impl MlService {
             other => format!("{}/", other),
         }
     }
+
+    /// Tier-1 folder placement (LIB-062): TF-IDF nearest folder. Each note is a
+    /// `(folder, content)` pair; notes are aggregated into per-folder documents,
+    /// weighted by inverse document frequency across folders, and the target
+    /// content is matched by cosine similarity. Returns the best folder and its
+    /// score when it is at least `min_score`.
+    ///
+    /// This is the offline fallback used when no embedding backend is available;
+    /// the heuristic `infer_category` remains the final fallback.
+    pub fn nearest_folder_tfidf(
+        target: &str,
+        notes: &[(String, String)],
+        min_score: f32,
+    ) -> Option<(String, f32)> {
+        if notes.is_empty() {
+            return None;
+        }
+
+        // Aggregate token counts per folder.
+        let mut folder_tf: HashMap<String, HashMap<String, f32>> = HashMap::new();
+        for (folder, content) in notes {
+            let counts = folder_tf.entry(folder.clone()).or_default();
+            for tok in Self::tokenize(content) {
+                *counts.entry(tok).or_insert(0.0) += 1.0;
+            }
+        }
+        if folder_tf.len() < 2 {
+            // With a single folder there is nothing to choose between.
+            return None;
+        }
+
+        // Document frequency across folders, then idf.
+        let n_folders = folder_tf.len() as f32;
+        let mut df: HashMap<String, f32> = HashMap::new();
+        for counts in folder_tf.values() {
+            for tok in counts.keys() {
+                *df.entry(tok.clone()).or_insert(0.0) += 1.0;
+            }
+        }
+        let idf = |tok: &str| -> f32 {
+            let d = df.get(tok).copied().unwrap_or(0.0);
+            ((n_folders + 1.0) / (d + 1.0)).ln() + 1.0
+        };
+
+        // Target tf-idf vector.
+        let mut target_vec: HashMap<String, f32> = HashMap::new();
+        for tok in Self::tokenize(target) {
+            *target_vec.entry(tok).or_insert(0.0) += 1.0;
+        }
+        if target_vec.is_empty() {
+            return None;
+        }
+        for (tok, v) in target_vec.iter_mut() {
+            *v *= idf(tok);
+        }
+        let target_norm = vec_norm(&target_vec);
+        if target_norm == 0.0 {
+            return None;
+        }
+
+        let mut best: Option<(String, f32)> = None;
+        for (folder, counts) in &folder_tf {
+            let mut dot = 0.0f32;
+            let mut fnorm_sq = 0.0f32;
+            for (tok, &tf) in counts {
+                let w = tf * idf(tok);
+                fnorm_sq += w * w;
+                if let Some(tv) = target_vec.get(tok) {
+                    dot += w * tv;
+                }
+            }
+            if fnorm_sq == 0.0 {
+                continue;
+            }
+            let score = dot / (target_norm * fnorm_sq.sqrt());
+            if best.as_ref().map(|(_, s)| score > *s).unwrap_or(true) {
+                best = Some((folder.clone(), score));
+            }
+        }
+
+        best.filter(|(_, s)| *s >= min_score)
+    }
+
+    /// Lowercase alphanumeric word tokens of length >= 3, used by the TF-IDF
+    /// folder matcher. Deliberately simple and dependency-free.
+    fn tokenize(text: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut cur = String::new();
+        for ch in text.chars() {
+            if ch.is_alphanumeric() {
+                cur.extend(ch.to_lowercase());
+            } else if !cur.is_empty() {
+                if cur.len() >= 3 {
+                    tokens.push(std::mem::take(&mut cur));
+                } else {
+                    cur.clear();
+                }
+            }
+        }
+        if cur.len() >= 3 {
+            tokens.push(cur);
+        }
+        tokens
+    }
+}
+
+fn vec_norm(v: &HashMap<String, f32>) -> f32 {
+    v.values().map(|x| x * x).sum::<f32>().sqrt()
 }
 
 #[cfg(test)]
@@ -787,6 +895,38 @@ mod tests {
         assert_eq!(outline.sections[0].level, 1);
         assert_eq!(outline.sections[0].title, "Project Alpha");
         assert!(outline.summary.to_lowercase().contains("project alpha"));
+    }
+
+    #[test]
+    fn nearest_folder_tfidf_matches_topical_folder() {
+        let notes = vec![
+            (
+                "programming".to_string(),
+                "rust async tokio runtime borrow checker".to_string(),
+            ),
+            (
+                "programming".to_string(),
+                "rust trait generics lifetimes compiler".to_string(),
+            ),
+            (
+                "cooking".to_string(),
+                "sourdough bread baking flour yeast oven".to_string(),
+            ),
+            (
+                "cooking".to_string(),
+                "pasta sauce tomato garlic simmer recipe".to_string(),
+            ),
+        ];
+
+        let target = "writing a rust function with generics and traits";
+        let (folder, score) = MlService::nearest_folder_tfidf(target, &notes, 0.0).unwrap();
+        assert_eq!(folder, "programming");
+        assert!(score > 0.0);
+
+        // A high threshold rejects a weak match.
+        assert!(MlService::nearest_folder_tfidf("xyzzy plugh", &notes, 0.9).is_none());
+        // A single folder gives nothing to choose between.
+        assert!(MlService::nearest_folder_tfidf(target, &notes[..1], 0.0).is_none());
     }
 
     #[test]
