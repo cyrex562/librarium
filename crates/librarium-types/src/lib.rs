@@ -556,6 +556,10 @@ pub struct MlUndoReceipt {
     pub description: String,
     pub reverse_action: ReverseAction,
     pub applied_at: DateTime<Utc>,
+    /// Receipts produced by one batch (e.g. apply-plan) share a `group_id` so
+    /// they can be undone together. `None` for standalone single-suggestion applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -564,6 +568,91 @@ pub struct UndoMlActionResponse {
     pub undone: bool,
     pub description: String,
     pub file_path: String,
+    /// Number of receipts undone. 1 for a single receipt; >1 when a `group_id`
+    /// was undone as a batch.
+    #[serde(default = "default_one")]
+    pub undone_count: usize,
+}
+
+fn default_one() -> usize {
+    1
+}
+
+// ── LIB-063/064: vault-wide organization plan ─────────────────────────────────
+
+/// One note's proposed reorganization. Nothing is mutated until the row is
+/// applied via `apply-plan`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationPlanRow {
+    pub file_path: String,
+    #[serde(default)]
+    pub suggested_tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_folder: Option<String>,
+    /// Cluster label this note was grouped under (embeddings tier only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<String>,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationPlan {
+    pub plan_id: String,
+    pub vault_id: String,
+    pub rows: Vec<OrganizationPlanRow>,
+    /// Number of clusters discovered (0 when clustering did not run / Tier 1).
+    pub cluster_count: usize,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizeVaultRequest {
+    #[serde(default)]
+    pub max_files: Option<usize>,
+}
+
+/// A user-selected subset of a plan row's actions to apply. Each `Some` field
+/// opts that action in; `None`/absent fields are skipped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanRow {
+    pub file_path: String,
+    #[serde(default)]
+    pub apply_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub apply_name: Option<String>,
+    #[serde(default)]
+    pub apply_folder: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanRequest {
+    #[serde(default)]
+    pub plan_id: Option<String>,
+    pub rows: Vec<ApplyPlanRow>,
+    #[serde(default = "default_true")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanRowResult {
+    pub file_path: String,
+    pub changes: Vec<ApplyChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyPlanResponse {
+    pub applied: bool,
+    pub dry_run: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    pub results: Vec<ApplyPlanRowResult>,
+    pub applied_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

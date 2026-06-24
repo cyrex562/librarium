@@ -854,8 +854,9 @@ impl MlService {
     }
 
     /// Lowercase alphanumeric word tokens of length >= 3, used by the TF-IDF
-    /// folder matcher. Deliberately simple and dependency-free.
-    fn tokenize(text: &str) -> Vec<String> {
+    /// folder matcher and the organize plan's cluster labelling. Deliberately
+    /// simple and dependency-free.
+    pub(crate) fn tokenize(text: &str) -> Vec<String> {
         let mut tokens = Vec::new();
         let mut cur = String::new();
         for ch in text.chars() {

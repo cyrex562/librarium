@@ -9,6 +9,7 @@ pub mod ldap_provider;
 pub mod markdown_service;
 pub mod ml_service;
 pub mod oidc_provider;
+pub mod organize_service;
 pub mod plugin_api;
 pub mod plugin_service;
 pub mod reindex_service;

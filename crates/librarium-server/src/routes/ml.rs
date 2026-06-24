@@ -325,6 +325,7 @@ async fn apply_suggestion(
                         tag: normalized_tag,
                     },
                     applied_at: Utc::now(),
+                    group_id: None,
                 };
                 state.db.save_ml_undo_receipt(&receipt).await?;
                 receipt_id_out = Some(rid);
@@ -384,6 +385,7 @@ async fn apply_suggestion(
                         previous_value: previous_category,
                     },
                     applied_at: Utc::now(),
+                    group_id: None,
                 };
                 state.db.save_ml_undo_receipt(&receipt).await?;
                 receipt_id_out = Some(rid);
@@ -455,6 +457,7 @@ async fn apply_suggestion(
                             to_path: final_path,
                         },
                         applied_at: Utc::now(),
+                        group_id: None,
                     };
                     state.db.save_ml_undo_receipt(&receipt).await?;
                     receipt_id_out = Some(rid);
@@ -577,6 +580,7 @@ async fn apply_suggestion(
                         link_files,
                     },
                     applied_at: Utc::now(),
+                    group_id: None,
                 };
                 state.db.save_ml_undo_receipt(&receipt).await?;
                 receipt_id_out = Some(rid);
@@ -980,6 +984,7 @@ async fn undo_ml_action(
         undone: true,
         description: format!("Undone: {}", receipt.description),
         file_path: receipt.file_path,
+        undone_count: 1,
     };
 
     Ok(HttpResponse::Ok().json(response))
