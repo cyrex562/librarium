@@ -107,6 +107,16 @@ tempfile = "3.14"
 # Only the English stopword list is bundled to keep the binary small.
 yake-rust = { version = "1", default-features = false, features = ["en"] }
 
+# Local ONNX sentence embeddings (Tier 2 of the organization feature). Heavy and
+# pulls a native onnxruntime via `ort`, so it is OFF by default and gated behind
+# the `embeddings` feature. Without it, the embeddings tier falls back to Tier 1.
+fastembed = { version = "4", optional = true }
+
+[features]
+default = []
+# Enable local semantic embeddings (downloads/loads an ONNX model at runtime).
+embeddings = ["dep:fastembed"]
+
 [dev-dependencies]
 criterion = "0.5"
 awc = "3.5"

@@ -7,7 +7,10 @@ use crate::models::{
     RenameSuggestionRequest, RenameSuggestionResponse, ReverseAction, UndoMlActionResponse,
 };
 use crate::routes::vaults::AppState;
-use crate::services::{rewrite_wiki_links, frontmatter_service, FileService, MlService, RenameStrategy};
+use crate::services::{
+    embedding_service, frontmatter_service, rewrite_wiki_links, FileService, MlService,
+    RenameStrategy,
+};
 use actix_web::{post, web, HttpResponse};
 use chrono::Utc;
 use serde_json::{Map, Value};
@@ -99,13 +102,59 @@ async fn generate_suggestions(
     let tier = config.ml.tier.as_str();
     let keyphrases = MlService::keyphrases_for_tier(&content, tier, max_suggestions.max(8));
 
-    let suggestions = MlService::suggest_organization(
+    let mut suggestions = MlService::suggest_organization(
         &req.file_path,
         &content,
         frontmatter.as_ref(),
         &keyphrases,
         max_suggestions,
     );
+
+    // LIB-061: layer controlled-vocabulary semantic tags on top of Tier 1 when
+    // the embeddings tier is active. Exclude tags already present or suggested.
+    let mut covered: std::collections::HashSet<String> = suggestions
+        .existing_tags
+        .iter()
+        .map(|t| t.trim().trim_start_matches('#').to_lowercase())
+        .collect();
+    for s in &suggestions.suggestions {
+        if let Some(tag) = &s.tag {
+            covered.insert(tag.trim().trim_start_matches('#').to_lowercase());
+        }
+    }
+
+    let semantic = embedding_service::suggest_semantic_tags(
+        &state.db,
+        &config.ml,
+        &vault_id,
+        &req.file_path,
+        &content,
+        &covered,
+        max_suggestions,
+    )
+    .await?;
+
+    for (tag, score) in semantic {
+        suggestions.suggestions.push(OrganizationSuggestion {
+            id: format!("tag:{}", tag),
+            kind: OrganizationSuggestionKind::Tag,
+            confidence: score.clamp(0.0, 1.0),
+            rationale: "Semantically similar to other notes you've given this tag.".to_string(),
+            tag: Some(tag),
+            category: None,
+            target_folder: None,
+            new_name: None,
+            source: Some("semantic".to_string()),
+        });
+    }
+
+    // Re-sort the merged list by confidence and re-apply the cap.
+    suggestions.suggestions.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    suggestions.suggestions.truncate(max_suggestions.clamp(1, 25));
 
     Ok(HttpResponse::Ok().json(suggestions))
 }

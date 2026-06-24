@@ -58,6 +58,14 @@ evaluated for the Rust backend.
 
 ### Local neural sentence embeddings (opt-in model)
 
+> **Build flag.** The embedding backend pulls a native `onnxruntime` via `ort`, so it is
+> gated behind the off-by-default `embeddings` Cargo feature. Build the server with
+> `cargo build -p librarium-server --features embeddings` to enable Tier 2. Without the
+> feature (or when the model is unavailable and `allow_model_download = false`), the
+> `embeddings` tier transparently falls back to Tier 1 — the server still runs, and all
+> semantic-only suggestions are simply omitted. For air-gapped hosts, pre-seed the model
+> files into `[ml].cache_dir` and leave `allow_model_download = false`.
+
 - [`fastembed-rs`](https://github.com/anush008/fastembed-rs): synchronous local ONNX
   inference, no Tokio requirement, default model **BGE-small-en-v1.5** (384-dim),
   quantized variants available. Models download once to a cache dir

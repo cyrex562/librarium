@@ -175,19 +175,27 @@ research citations, and rationale.
 
 ### Phase 4 — Local embeddings (Tier 2, opt-in)
 
-- [ ] **LIB-059** Integrate `fastembed-rs` for local ONNX sentence embeddings (default
-  `bge-small-en-v1.5`). Lazy-load the model once behind a `OnceCell`/`Mutex`; honor
-  `cache_dir` and `allow_model_download`. When `tier = "embeddings"` but no model is
-  present and downloads are disabled, log once and fall back to Tier 1 instead of erroring.
-- [ ] **LIB-060** Add a `note_embeddings` SQLite table (vault_id, file_path, model, dim,
-  vector BLOB, content_hash, updated_at) in `db::run_migrations`. Compute embeddings
-  incrementally off the request path inside `reindex_service::index_file`, batched with
-  `rayon` (mirror the batched-commit pattern in `5a9ea70`); skip recompute when
-  `content_hash` is unchanged. Provide a vault-wide backfill path.
-- [ ] **LIB-061** Add controlled-vocabulary semantic tagging: build prototype vectors for the
-  vault's existing tags (mean embedding of notes carrying each tag) and suggest the nearest
-  tags above `min_confidence`, so suggestions stay consistent with the user's existing
-  vocabulary. Surface alongside Tier 1 keyphrase tags with a `semantic` source label.
+- [x] **LIB-059** Integrate `fastembed-rs` for local ONNX sentence embeddings (default
+  `bge-small-en-v1.5`), behind an off-by-default `embeddings` Cargo feature so the native
+  `onnxruntime` dependency never burdens the default build. An `Embedder` trait + a
+  process-wide `OnceLock` provider lazily load the model once (primed at startup), honoring
+  `cache_dir` and `allow_model_download` (refuses to construct — no network — when downloads
+  are disabled and the cache is empty). When `tier = "embeddings"` but the backend/model is
+  unavailable, it logs once and the provider returns `None` so everything falls back to
+  Tier 1 instead of erroring.
+- [x] **LIB-060** Added a `note_embeddings` SQLite table (vault_id, file_path, model, dim,
+  vector BLOB, content_hash, tags, updated_at) in `db::run_migrations` with accessors.
+  Embeddings are computed off the request path in `reindex_service::index_file` (single
+  notes) and a batched vault-wide `backfill_vault` (run at the end of `reindex_vault`);
+  recompute is skipped when `content_hash` is unchanged, and deletions clean up the row. The
+  synchronous embedder runs on the blocking pool.
+- [x] **LIB-061** Added controlled-vocabulary semantic tagging: `build_tag_prototypes` builds
+  a prototype vector per existing tag (L2-normalized mean of notes carrying it) and
+  `suggest_semantic_tags` returns the nearest tags above `min_confidence`, excluding tags
+  already present/suggested. Surfaced alongside Tier 1 keyphrase tags in
+  `generate_suggestions` with a `semantic` source label, then re-sorted by confidence and
+  capped. (Verified end-to-end with a deterministic mock embedder; the native backend is
+  unbuildable in this sandbox because `ort-sys` downloads a binary from a blocked host.)
 
 ### Phase 5 — Organize (single-note + vault-wide)
 

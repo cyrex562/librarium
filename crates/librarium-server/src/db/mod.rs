@@ -676,6 +676,30 @@ impl Database {
         .execute(&self.pool)
         .await?;
 
+        // LIB-060: cached per-note sentence embeddings for the `embeddings` tier.
+        // `vector` is little-endian f32 little-endian bytes; `tags` is a JSON
+        // array of the note's tags captured at embedding time (used to build
+        // controlled-vocabulary prototypes without re-reading every note).
+        // `content_hash` lets reindex skip recompute when content is unchanged.
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS note_embeddings (
+                vault_id     TEXT NOT NULL,
+                file_path    TEXT NOT NULL,
+                model        TEXT NOT NULL,
+                dim          INTEGER NOT NULL,
+                vector       BLOB NOT NULL,
+                content_hash TEXT NOT NULL,
+                tags         TEXT NOT NULL DEFAULT '[]',
+                updated_at   TEXT NOT NULL,
+                PRIMARY KEY (vault_id, file_path),
+                FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
@@ -788,6 +812,89 @@ impl Database {
             reverse_action,
             applied_at: parse_rfc3339_utc(&row.applied_at),
         })
+    }
+
+    // ── LIB-060: note embeddings ──────────────────────────────────────────────
+
+    /// Insert or replace the cached embedding for a note.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_note_embedding(
+        &self,
+        vault_id: &str,
+        file_path: &str,
+        model: &str,
+        dim: usize,
+        vector: &[u8],
+        content_hash: &str,
+        tags_json: &str,
+        updated_at: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO note_embeddings
+            (vault_id, file_path, model, dim, vector, content_hash, tags, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(vault_id)
+        .bind(file_path)
+        .bind(model)
+        .bind(dim as i64)
+        .bind(vector)
+        .bind(content_hash)
+        .bind(tags_json)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(())
+    }
+
+    /// Current stored content hash for a note's embedding, if any. Used to skip
+    /// recompute when the note content is unchanged.
+    pub async fn get_note_embedding_hash(
+        &self,
+        vault_id: &str,
+        file_path: &str,
+    ) -> AppResult<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT content_hash FROM note_embeddings WHERE vault_id = ? AND file_path = ?",
+        )
+        .bind(vault_id)
+        .bind(file_path)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// All cached embeddings for a vault, as `(file_path, vector_blob, tags_json)`.
+    pub async fn list_note_embeddings(
+        &self,
+        vault_id: &str,
+    ) -> AppResult<Vec<(String, Vec<u8>, String)>> {
+        let rows: Vec<(String, Vec<u8>, String)> = sqlx::query_as(
+            "SELECT file_path, vector, tags FROM note_embeddings WHERE vault_id = ?",
+        )
+        .bind(vault_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(rows)
+    }
+
+    pub async fn delete_note_embedding(
+        &self,
+        vault_id: &str,
+        file_path: &str,
+    ) -> AppResult<()> {
+        sqlx::query("DELETE FROM note_embeddings WHERE vault_id = ? AND file_path = ?")
+            .bind(vault_id)
+            .bind(file_path)
+            .execute(&self.pool)
+            .await
+            .map_err(AppError::from)?;
+        Ok(())
     }
 
     // ── Bookmarks ─────────────────────────────────────────────────────────────

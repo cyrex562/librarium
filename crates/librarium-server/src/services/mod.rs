@@ -1,5 +1,6 @@
 pub mod auth_provider;
 pub mod entity_service;
+pub mod embedding_service;
 pub mod file_service;
 pub mod frontmatter_service;
 pub mod image_service;
@@ -21,6 +22,7 @@ pub use auth_provider::{
     authenticate_username_password, validate_password_policy, AuthProviderKind,
     AuthenticatedPrincipal,
 };
+pub use embedding_service::{embedder, Embedder};
 pub use entity_service::{Entity, EntityService};
 pub use file_service::{FileService, RenameStrategy};
 pub use image_service::ImageService;

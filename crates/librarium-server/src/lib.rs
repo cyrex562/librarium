@@ -249,6 +249,14 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
         .expect("Failed to run recent_files user_id migration");
     info!("Database initialized at {}", config.database.path);
 
+    // Prime the ML embedder once at startup (LIB-059). When the embeddings tier
+    // is active and a model is available this loads it now so the off-request
+    // reindex path can use `embedder_if_ready()`; otherwise it logs once and the
+    // feature degrades to Tier 1.
+    if config.ml.enabled {
+        let _ = services::embedding_service::embedder(&config.ml);
+    }
+
     // --- First-run admin bootstrap ----------------------------------------
     // Precedence:
     //   1. Explicit username + password in config  → create that admin as-is.
