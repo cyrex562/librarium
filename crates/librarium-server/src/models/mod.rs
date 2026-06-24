@@ -11,16 +11,17 @@ pub use schema::{
 };
 
 pub use librarium_types::{
-    AcceptInviteRequest, AddGroupMemberRequest, AdminUser, ApiKeyInfo, ApplyChange,
-    ApplyOrganizationSuggestionRequest, ApplyOrganizationSuggestionResponse, AuditLogEntry,
-    AuthenticatedUserProfile, BulkImportError, BulkImportResult, BulkUserEntry,
+    AcceptInviteRequest, AddGroupMemberRequest, AdminUser, AnalyzeNoteRequest, ApiKeyInfo,
+    ApplyChange, ApplyOrganizationSuggestionRequest, ApplyOrganizationSuggestionResponse,
+    AuditLogEntry, AuthenticatedUserProfile, BulkImportError, BulkImportResult, BulkUserEntry,
     ChangePasswordRequest, CreateApiKeyRequest, CreateApiKeyResponse, CreateFileRequest,
     CreateGroupRequest, CreateInviteRequest, CreateUploadSessionRequest, CreateUserRequest,
     CreateUserResponse, CreateVaultRequest, EditorMode, FileChangeEvent, FileChangeType,
     FileContent, FileNode, GenerateOrganizationSuggestionsRequest, GenerateOutlineRequest,
-    GroupInfo, GroupMember, InviteInfo, MlUndoReceipt, NoteOutlineResponse, OrganizationSuggestion,
-    OrganizationSuggestionKind, OrganizationSuggestionsResponse, OutlineSection, PagedSearchResult,
-    ReverseAction, SearchMatch, SearchResult, SessionInfo, ShareVaultWithGroupRequest,
+    GroupInfo, GroupMember, InviteInfo, Keyphrase, MlUndoReceipt, NoteAnalysis, NoteOutlineResponse,
+    NoteTask, OrganizationSuggestion, OrganizationSuggestionKind, OrganizationSuggestionsResponse,
+    OutlineSection, PagedSearchResult, ReverseAction, SearchMatch, SearchResult, SessionInfo,
+    ShareVaultWithGroupRequest,
     ShareVaultWithUserRequest, TotpEnrollResponse, TotpLoginVerifyResponse, TotpVerifyRequest,
     UndoMlActionResponse, UpdateFileRequest, UploadSessionResponse, UserPreferences, Vault,
     VaultRole, VaultShareEntry, VaultShareList, WsMessage,

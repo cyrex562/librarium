@@ -1,8 +1,10 @@
+use crate::config::AppConfig;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    ApplyChange, ApplyOrganizationSuggestionRequest, ApplyOrganizationSuggestionResponse,
-    GenerateOrganizationSuggestionsRequest, GenerateOutlineRequest, MlUndoReceipt,
-    OrganizationSuggestionKind, ReverseAction, UndoMlActionResponse,
+    AnalyzeNoteRequest, ApplyChange, ApplyOrganizationSuggestionRequest,
+    ApplyOrganizationSuggestionResponse, GenerateOrganizationSuggestionsRequest,
+    GenerateOutlineRequest, MlUndoReceipt, OrganizationSuggestionKind, ReverseAction,
+    UndoMlActionResponse,
 };
 use crate::routes::vaults::AppState;
 use crate::services::{frontmatter_service, FileService, MlService, RenameStrategy};
@@ -40,6 +42,32 @@ async fn generate_outline(
     let outline = MlService::generate_outline(&req.file_path, &content, max_sections);
 
     Ok(HttpResponse::Ok().json(outline))
+}
+
+#[post("/api/vaults/{vault_id}/ml/analyze")]
+async fn analyze_note(
+    state: web::Data<AppState>,
+    config: web::Data<AppConfig>,
+    vault_id: web::Path<String>,
+    body: web::Json<AnalyzeNoteRequest>,
+) -> AppResult<HttpResponse> {
+    let vault_id = vault_id.into_inner();
+    let req = body.into_inner();
+
+    let vault = state.db.get_vault(&vault_id).await?;
+
+    let (frontmatter, content) = match req.content {
+        Some(raw_content) => frontmatter_service::parse_frontmatter(&raw_content)?,
+        None => {
+            let file = FileService::read_file(&vault.path, &req.file_path)?;
+            (file.frontmatter, file.content)
+        }
+    };
+
+    let tier = config.ml.tier.as_str();
+    let analysis = MlService::analyze(&req.file_path, &content, frontmatter.as_ref(), tier);
+
+    Ok(HttpResponse::Ok().json(analysis))
 }
 
 #[post("/api/vaults/{vault_id}/ml/suggestions")]
@@ -523,6 +551,7 @@ async fn undo_ml_action(
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(generate_outline)
+        .service(analyze_note)
         .service(generate_suggestions)
         .service(apply_suggestion)
         .service(undo_ml_action);

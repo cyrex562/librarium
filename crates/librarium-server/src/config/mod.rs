@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub cors: CorsConfig,
     #[serde(default)]
     pub tls: TlsConfig,
+    #[serde(default)]
+    pub ml: MlConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +179,99 @@ pub struct TlsConfig {
     pub key_file: Option<String>,
 }
 
+/// Document-organization ("AI Insights") configuration.
+///
+/// All intelligence runs on local CPU only — there is no online-LLM path. The
+/// `tier` selects how much machine learning is applied, layered so the baseline
+/// is always available offline:
+///
+/// - `heuristic`  — keyword rules only (no extra dependencies).
+/// - `classical`  — adds statistical keyphrase extraction (no model download).
+/// - `embeddings` — adds local ONNX sentence embeddings for semantic tagging,
+///   folder placement, and clustering.
+///
+/// The default is `classical`: useful and fully offline with no model fetch.
+/// When `tier = "embeddings"` but no model is present and
+/// `allow_model_download = false` (the air-gap-safe default), the service falls
+/// back to `classical` instead of failing requests. See
+/// `docs/ORGANIZATION_ML_PLAN.md`.
+///
+/// Example `config.toml`:
+/// ```toml
+/// [ml]
+/// enabled = true
+/// tier = "classical"
+/// allow_model_download = false
+/// naming_scheme = "kebab-case"
+/// min_confidence = 0.55
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MlConfig {
+    /// Master switch for the organization/AI-Insights feature.
+    #[serde(default = "default_ml_enabled")]
+    pub enabled: bool,
+
+    /// Active intelligence tier: `heuristic` | `classical` | `embeddings`.
+    #[serde(default)]
+    pub tier: MlTier,
+
+    /// Embedding model identifier used when `tier = "embeddings"`.
+    #[serde(default = "default_ml_model")]
+    pub model: String,
+
+    /// Directory holding downloaded/side-loaded ONNX models. Empty means
+    /// `{data_dir}/ml-models` is used.
+    #[serde(default)]
+    pub cache_dir: String,
+
+    /// Whether the server may fetch a model over the network at runtime.
+    /// Defaults to `false` so air-gapped installs never make outbound calls;
+    /// pre-seed `cache_dir` instead.
+    #[serde(default)]
+    pub allow_model_download: bool,
+
+    /// Automatically run suggestions when a note is opened in the editor.
+    #[serde(default)]
+    pub auto_suggest_on_open: bool,
+
+    /// Naming scheme for rename suggestions: `kebab-case` | `title-case` |
+    /// `date-prefixed` | `category-slug`.
+    #[serde(default = "default_ml_naming_scheme")]
+    pub naming_scheme: String,
+
+    /// Minimum confidence (0.0–1.0) for a suggestion to be surfaced.
+    #[serde(default = "default_ml_min_confidence")]
+    pub min_confidence: f32,
+
+    /// Maximum number of suggestions returned per note.
+    #[serde(default = "default_ml_max_suggestions")]
+    pub max_suggestions: usize,
+}
+
+/// Intelligence tier for the organization feature. See [`MlConfig`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MlTier {
+    /// Keyword rules only; no extra dependencies.
+    Heuristic,
+    /// Adds statistical keyphrase extraction; no model download.
+    #[default]
+    Classical,
+    /// Adds local ONNX sentence embeddings.
+    Embeddings,
+}
+
+impl MlTier {
+    /// Stable lowercase label used in API payloads and logs.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MlTier::Heuristic => "heuristic",
+            MlTier::Classical => "classical",
+            MlTier::Embeddings => "embeddings",
+        }
+    }
+}
+
 fn default_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -250,6 +345,42 @@ fn default_lockout_minutes() -> u64 {
     15
 }
 
+fn default_ml_enabled() -> bool {
+    true
+}
+
+fn default_ml_model() -> String {
+    "bge-small-en-v1.5".to_string()
+}
+
+fn default_ml_naming_scheme() -> String {
+    "kebab-case".to_string()
+}
+
+fn default_ml_min_confidence() -> f32 {
+    0.55
+}
+
+fn default_ml_max_suggestions() -> usize {
+    8
+}
+
+impl Default for MlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_ml_enabled(),
+            tier: MlTier::default(),
+            model: default_ml_model(),
+            cache_dir: String::new(),
+            allow_model_download: false,
+            auto_suggest_on_open: false,
+            naming_scheme: default_ml_naming_scheme(),
+            min_confidence: default_ml_min_confidence(),
+            max_suggestions: default_ml_max_suggestions(),
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -273,6 +404,7 @@ impl Default for AppConfig {
                 allowed_origins: default_cors_allowed_origins(),
             },
             tls: TlsConfig::default(),
+            ml: MlConfig::default(),
         }
     }
 }

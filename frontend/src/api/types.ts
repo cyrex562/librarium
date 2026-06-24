@@ -272,6 +272,37 @@ export interface NoteOutlineResponse {
     generated_at: string;
 }
 
+export interface AnalyzeNoteRequest {
+    file_path: string;
+    content?: string;
+}
+
+export interface NoteTask {
+    text: string;
+    done: boolean;
+    line_number: number;
+}
+
+export interface Keyphrase {
+    phrase: string;
+    score: number;
+}
+
+export interface NoteAnalysis {
+    file_path: string;
+    title?: string;
+    summary: string;
+    sections: OutlineSection[];
+    word_count: number;
+    inline_tags: string[];
+    frontmatter_tags: string[];
+    wiki_links: string[];
+    tasks: NoteTask[];
+    keyphrases: Keyphrase[];
+    tier: string;
+    generated_at: string;
+}
+
 export interface GenerateOrganizationSuggestionsRequest {
     file_path: string;
     content?: string;

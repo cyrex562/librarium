@@ -29,6 +29,8 @@ import type {
     BacklinkEntry,
     GenerateOutlineRequest,
     NoteOutlineResponse,
+    AnalyzeNoteRequest,
+    NoteAnalysis,
     GenerateOrganizationSuggestionsRequest,
     OrganizationSuggestionsResponse,
     ApplyOrganizationSuggestionResponse,
@@ -278,6 +280,15 @@ export const apiGenerateOutline = (
     data: GenerateOutlineRequest,
 ): Promise<NoteOutlineResponse> =>
     request(`/api/vaults/${vaultId}/ml/outline`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+
+export const apiAnalyzeNote = (
+    vaultId: string,
+    data: AnalyzeNoteRequest,
+): Promise<NoteAnalysis> =>
+    request(`/api/vaults/${vaultId}/ml/analyze`, {
         method: 'POST',
         body: JSON.stringify(data),
     });

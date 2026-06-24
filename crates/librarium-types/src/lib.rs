@@ -365,6 +365,61 @@ pub struct NoteOutlineResponse {
     pub generated_at: DateTime<Utc>,
 }
 
+/// Request to run the parse-first analysis pipeline over a single note.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeNoteRequest {
+    pub file_path: String,
+    /// Optional inline content. When absent the note is read from disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+/// A checklist item discovered in a note body (`- [ ]` / `- [x]`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteTask {
+    pub text: String,
+    pub done: bool,
+    pub line_number: usize,
+}
+
+/// A scored keyphrase. Populated by the classical-NLP tier (Tier 1); empty
+/// under the `heuristic` tier.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Keyphrase {
+    pub phrase: String,
+    pub score: f32,
+}
+
+/// Structured analysis of a single note, built once by the parse pipeline and
+/// consumed by the tag / rename / organize suggesters. See
+/// `docs/ORGANIZATION_ML_PLAN.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteAnalysis {
+    pub file_path: String,
+    /// Best-effort note title: frontmatter `title` -> first `# H1` -> filename stem.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Short prose summary (same heuristic as the outline summary).
+    pub summary: String,
+    /// Heading outline.
+    pub sections: Vec<OutlineSection>,
+    /// Word count of the body (frontmatter excluded).
+    pub word_count: usize,
+    /// `#tags` found inline in the body, normalized lowercase.
+    pub inline_tags: Vec<String>,
+    /// Tags declared in frontmatter, normalized lowercase.
+    pub frontmatter_tags: Vec<String>,
+    /// `[[wiki-link]]` / `![[embed]]` targets referenced by this note.
+    pub wiki_links: Vec<String>,
+    /// Checklist items found in the body.
+    pub tasks: Vec<NoteTask>,
+    /// Scored keyphrases (Tier 1+); empty under the `heuristic` tier.
+    pub keyphrases: Vec<Keyphrase>,
+    /// The ML tier that produced this analysis (`heuristic` | `classical` | `embeddings`).
+    pub tier: String,
+    pub generated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateOrganizationSuggestionsRequest {
     pub file_path: String,

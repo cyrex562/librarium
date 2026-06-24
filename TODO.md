@@ -131,16 +131,17 @@ research citations, and rationale.
 
 ### Phase 1 — Foundations
 
-- [ ] **LIB-054** Refactor `MlService` from standalone static functions into a parse-first
-  pipeline that builds a shared `NoteAnalysis` (title, frontmatter, outline, inline tags,
-  wiki-links, tasks/dates, word count, language hint) once per note, then runs
-  tag/rename/organize suggesters over it. Preserve current outline/suggestion behavior
-  as the Tier 0 path. Add unit tests for the parse layer.
-- [ ] **LIB-055** Add an `[ml]` config section in `crates/librarium-server/src/config/mod.rs`
+- [x] **LIB-054** Refactor `MlService` from standalone static functions into a parse-first
+  pipeline that builds a shared `NoteAnalysis` (title, outline, inline tags, frontmatter tags,
+  wiki-links, tasks, word count) once per note, then runs tag/rename/organize suggesters over
+  it. Preserves current outline/suggestion behavior as the Tier 0 path. Exposed via
+  `POST /ml/analyze`; keyphrases/embeddings fields are reserved for later tiers. Unit tests
+  cover structure extraction, code-fence skipping, title fallback, and tag dedup.
+- [x] **LIB-055** Add an `[ml]` config section in `crates/librarium-server/src/config/mod.rs`
   (`enabled`, `tier`, `model`, `cache_dir`, `allow_model_download`, `auto_suggest_on_open`,
   `naming_scheme`, `min_confidence`, `max_suggestions`) with air-gap-safe defaults
-  (`tier = "classical"`, `allow_model_download = false`). Document in
-  `docs/CONFIGURATION.md` and `config.example.toml`. Wire tier selection through the ML routes.
+  (`tier = "classical"`, `allow_model_download = false`). Documented in
+  `docs/CONFIGURATION.md` and `config.example.toml`. Tier is plumbed into `/ml/analyze`.
 
 ### Phase 2 — Tag upgrade (Tier 1, no model download)
 
