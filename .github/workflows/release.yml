@@ -180,10 +180,78 @@ jobs:
           name: desktop-windows
           path: dist/Librarium-${{ github.ref_name }}-windows-x86_64-setup.exe
 
+  # ── Server — Windows portable zip ─────────────────────────────────────────
+  server-windows-portable:
+    name: Server – Windows portable (zip)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: server-windows-portable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build portable server package
+        shell: pwsh
+        run: pwsh scripts/build-portable.ps1 -OutDir dist/portable
+
+      - name: Zip portable package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/portable/* `
+            -DestinationPath dist/Librarium-${{ github.ref_name }}-windows-x86_64-portable.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-windows-portable
+          path: dist/Librarium-${{ github.ref_name }}-windows-x86_64-portable.zip
+
+  # ── Desktop — Windows portable zip ────────────────────────────────────────
+  desktop-windows-portable:
+    name: Desktop – Windows portable (zip)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-windows-portable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build portable desktop package
+        shell: pwsh
+        run: pwsh scripts/build-portable-desktop.ps1 -OutDir dist/portable-desktop
+
+      - name: Zip portable package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/portable-desktop/* `
+            -DestinationPath dist/Librarium-${{ github.ref_name }}-windows-x86_64-desktop-portable.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-portable
+          path: dist/Librarium-${{ github.ref_name }}-windows-x86_64-desktop-portable.zip
+
   # ── GitHub Release — publish all artifacts ────────────────────────────────
   release:
     name: Publish GitHub Release
-    needs: [server-linux, server-windows, desktop-linux, desktop-windows]
+    needs: [server-linux, server-windows, desktop-linux, desktop-windows, server-windows-portable, desktop-windows-portable]
     runs-on: ubuntu-latest
     permissions:
       contents: write

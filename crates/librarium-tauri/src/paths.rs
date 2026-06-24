@@ -1,6 +1,41 @@
 use anyhow::Context;
 use librarium::config::LibrariumPaths;
 
+/// Resolve application directories, preferring portable mode when applicable.
+///
+/// **Portable mode** is active when a `config.toml` file exists in the same
+/// directory as the executable. All paths are then resolved relative to that
+/// directory, keeping the installation fully self-contained:
+///
+/// ```text
+/// LibrariumDesktop.exe
+/// config.toml          ← triggers portable mode
+/// data/
+///   librarium.db
+/// vaults/
+/// ```
+///
+/// **Installed mode** (no exe-adjacent config.toml) falls back to
+/// platform-standard directories:
+///   Linux (XDG):  ~/.config/librarium/, ~/.local/share/librarium/
+///   macOS:        ~/Library/Application Support/librarium/
+///   Windows:      %APPDATA%\librarium\
+pub fn resolve_paths(handle: &tauri::AppHandle) -> anyhow::Result<LibrariumPaths> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            if exe_dir.join("config.toml").exists() {
+                return Ok(LibrariumPaths {
+                    config_dir: exe_dir.to_path_buf(),
+                    data_dir: exe_dir.join("data"),
+                    cache_dir: exe_dir.join("cache"),
+                    default_vault_dir: exe_dir.join("vaults"),
+                });
+            }
+        }
+    }
+    resolve_platform_paths(handle)
+}
+
 /// Resolve platform-standard application directories from Tauri's path API.
 ///
 /// Linux (XDG):   config_dir  → ~/.config/librarium/

@@ -5,7 +5,7 @@ mod paths;
 
 use anyhow::Context;
 use librarium::config::AppConfig;
-use paths::{create_dirs, resolve_platform_paths};
+use paths::{create_dirs, resolve_paths};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
@@ -71,8 +71,8 @@ fn main() {
 fn run_setup(app: &mut tauri::App) -> anyhow::Result<()> {
     let handle = app.handle().clone();
 
-    // 1. Resolve platform directories (XDG / Library / AppData) and create them.
-    let paths = resolve_platform_paths(&handle)?;
+    // 1. Resolve directories (portable: exe-relative; installed: platform dirs).
+    let paths = resolve_paths(&handle)?;
     create_dirs(&paths)?;
     info!(
         "App directories: config={:?} data={:?}",
