@@ -311,6 +311,8 @@ export interface GenerateOrganizationSuggestionsRequest {
 
 export type OrganizationSuggestionKind = 'tag' | 'category' | 'move_to_folder';
 
+export type OrganizationSuggestionSource = 'rule' | 'keyphrase' | 'semantic';
+
 export interface OrganizationSuggestion {
     id: string;
     kind: OrganizationSuggestionKind;
@@ -319,6 +321,7 @@ export interface OrganizationSuggestion {
     tag?: string;
     category?: string;
     target_folder?: string;
+    source?: OrganizationSuggestionSource;
 }
 
 export interface OrganizationSuggestionsResponse {

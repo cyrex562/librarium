@@ -449,6 +449,11 @@ pub struct OrganizationSuggestion {
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_folder: Option<String>,
+    /// Where the suggestion came from: `rule` (keyword heuristics), `keyphrase`
+    /// (statistical extraction), or `semantic` (embeddings). Optional for
+    /// backward compatibility with older clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

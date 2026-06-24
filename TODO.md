@@ -145,11 +145,16 @@ research citations, and rationale.
 
 ### Phase 2 — Tag upgrade (Tier 1, no model download)
 
-- [ ] **LIB-056** Add classical keyphrase extraction (TF-IDF / YAKE! / TextRank via the
-  pure-Rust `keyword_extraction` crate) and surface keyphrase-derived tag candidates in
-  the existing `/ml/suggestions` response. Merge with Tier 0 rule tags, dedup, and
-  normalize per `docs/TAG_SYSTEM_SPEC.md` (lowercase-canonical, nested `/`). Score by
-  confidence and source. Reuse the existing frontmatter-tag apply/undo path.
+- [x] **LIB-056** Add classical keyphrase extraction (YAKE! via the MIT-licensed
+  `yake-rust` crate — the LGPL `keyword_extraction` crate was rejected as incompatible
+  with the project's MIT license and static binaries) and surface keyphrase-derived tag
+  candidates in the `/ml/suggestions` response. Keyphrases populate `NoteAnalysis` under
+  the `classical`/`embeddings` tiers (empty under `heuristic`); tag candidates are
+  normalized per `docs/TAG_SYSTEM_SPEC.md`, deduped against existing and rule tags, and
+  scored in a 0.50–0.74 confidence band below the curated rule tags. Each suggestion now
+  carries a `source` (`rule` | `keyphrase` | `semantic`). Reuses the existing
+  frontmatter-tag apply/undo path. Unit tests cover tag normalization, tier gating, and
+  dedup.
 
 ### Phase 3 — Rename (new verb)
 

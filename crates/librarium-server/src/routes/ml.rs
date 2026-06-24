@@ -73,6 +73,7 @@ async fn analyze_note(
 #[post("/api/vaults/{vault_id}/ml/suggestions")]
 async fn generate_suggestions(
     state: web::Data<AppState>,
+    config: web::Data<AppConfig>,
     vault_id: web::Path<String>,
     body: web::Json<GenerateOrganizationSuggestionsRequest>,
 ) -> AppResult<HttpResponse> {
@@ -94,10 +95,15 @@ async fn generate_suggestions(
 
     let max_suggestions = req.max_suggestions.unwrap_or_else(default_max_suggestions);
 
+    // Keyphrase tags are gated on the active tier (empty under `heuristic`).
+    let tier = config.ml.tier.as_str();
+    let keyphrases = MlService::keyphrases_for_tier(&content, tier, max_suggestions.max(8));
+
     let suggestions = MlService::suggest_organization(
         &req.file_path,
         &content,
         frontmatter.as_ref(),
+        &keyphrases,
         max_suggestions,
     );
 

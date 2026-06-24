@@ -41,13 +41,18 @@ evaluated for the Rust backend.
 
 ### Keyphrase / keyword extraction (no model required)
 
-- **TF-IDF**, **RAKE**, **YAKE!**, **TextRank**, and co-occurrence — all available in
-  the pure-Rust [`keyword_extraction`](https://crates.io/crates/keyword_extraction)
-  crate (default features: TF-IDF, RAKE, TextRank), with standalone
-  [`yake-rust`](https://docs.rs/yake-rust) and
-  [`keyphrases`](https://github.com/jjoeldaniel/keyphrases.rs) (RAKE) alternatives.
-- YAKE! is statistical, unsupervised, language-agnostic, and needs no training corpus —
-  a strong default for per-note tag candidates. See the
+- **TF-IDF**, **RAKE**, **YAKE!**, **TextRank**, and co-occurrence are all available as
+  pure-Rust crates. The widely-cited
+  [`keyword_extraction`](https://crates.io/crates/keyword_extraction) crate bundles
+  several, but it is **LGPL-3.0** — incompatible with this project's **MIT** license and
+  its statically-linked single-file binaries (LIB-045). We therefore use the standalone
+  **MIT-licensed** [`yake-rust`](https://docs.rs/yake-rust) crate instead (the
+  [`keyphrases`](https://github.com/jjoeldaniel/keyphrases.rs) RAKE crate, WTFPL, is a
+  permissive fallback). **Implemented:** `yake-rust` with only the English stopword list
+  enabled (`default-features = false, features = ["en"]`) to keep the binary small.
+- YAKE! is statistical, unsupervised, and needs no training corpus — a strong default for
+  per-note tag candidates. Its raw score is "lower = more important"; we invert it into a
+  relevance in `(0, 1]`. See the
   [algorithm walkthrough](https://dev.to/tugascript/rust-keyword-extraction-creating-the-yake-algorithm-from-scratch-4n2l).
 - These power **Tier 1** below: good tag/keyphrase suggestions with **no model download**.
 

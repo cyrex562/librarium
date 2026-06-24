@@ -53,6 +53,7 @@ impl MlService {
         let wiki_links = Self::extract_wiki_links(content);
         let tasks = Self::extract_tasks(content);
         let word_count = Self::count_words(content);
+        let keyphrases = Self::keyphrases_for_tier(content, tier, 10);
 
         NoteAnalysis {
             file_path: file_path.to_string(),
@@ -64,16 +65,51 @@ impl MlService {
             frontmatter_tags,
             wiki_links,
             tasks,
-            keyphrases: Vec::<Keyphrase>::new(),
+            keyphrases,
             tier: tier.to_string(),
             generated_at: Utc::now(),
         }
+    }
+
+    /// Extract keyphrases when the tier supports it (`classical` or
+    /// `embeddings`); the `heuristic` tier returns an empty list so no
+    /// statistical work is done.
+    pub fn keyphrases_for_tier(content: &str, tier: &str, max: usize) -> Vec<Keyphrase> {
+        match tier {
+            "classical" | "embeddings" => Self::extract_keyphrases(content, max),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Statistical keyphrase extraction via YAKE! (pure-Rust, no model). YAKE
+    /// assigns lower raw scores to more important phrases; we invert that into a
+    /// `relevance` in `(0, 1]` (higher = more important) stored on [`Keyphrase`].
+    pub fn extract_keyphrases(content: &str, max: usize) -> Vec<Keyphrase> {
+        if max == 0 || content.trim().is_empty() {
+            return Vec::new();
+        }
+
+        let stop_words = match yake_rust::StopWords::predefined("en") {
+            Some(sw) => sw,
+            None => return Vec::new(),
+        };
+        let config = yake_rust::Config::default();
+
+        yake_rust::get_n_best(max, content, &stop_words, &config)
+            .into_iter()
+            .map(|item| Keyphrase {
+                phrase: item.raw,
+                // Invert YAKE's "lower is better" score into (0, 1].
+                score: (1.0 / (1.0 + item.score)) as f32,
+            })
+            .collect()
     }
 
     pub fn suggest_organization(
         file_path: &str,
         content: &str,
         frontmatter: Option<&Value>,
+        keyphrases: &[Keyphrase],
         max_suggestions: usize,
     ) -> OrganizationSuggestionsResponse {
         let capped_max_suggestions = max_suggestions.clamp(1, 25);
@@ -86,6 +122,9 @@ impl MlService {
             .collect();
 
         let mut suggestions: Vec<OrganizationSuggestion> = Vec::new();
+        // Tags already covered by an existing frontmatter/inline tag or an
+        // earlier (higher-priority) suggestion, so keyphrase tags don't repeat.
+        let mut covered_tags: HashSet<String> = existing_tag_set.clone();
 
         let tag_rules: [(&[&str], &str, &str, f32); 7] = [
             (
@@ -150,6 +189,33 @@ impl MlService {
                 tag: Some(tag.to_string()),
                 category: None,
                 target_folder: None,
+                source: Some("rule".to_string()),
+            });
+            covered_tags.insert(tag.to_string());
+        }
+
+        // Keyphrase-derived tags (Tier 1). Convert each extracted phrase into a
+        // tag token, skip ones already covered, and score below the rule tags so
+        // the curated vocabulary stays on top.
+        for kp in keyphrases {
+            let Some(tag) = Self::phrase_to_tag(&kp.phrase) else {
+                continue;
+            };
+            if !covered_tags.insert(tag.clone()) {
+                continue;
+            }
+
+            // Map keyphrase relevance (0, 1] into a 0.50–0.74 confidence band.
+            let confidence = (0.50 + 0.24 * kp.score.clamp(0.0, 1.0)).clamp(0.50, 0.74);
+            suggestions.push(OrganizationSuggestion {
+                id: format!("tag:{}", tag),
+                kind: OrganizationSuggestionKind::Tag,
+                confidence,
+                rationale: format!("Key phrase \"{}\" stands out in this note.", kp.phrase),
+                tag: Some(tag),
+                category: None,
+                target_folder: None,
+                source: Some("keyphrase".to_string()),
             });
         }
 
@@ -169,6 +235,7 @@ impl MlService {
                     tag: None,
                     category: Some(category.to_string()),
                     target_folder: None,
+                    source: Some("rule".to_string()),
                 });
             }
 
@@ -183,6 +250,7 @@ impl MlService {
                     tag: None,
                     category: Some(category.to_string()),
                     target_folder: Some(target_folder),
+                    source: Some("rule".to_string()),
                 });
             }
         }
@@ -292,6 +360,47 @@ impl MlService {
 
     fn normalize_tag(raw: &str) -> String {
         raw.trim().trim_start_matches('#').to_lowercase()
+    }
+
+    /// Convert a free-text keyphrase into a tag token per
+    /// `docs/TAG_SYSTEM_SPEC.md`: lowercase, spaces -> `-`, keep only
+    /// `[a-z0-9_-]`, collapse/trim hyphens. Returns `None` when the result is
+    /// too short, too long, or has no letters.
+    fn phrase_to_tag(phrase: &str) -> Option<String> {
+        let mut tag = String::new();
+        let mut prev_hyphen = false;
+        for ch in phrase.trim().chars() {
+            let mapped = if ch.is_ascii_alphanumeric() {
+                Some(ch.to_ascii_lowercase())
+            } else if ch == '_' {
+                Some('_')
+            } else if ch.is_whitespace() || ch == '-' || ch == '/' {
+                Some('-')
+            } else {
+                None
+            };
+
+            match mapped {
+                Some('-') => {
+                    if !prev_hyphen && !tag.is_empty() {
+                        tag.push('-');
+                        prev_hyphen = true;
+                    }
+                }
+                Some(c) => {
+                    tag.push(c);
+                    prev_hyphen = false;
+                }
+                None => {}
+            }
+        }
+
+        let tag = tag.trim_matches('-').to_string();
+        let has_alpha = tag.chars().any(|c| c.is_ascii_alphabetic());
+        if tag.len() < 2 || tag.len() > 40 || !has_alpha {
+            return None;
+        }
+        Some(tag)
     }
 
     /// Extract inline `#tags` from the body per `docs/TAG_SYSTEM_SPEC.md`
@@ -520,7 +629,7 @@ mod tests {
         let content =
             "# Sprint Meeting\n\nAgenda:\n- Discuss project roadmap\n- Action items and todo list";
         let suggestions =
-            MlService::suggest_organization("inbox/sprint-meeting.md", content, None, 10);
+            MlService::suggest_organization("inbox/sprint-meeting.md", content, None, &[], 10);
 
         assert!(!suggestions.suggestions.is_empty());
         assert!(suggestions
@@ -557,7 +666,7 @@ mod tests {
         assert_eq!(analysis.tasks[0].text, "Email the team");
 
         assert!(analysis.word_count > 0);
-        assert!(analysis.keyphrases.is_empty()); // populated by Tier 1 (LIB-056)
+        // Keyphrases are populated under the classical tier (see keyphrases_gated_by_tier).
     }
 
     #[test]
@@ -580,6 +689,79 @@ mod tests {
 
         let no_heading = MlService::analyze("a/my-note.md", "just prose, no heading", None, "classical");
         assert_eq!(no_heading.title.as_deref(), Some("my-note"));
+    }
+
+    #[test]
+    fn phrase_to_tag_normalizes_and_rejects() {
+        assert_eq!(
+            MlService::phrase_to_tag("Project Roadmap").as_deref(),
+            Some("project-roadmap")
+        );
+        assert_eq!(
+            MlService::phrase_to_tag("  Q3   OKRs!! ").as_deref(),
+            Some("q3-okrs")
+        );
+        // No letters -> rejected.
+        assert_eq!(MlService::phrase_to_tag("2024"), None);
+        // Too short -> rejected.
+        assert_eq!(MlService::phrase_to_tag("a"), None);
+    }
+
+    #[test]
+    fn keyphrases_gated_by_tier() {
+        let content = "Quarterly revenue growth strategy and market expansion planning for the new product line.";
+        assert!(MlService::keyphrases_for_tier(content, "heuristic", 5).is_empty());
+        let classical = MlService::keyphrases_for_tier(content, "classical", 5);
+        assert!(!classical.is_empty());
+        // Relevance is normalized into (0, 1].
+        assert!(classical.iter().all(|k| k.score > 0.0 && k.score <= 1.0));
+    }
+
+    #[test]
+    fn suggestions_include_keyphrase_tags_with_source() {
+        let content = "Quarterly revenue growth strategy and market expansion planning for the new product line. Revenue growth strategy is the focus.";
+        let keyphrases = MlService::extract_keyphrases(content, 8);
+        let suggestions =
+            MlService::suggest_organization("inbox/strategy.md", content, None, &keyphrases, 12);
+
+        let keyphrase_tags: Vec<&str> = suggestions
+            .suggestions
+            .iter()
+            .filter(|s| s.source.as_deref() == Some("keyphrase"))
+            .filter_map(|s| s.tag.as_deref())
+            .collect();
+        assert!(
+            !keyphrase_tags.is_empty(),
+            "expected at least one keyphrase-derived tag, got {:?}",
+            suggestions.suggestions
+        );
+        // Keyphrase tags are tag-shaped (no spaces) and confidence-banded below rules.
+        assert!(suggestions
+            .suggestions
+            .iter()
+            .filter(|s| s.source.as_deref() == Some("keyphrase"))
+            .all(|s| !s.tag.as_deref().unwrap_or("").contains(' ')
+                && s.confidence >= 0.50
+                && s.confidence <= 0.74));
+    }
+
+    #[test]
+    fn keyphrase_tags_skip_existing_tags() {
+        let content = "Revenue growth strategy and revenue growth planning.";
+        let keyphrases = MlService::extract_keyphrases(content, 8);
+        let fm = serde_json::json!({ "tags": ["revenue-growth-strategy"] });
+        let suggestions = MlService::suggest_organization(
+            "n.md",
+            content,
+            Some(&fm),
+            &keyphrases,
+            12,
+        );
+        // The already-present tag must not be re-suggested.
+        assert!(!suggestions
+            .suggestions
+            .iter()
+            .any(|s| s.tag.as_deref() == Some("revenue-growth-strategy")));
     }
 
     #[test]
