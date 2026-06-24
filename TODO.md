@@ -97,6 +97,7 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
   - continue `docs/PLAN-desktop-sync-multiuser.md`
   - verify group-sharing and invitation edge cases under auth enforcement
 
+
 ## Packaging And Distribution
 
 - [x] **LIB-045** Create single-file installers for both the desktop (Tauri) and server variants, with platform-specific builds for Windows and Linux.
@@ -115,3 +116,8 @@ This file is the top-level backlog for unfinished tasks, near-term follow-up wor
 - [x] **LIB-038** Filter vault-scoped reindex WebSocket messages by authorization.
 - [x] **LIB-039** Remove the duplicate `/api/vaults/{vault_id}/reindex` route behavior.
 - [x] **LIB-040** Stop shipping `admin` / `admin` in tracked config files.
+
+## Not Sorted
+
+- [ ] **LIB-052** Design an alternate set of views for viewing the server on an Android device. Add tasks for design additions and other needed feature improvements to support mobile.
+- [ ] **LIB-053** Organization - explore possible methods to auto organize and categorize files using local compute resources only (cant use *online* LLMs).
