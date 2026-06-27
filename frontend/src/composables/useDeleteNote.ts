@@ -27,10 +27,20 @@ export function useDeleteNote() {
     if (!confirm(`Delete "${name}"? This permanently removes the file from the vault.`)) {
       return false;
     }
+    // Delete on the server FIRST; only mutate local state once the file is
+    // actually gone, so a failed delete never leaves partial side effects
+    // (cleared icons, closed tabs, pruned recents) for a still-existing file
+    // (LIB-101). Surface the failure instead of swallowing it.
+    try {
+      await filesStore.deleteFile(vaultId, path);
+    } catch (err) {
+      alert(`Failed to delete "${name}": ${err instanceof Error ? err.message : 'unknown error'}`);
+      return false;
+    }
+
+    tabsStore.closeTabsByPath(path);
     prefsStore.clearIconsUnderPath(path);
     await prefsStore.save();
-    tabsStore.closeTabsByPath(path);
-    await filesStore.deleteFile(vaultId, path);
     filesStore.recentFiles = filesStore.recentFiles.filter((p) => p !== path);
     return true;
   }

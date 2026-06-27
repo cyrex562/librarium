@@ -216,12 +216,15 @@ async function loadPlan() {
     for (const key of Object.keys(selections)) delete selections[key];
     for (const row of plan.value.rows) {
       const options = folderOptions(row);
+      // Default must be one of the select's options so the checkbox is never
+      // checked against an empty/unlisted choice (LIB-093). Prefer the
+      // recommended target only when it's actually among the candidates.
+      const recommended = options.find((o) => o.path === row.target_folder)?.path;
       selections[row.file_path] = {
         tags: row.suggested_tags.length > 0,
         name: !!row.suggested_name,
         folder: options.length > 0,
-        // Default to the recommended target, else the first (best) candidate.
-        folderChoice: row.target_folder ?? options[0]?.path ?? '',
+        folderChoice: recommended ?? options[0]?.path ?? '',
       };
     }
   } catch (err) {
@@ -236,6 +239,17 @@ async function applySelected() {
   applying.value = true;
   error.value = '';
   applyMessage.value = '';
+
+  // LIB-093: a folder checkbox left checked with no destination would be
+  // silently dropped below. Surface it instead of quietly doing nothing.
+  const missingFolder = actionableRows.value.filter((row) => {
+    const sel = selections[row.file_path];
+    return sel?.folder && !sel.folderChoice;
+  });
+  if (missingFolder.length) {
+    error.value = `Pick a destination folder for ${missingFolder.length} selected note(s), or uncheck "Move to".`;
+    return;
+  }
 
   const rows: ApplyPlanRow[] = [];
   for (const row of actionableRows.value) {

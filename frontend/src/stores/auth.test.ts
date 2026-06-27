@@ -52,14 +52,16 @@ describe('useAuthStore', () => {
         expect(store.profile).toBeNull();
         expect(localStorage.getItem('obsidian_pending_totp')).toBe('true');
         expect(localStorage.getItem('obsidian_access_token')).toBe('pending-access');
-        expect(localStorage.getItem('obsidian_refresh_token')).toBe('pending-refresh');
+        // LIB-089: refresh token is held in memory + the HttpOnly cookie, never
+        // persisted to localStorage.
+        expect(store.refreshToken).toBe('pending-refresh');
+        expect(localStorage.getItem('obsidian_refresh_token')).toBeNull();
         expect(apiMe).not.toHaveBeenCalled();
     });
 
     it('completes TOTP login, clears pending state, and loads the authenticated profile', async () => {
         localStorage.setItem('obsidian_pending_totp', 'true');
         localStorage.setItem('obsidian_access_token', 'pending-access');
-        localStorage.setItem('obsidian_refresh_token', 'pending-refresh');
         localStorage.setItem('obsidian_token_expires_at', String(Date.now() + 60_000));
 
         vi.mocked(apiVerifyTotpLogin).mockResolvedValueOnce({
@@ -80,19 +82,22 @@ describe('useAuthStore', () => {
         expect(store.profile).toEqual(mockProfile);
         expect(localStorage.getItem('obsidian_pending_totp')).toBe('false');
         expect(localStorage.getItem('obsidian_access_token')).toBe('verified-access');
-        expect(localStorage.getItem('obsidian_refresh_token')).toBe('verified-refresh');
+        // LIB-089: refresh token in memory only, not localStorage.
+        expect(store.refreshToken).toBe('verified-refresh');
+        expect(localStorage.getItem('obsidian_refresh_token')).toBeNull();
     });
 
     it('passes the refresh token to logout and clears pending TOTP auth state', async () => {
         localStorage.setItem('obsidian_pending_totp', 'true');
         localStorage.setItem('obsidian_access_token', 'pending-access');
-        localStorage.setItem('obsidian_refresh_token', 'pending-refresh');
         localStorage.setItem('obsidian_token_expires_at', String(Date.now() + 60_000));
 
         const store = useAuthStore();
         await store.logout();
 
-        expect(apiLogout).toHaveBeenCalledWith('pending-refresh');
+        // LIB-089: logout no longer passes a token — the server reads the
+        // HttpOnly refresh cookie and clears it.
+        expect(apiLogout).toHaveBeenCalledWith();
         expect(store.accessToken).toBeNull();
         expect(store.refreshToken).toBeNull();
         expect(store.pendingTotp).toBe(false);
@@ -119,7 +124,8 @@ describe('useAuthStore', () => {
         const store = useAuthStore();
         await store.refresh();
 
-        expect(apiRefreshToken).toHaveBeenCalledWith('pending-refresh');
+        // LIB-089: refresh reads the HttpOnly cookie server-side; no token arg.
+        expect(apiRefreshToken).toHaveBeenCalledWith();
         expect(store.pendingTotp).toBe(true);
         expect(store.isAuthenticated).toBe(false);
         expect(localStorage.getItem('obsidian_pending_totp')).toBe('true');

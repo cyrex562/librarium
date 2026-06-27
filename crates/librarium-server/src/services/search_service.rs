@@ -107,14 +107,40 @@ fn extract_entity_meta(content: &str) -> EntityMeta {
     }
 }
 
-/// File modification time in milliseconds since the Unix epoch (0 if unknown).
-fn file_mtime_ms(path: &Path) -> i64 {
-    std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+/// Cheap change-detection signature for a file: modification time **and** size.
+/// LIB-091: mtime alone misses content changes that preserve the timestamp
+/// (git checkout, restore, rsync `--times`), so we also compare size — a single
+/// extra field from the same `metadata()` call, no content hashing needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct FileSig {
+    /// Milliseconds since the Unix epoch (0 if unknown).
+    #[serde(rename = "m")]
+    mtime_ms: i64,
+    /// Size in bytes.
+    #[serde(rename = "s")]
+    size: u64,
+}
+
+/// Read a file's [`FileSig`] from one metadata stat (zeroed on error).
+fn file_sig(path: &Path) -> FileSig {
+    match std::fs::metadata(path) {
+        Ok(m) => {
+            let mtime_ms = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            FileSig {
+                mtime_ms,
+                size: m.len(),
+            }
+        }
+        Err(_) => FileSig {
+            mtime_ms: 0,
+            size: 0,
+        },
+    }
 }
 
 // ── Tantivy schema ───────────────────────────────────────────────────────────
@@ -197,6 +223,17 @@ impl SearchIndex {
         }
     }
 
+    #[cfg(test)]
+    /// Test-only constructor that backs the index with an on-disk `base_dir`, so
+    /// the incremental-manifest path (LIB-090/091/102) can be exercised.
+    fn with_base_dir(base: PathBuf) -> Self {
+        Self {
+            vaults: Arc::new(RwLock::new(HashMap::new())),
+            write_locks: Arc::new(Mutex::new(HashMap::new())),
+            base_dir: Some(base),
+        }
+    }
+
     fn writer_lock_for(&self, vault_id: &str) -> AppResult<Arc<Mutex<()>>> {
         let mut locks = self
             .write_locks
@@ -250,7 +287,7 @@ impl SearchIndex {
         // Stat-walk the vault: collect every markdown file's relative path,
         // absolute path and mtime. This reads directory metadata only; file
         // *contents* are read below, and only for new/modified files.
-        let mut current: HashMap<String, (PathBuf, i64)> = HashMap::new();
+        let mut current: HashMap<String, (PathBuf, FileSig)> = HashMap::new();
         for entry in WalkDir::new(vault_path)
             .follow_links(false)
             .into_iter()
@@ -270,23 +307,25 @@ impl SearchIndex {
                     .unwrap_or(path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                current.insert(rel, (path.to_path_buf(), file_mtime_ms(path)));
+                current.insert(rel, (path.to_path_buf(), file_sig(path)));
             }
         }
 
-        // Load the previous manifest (path → mtime). Missing/unreadable (first
-        // index, in-RAM mode, or post-upgrade) means every file is treated as
-        // new — a full rebuild — and subsequent runs become incremental.
+        // Load the previous manifest (path → signature). Missing/unreadable
+        // (first index, in-RAM mode, or post-upgrade with an old format) means
+        // every file is treated as new — a full rebuild — and subsequent runs
+        // become incremental.
         let manifest_path = self.manifest_path(vault_id);
-        let previous: HashMap<String, i64> = manifest_path
+        let previous: HashMap<String, FileSig> = manifest_path
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        let manifest_missing = previous.is_empty();
 
         let mut changed: Vec<String> = Vec::new();
-        for (rel, (_abs, mtime)) in &current {
-            if previous.get(rel) != Some(mtime) {
+        for (rel, (_abs, sig)) in &current {
+            if previous.get(rel) != Some(sig) {
                 changed.push(rel.clone());
             }
         }
@@ -297,13 +336,29 @@ impl SearchIndex {
             }
         }
 
+        // LIB-090: a missing manifest over an already-populated on-disk index
+        // means stale docs from a previous build (e.g. pre-normalization
+        // backslash-keyed paths) would otherwise linger and duplicate the
+        // freshly added forward-slash docs. Detect that and wipe first.
+        let stale_index = manifest_missing
+            && index
+                .reader()
+                .map(|r| r.searcher().num_docs() > 0)
+                .unwrap_or(false);
+
         // Only open a writer (and re-read file contents) when something actually
         // changed. Re-opening an unchanged vault skips straight to the reader,
         // turning a full re-index into a cheap directory stat walk.
-        if !changed.is_empty() || !deleted.is_empty() {
+        if !changed.is_empty() || !deleted.is_empty() || stale_index {
             let mut writer = index
                 .writer::<TantivyDocument>(50_000_000)
                 .map_err(|e| AppError::InternalError(format!("Writer error: {e}")))?;
+
+            if stale_index {
+                writer
+                    .delete_all_documents()
+                    .map_err(|e| AppError::InternalError(format!("Index wipe error: {e}")))?;
+            }
 
             for rel in &deleted {
                 writer.delete_term(Term::from_field_text(fields.path, rel.as_str()));
@@ -340,13 +395,20 @@ impl SearchIndex {
         }
 
         // Persist the new manifest (best-effort; failure never aborts indexing).
+        // LIB-102: write to a temp file then rename so a crash mid-write can't
+        // leave a truncated/corrupt manifest (rename is atomic on one volume).
         if let Some(mp) = &manifest_path {
-            let snapshot: HashMap<&str, i64> = current
+            let snapshot: HashMap<&str, FileSig> = current
                 .iter()
-                .map(|(rel, (_abs, mtime))| (rel.as_str(), *mtime))
+                .map(|(rel, (_abs, sig))| (rel.as_str(), *sig))
                 .collect();
             if let Ok(json) = serde_json::to_string(&snapshot) {
-                let _ = std::fs::write(mp, json);
+                let tmp = mp.with_extension("json.tmp");
+                if std::fs::write(&tmp, &json).is_ok() {
+                    if std::fs::rename(&tmp, mp).is_err() {
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                }
             }
         }
 
@@ -886,6 +948,41 @@ mod tests {
         let index = SearchIndex::new();
         let count = index.index_vault("test-vault", vault_path).unwrap();
         assert_eq!(count, 4);
+    }
+
+    #[test]
+    fn file_sig_tracks_size_change() {
+        // LIB-091: a size change must produce a different signature even if mtime
+        // were identical, so size-only edits are detected.
+        let temp = TempDir::new().unwrap();
+        let f = temp.path().join("n.md");
+        std::fs::write(&f, "short").unwrap();
+        let a = file_sig(&f);
+        std::fs::write(&f, "a much longer body than before").unwrap();
+        let b = file_sig(&f);
+        assert_ne!(a, b);
+        assert_ne!(a.size, b.size);
+    }
+
+    #[test]
+    fn missing_manifest_over_populated_index_does_not_duplicate() {
+        // LIB-090: deleting the manifest must wipe stale docs on the next index
+        // so re-adding the same files can't create duplicates.
+        let base = TempDir::new().unwrap();
+        let vault = TempDir::new().unwrap();
+        std::fs::write(vault.path().join("a.md"), "uniqueterm alpha").unwrap();
+        let vault_path = vault.path().to_str().unwrap();
+
+        let index = SearchIndex::with_base_dir(base.path().to_path_buf());
+        index.index_vault("v1", vault_path).unwrap();
+        let before = index.search("v1", "uniqueterm", 1, 10).unwrap().results.len();
+        assert_eq!(before, 1);
+
+        // Simulate a post-upgrade run: manifest gone but index dir populated.
+        std::fs::remove_file(base.path().join("v1").join(".index_manifest.json")).unwrap();
+        index.index_vault("v1", vault_path).unwrap();
+        let after = index.search("v1", "uniqueterm", 1, 10).unwrap().results.len();
+        assert_eq!(after, 1, "stale index not wiped -> duplicate results");
     }
 
     #[test]
