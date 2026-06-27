@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="540" @update:model-value="emit('update:modelValue', $event)">
-    <v-card>
+    <v-card @keydown="onKeydown">
       <v-card-title class="text-subtitle-1 d-flex align-center">
         <v-icon icon="mdi-folder-move-outline" size="small" class="mr-2" />
         Move {{ sourceLabel }}
@@ -18,7 +18,12 @@
           autofocus
           class="mb-2"
         />
-        <div class="folder-list">
+        <div
+          ref="folderListEl"
+          class="folder-list"
+          tabindex="0"
+          @focus="onListFocus"
+        >
           <div
             v-for="folder in visibleFolders"
             :key="folder.path"
@@ -71,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import type { FileNode } from '@/api/types';
 import { ApiError } from '@/api/client';
 import { useFilesStore } from '@/stores/files';
@@ -94,6 +99,7 @@ const error = ref('');
 // Paths of folders whose children are shown. The vault root ('') starts open so
 // top-level folders are visible immediately (LIB-105).
 const expanded = ref<Set<string>>(new Set(['']));
+const folderListEl = ref<HTMLElement | null>(null);
 
 // Reset state each time the dialog opens.
 watch(
@@ -108,11 +114,108 @@ watch(
   },
 );
 
+// Changing the filter resets the highlight so ArrowDown lands on the first match.
+watch(filter, () => {
+  selected.value = null;
+});
+
 function toggleExpand(path: string) {
   const next = new Set(expanded.value);
   if (next.has(path)) next.delete(path);
   else next.add(path);
   expanded.value = next;
+}
+
+// ── Keyboard navigation (LIB-107) ──────────────────────────────────────────
+function scrollSelectedIntoView() {
+  void nextTick(() => {
+    folderListEl.value
+      ?.querySelector('.folder-row.selected')
+      ?.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function selectEdge(fromStart: boolean) {
+  const enabled = visibleFolders.value.filter((f) => !f.disabled);
+  const target = fromStart ? enabled[0] : enabled[enabled.length - 1];
+  if (target) {
+    selected.value = target.path;
+    scrollSelectedIntoView();
+  }
+}
+
+// Move the highlight to the next/prev enabled row, skipping disabled rows and
+// clamping at the ends (no wraparound).
+function moveSelection(delta: number) {
+  const rows = visibleFolders.value;
+  if (!rows.length) return;
+  const cur = rows.findIndex((f) => f.path === selected.value);
+  const start = cur === -1 ? (delta > 0 ? -1 : rows.length) : cur;
+  for (let i = start + delta; i >= 0 && i < rows.length; i += delta) {
+    if (!rows[i].disabled) {
+      selected.value = rows[i].path;
+      scrollSelectedIntoView();
+      return;
+    }
+  }
+}
+
+function currentRow() {
+  return visibleFolders.value.find((f) => f.path === selected.value);
+}
+
+function onListFocus() {
+  if (selected.value === null) selectEdge(true);
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (!visibleFolders.value.length) return;
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      if (selected.value === null) selectEdge(true);
+      else moveSelection(1);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (selected.value === null) selectEdge(false);
+      else moveSelection(-1);
+      break;
+    case 'ArrowRight': {
+      // Expand a collapsed folder (filtering shows a flat list, so no-op there).
+      const row = currentRow();
+      if (row?.hasChildren && !row.expanded) {
+        e.preventDefault();
+        toggleExpand(row.path);
+      }
+      break;
+    }
+    case 'ArrowLeft': {
+      const row = currentRow();
+      if (!row) break;
+      if (row.expanded) {
+        e.preventDefault();
+        toggleExpand(row.path);
+      } else if (row.path !== '') {
+        // Jump to the parent folder.
+        const parent = row.path.includes('/')
+          ? row.path.slice(0, row.path.lastIndexOf('/'))
+          : '';
+        if (visibleFolders.value.some((f) => f.path === parent && !f.disabled)) {
+          e.preventDefault();
+          selected.value = parent;
+          scrollSelectedIntoView();
+        }
+      }
+      break;
+    }
+    case 'Enter': {
+      e.preventDefault();
+      const row = currentRow();
+      if (row && !row.disabled) void doMove();
+      break;
+    }
+  }
 }
 
 const sourceLabel = computed(() => {
@@ -275,6 +378,13 @@ async function doMove() {
   overflow-y: auto;
   border: 1px solid rgba(var(--v-theme-border), 1);
   border-radius: 8px;
+}
+.folder-list:focus {
+  outline: none;
+}
+.folder-list:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.5);
+  outline-offset: -1px;
 }
 .folder-row {
   cursor: pointer;
