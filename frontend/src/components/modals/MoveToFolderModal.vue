@@ -1,6 +1,6 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="540" @update:model-value="emit('update:modelValue', $event)">
-    <v-card>
+    <v-card @keydown="onKeydown">
       <v-card-title class="text-subtitle-1 d-flex align-center">
         <v-icon icon="mdi-folder-move-outline" size="small" class="mr-2" />
         Move {{ sourceLabel }}
@@ -15,9 +15,15 @@
           prepend-inner-icon="mdi-magnify"
           hide-details
           clearable
+          autofocus
           class="mb-2"
         />
-        <div class="folder-list">
+        <div
+          ref="folderListEl"
+          class="folder-list"
+          tabindex="0"
+          @focus="onListFocus"
+        >
           <div
             v-for="folder in visibleFolders"
             :key="folder.path"
@@ -27,6 +33,15 @@
             :title="folder.disabled ? 'Not a valid destination' : folder.path || '(vault root)'"
             @click="!folder.disabled && (selected = folder.path)"
           >
+            <v-icon
+              v-if="folder.hasChildren"
+              :icon="folder.expanded ? 'mdi-chevron-down' : 'mdi-chevron-right'"
+              size="16"
+              class="flex-shrink-0 chevron"
+              color="secondary"
+              @click.stop="toggleExpand(folder.path)"
+            />
+            <span v-else class="chevron-spacer flex-shrink-0" />
             <v-icon
               :icon="folder.path === '' ? 'mdi-folder-home-outline' : 'mdi-folder-outline'"
               size="16"
@@ -61,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import type { FileNode } from '@/api/types';
 import { ApiError } from '@/api/client';
 import { useFilesStore } from '@/stores/files';
@@ -81,6 +96,10 @@ const filter = ref('');
 const selected = ref<string | null>(null);
 const moving = ref(false);
 const error = ref('');
+// Paths of folders whose children are shown. The vault root ('') starts open so
+// top-level folders are visible immediately (LIB-105).
+const expanded = ref<Set<string>>(new Set(['']));
+const folderListEl = ref<HTMLElement | null>(null);
 
 // Reset state each time the dialog opens.
 watch(
@@ -90,9 +109,114 @@ watch(
       filter.value = '';
       selected.value = null;
       error.value = '';
+      expanded.value = new Set(['']);
     }
   },
 );
+
+// Changing the filter resets the highlight so ArrowDown lands on the first match.
+watch(filter, () => {
+  selected.value = null;
+});
+
+function toggleExpand(path: string) {
+  const next = new Set(expanded.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  expanded.value = next;
+}
+
+// ── Keyboard navigation (LIB-107) ──────────────────────────────────────────
+function scrollSelectedIntoView() {
+  void nextTick(() => {
+    folderListEl.value
+      ?.querySelector('.folder-row.selected')
+      ?.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function selectEdge(fromStart: boolean) {
+  const enabled = visibleFolders.value.filter((f) => !f.disabled);
+  const target = fromStart ? enabled[0] : enabled[enabled.length - 1];
+  if (target) {
+    selected.value = target.path;
+    scrollSelectedIntoView();
+  }
+}
+
+// Move the highlight to the next/prev enabled row, skipping disabled rows and
+// clamping at the ends (no wraparound).
+function moveSelection(delta: number) {
+  const rows = visibleFolders.value;
+  if (!rows.length) return;
+  const cur = rows.findIndex((f) => f.path === selected.value);
+  const start = cur === -1 ? (delta > 0 ? -1 : rows.length) : cur;
+  for (let i = start + delta; i >= 0 && i < rows.length; i += delta) {
+    if (!rows[i].disabled) {
+      selected.value = rows[i].path;
+      scrollSelectedIntoView();
+      return;
+    }
+  }
+}
+
+function currentRow() {
+  return visibleFolders.value.find((f) => f.path === selected.value);
+}
+
+function onListFocus() {
+  if (selected.value === null) selectEdge(true);
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (!visibleFolders.value.length) return;
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      if (selected.value === null) selectEdge(true);
+      else moveSelection(1);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (selected.value === null) selectEdge(false);
+      else moveSelection(-1);
+      break;
+    case 'ArrowRight': {
+      // Expand a collapsed folder (filtering shows a flat list, so no-op there).
+      const row = currentRow();
+      if (row?.hasChildren && !row.expanded) {
+        e.preventDefault();
+        toggleExpand(row.path);
+      }
+      break;
+    }
+    case 'ArrowLeft': {
+      const row = currentRow();
+      if (!row) break;
+      if (row.expanded) {
+        e.preventDefault();
+        toggleExpand(row.path);
+      } else if (row.path !== '') {
+        // Jump to the parent folder.
+        const parent = row.path.includes('/')
+          ? row.path.slice(0, row.path.lastIndexOf('/'))
+          : '';
+        if (visibleFolders.value.some((f) => f.path === parent && !f.disabled)) {
+          e.preventDefault();
+          selected.value = parent;
+          scrollSelectedIntoView();
+        }
+      }
+      break;
+    }
+    case 'Enter': {
+      e.preventDefault();
+      const row = currentRow();
+      if (row && !row.disabled) void doMove();
+      break;
+    }
+  }
+}
 
 const sourceLabel = computed(() => {
   if (props.sourcePaths.length === 1) {
@@ -107,38 +231,80 @@ interface FolderRow {
   label: string;
   depth: number;
   disabled: boolean;
+  hasChildren: boolean;
+  expanded: boolean;
 }
 
-// Flatten the vault's directory tree (plus the vault root) into an indented list.
-const allFolders = computed<FolderRow[]>(() => {
-  const rows: FolderRow[] = [
-    { path: '', label: '/ (vault root)', depth: 0, disabled: isInvalidDest('') },
-  ];
+// Sorted directory children of a node list.
+function dirChildren(nodes: FileNode[]): FileNode[] {
+  return [...nodes]
+    .filter((n) => n.is_directory)
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+}
+
+// Tree view (no active filter): the vault root plus each folder's children only
+// when that folder is expanded, so the list is navigable rather than fully
+// flattened (LIB-105).
+const treeRows = computed<FolderRow[]>(() => {
+  const rows: FolderRow[] = [];
+  const rootDirs = dirChildren(filesStore.tree);
+  rows.push({
+    path: '',
+    label: '/ (vault root)',
+    depth: 0,
+    disabled: isInvalidDest(''),
+    hasChildren: rootDirs.length > 0,
+    expanded: expanded.value.has(''),
+  });
   const walk = (nodes: FileNode[], depth: number) => {
-    const dirs = [...nodes]
-      .filter((n) => n.is_directory)
-      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    for (const dir of dirs) {
+    for (const dir of dirChildren(nodes)) {
+      const kids = dir.children ? dirChildren(dir.children) : [];
       rows.push({
         path: dir.path,
         label: dir.name,
-        depth: depth + 1,
+        depth,
         disabled: isInvalidDest(dir.path),
+        hasChildren: kids.length > 0,
+        expanded: expanded.value.has(dir.path),
       });
-      if (dir.children) walk(dir.children, depth + 1);
+      if (expanded.value.has(dir.path) && dir.children) walk(dir.children, depth + 1);
     }
   };
-  walk(filesStore.tree, 0);
+  if (expanded.value.has('')) walk(filesStore.tree, 1);
   return rows;
 });
 
-const visibleFolders = computed(() => {
+// Filtered view: a flat list of every matching folder shown with its full path
+// for context (expansion state is irrelevant while searching).
+const filteredRows = computed<FolderRow[]>(() => {
   const q = filter.value.trim().toLowerCase();
-  if (!q) return allFolders.value;
-  return allFolders.value.filter(
-    (f) => f.label.toLowerCase().includes(q) || f.path.toLowerCase().includes(q),
-  );
+  const rows: FolderRow[] = [];
+  const consider = (path: string, label: string) => {
+    if (label.toLowerCase().includes(q) || path.toLowerCase().includes(q)) {
+      rows.push({
+        path,
+        label,
+        depth: 0,
+        disabled: isInvalidDest(path),
+        hasChildren: false,
+        expanded: false,
+      });
+    }
+  };
+  consider('', '/ (vault root)');
+  const walk = (nodes: FileNode[]) => {
+    for (const dir of dirChildren(nodes)) {
+      consider(dir.path, dir.path);
+      if (dir.children) walk(dir.children);
+    }
+  };
+  walk(filesStore.tree);
+  return rows;
 });
+
+const visibleFolders = computed(() =>
+  filter.value.trim() ? filteredRows.value : treeRows.value,
+);
 
 // A destination is invalid if it IS a source or a descendant of one (you can't
 // move a folder into itself or its own subtree).
@@ -213,6 +379,13 @@ async function doMove() {
   border: 1px solid rgba(var(--v-theme-border), 1);
   border-radius: 8px;
 }
+.folder-list:focus {
+  outline: none;
+}
+.folder-list:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.5);
+  outline-offset: -1px;
+}
 .folder-row {
   cursor: pointer;
   user-select: none;
@@ -228,5 +401,16 @@ async function doMove() {
 .folder-row.disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+.chevron {
+  cursor: pointer;
+}
+.chevron:hover {
+  color: rgb(var(--v-theme-primary)) !important;
+}
+/* Keep folder icons aligned whether or not a row has a chevron. */
+.chevron-spacer {
+  display: inline-block;
+  width: 16px;
 }
 </style>
