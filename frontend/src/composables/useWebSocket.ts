@@ -150,11 +150,22 @@ async function connect() {
     ws = new WebSocket(wsUrl.toString());
 
     ws.addEventListener('open', () => {
+        const wasReconnect = reconnectAttempts > 0;
         connected.value = true;
         reconnectAttempts = 0;
         if (reconnectTimer !== null) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
+        }
+
+        // LIB-095: events (IndexingStatus start/stop, FileChanged) emitted during
+        // the outage were missed, so the indexing indicator and file tree may be
+        // stale. On reconnect, clear indexing state (LIB-094) and refresh the
+        // active vault's tree to reconcile.
+        if (wasReconnect) {
+            useIndexingStore().reset();
+            const vaultsStore = useVaultsStore();
+            if (vaultsStore.activeVaultId) scheduleTreeReload(vaultsStore.activeVaultId);
         }
     });
 

@@ -348,12 +348,20 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     let ws_batch = ws_tx.clone();
     tokio::spawn(async move {
         while let Some(first_event) = change_rx.recv().await {
-            // Drain all queued events so we can batch search-index commits.
+            // Drain queued events so we can batch search-index commits.
             // A single Tantivy commit covers all docs added in one writer session;
             // without batching, 100 uploads produce 100 separate fsyncs.
+            // LIB-100: cap the drain so a sustained high event rate can't grow
+            // `events` without bound (and bloat memory / one over-long commit).
+            // Anything beyond the cap stays queued and is handled by the next
+            // outer-loop iteration.
+            const MAX_BATCH: usize = 512;
             let mut events = vec![first_event];
-            while let Ok(next) = change_rx.try_recv() {
-                events.push(next);
+            while events.len() < MAX_BATCH {
+                match change_rx.try_recv() {
+                    Ok(next) => events.push(next),
+                    Err(_) => break,
+                }
             }
 
             if events.len() > 1 {
@@ -415,6 +423,12 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
             // (e.g. a bulk import of hundreds of files) is spread over time and
             // the OS disk scheduler can interleave foreground work, rather than
             // hammering SQLite in one uninterruptible loop.
+            // LIB-097 (accepted tradeoff): the pause defers the `FileChanged` WS
+            // broadcast + entity write for events *after* each throttle point —
+            // up to ~`(len/EVERY) * PAUSE_MS` of added latency for the last event
+            // in a very large batch. This is intentional: correctness is
+            // unaffected (search index already committed in step 1), and the lag
+            // only applies to bulk bursts, not interactive single edits.
             const REINDEX_THROTTLE_EVERY: usize = 40;
             const REINDEX_THROTTLE_PAUSE_MS: u64 = 25;
             for (event_idx, change_event) in events.iter().enumerate() {

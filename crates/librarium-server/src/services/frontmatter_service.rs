@@ -128,6 +128,23 @@ Some content here"#;
     }
 
     #[test]
+    fn frontmatter_preserves_key_order_on_roundtrip() {
+        // LIB-085: keys are deliberately NOT alphabetical. With serde_json's
+        // `preserve_order` feature, parse->serialize must keep document order
+        // rather than sorting (title, zeta, author, aaa).
+        let content = "---\ntitle: My Note\nzeta: 1\nauthor: cyrex\naaa: last\n---\nbody\n";
+        let (fm, body) = parse_frontmatter(content).unwrap();
+        let out = serialize_frontmatter(fm.as_ref(), &body).unwrap();
+
+        let order: Vec<&str> = out
+            .lines()
+            .filter_map(|l| l.split(':').next())
+            .filter(|k| ["title", "zeta", "author", "aaa"].contains(k))
+            .collect();
+        assert_eq!(order, vec!["title", "zeta", "author", "aaa"]);
+    }
+
+    #[test]
     fn test_no_frontmatter() {
         let content = "# Just a heading\n\nNo frontmatter here";
         let (frontmatter, remaining) = parse_frontmatter(content).unwrap();

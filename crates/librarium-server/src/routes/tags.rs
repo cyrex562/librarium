@@ -185,19 +185,78 @@ async fn delete_tag(
     }
     let dry_run = query.dry_run;
 
+    // Shared undo group: each rewritten file gets a snapshot receipt so the
+    // whole vault-wide delete can be reverted together.
+    let group_id = Uuid::new_v4().to_string();
+
+    // LIB-098: the vault-wide walk + rewrite is synchronous FS/CPU work; run it
+    // on the blocking threadpool so it never stalls the async worker that's
+    // also serving other requests.
+    let vault_path = vault.path.clone();
+    let scan_tag = tag.clone();
+    let result = web::block(move || scan_and_rewrite_tag(vault_path, &scan_tag, dry_run))
+        .await
+        .map_err(|e| AppError::InternalError(format!("delete-tag task panicked: {e}")))??;
+
+    // Persist undo snapshots (DB writes belong on the async side, not the block).
+    if !dry_run {
+        for (rel, raw) in &result.receipts {
+            let receipt = MlUndoReceipt {
+                receipt_id: Uuid::new_v4().to_string(),
+                vault_id: vault_id.clone(),
+                file_path: rel.clone(),
+                description: format!("Delete tag '#{tag}'"),
+                reverse_action: ReverseAction::RestoreContent {
+                    content: raw.clone(),
+                },
+                applied_at: Utc::now(),
+                group_id: Some(group_id.clone()),
+            };
+            let _ = state.db.save_ml_undo_receipt(&receipt).await;
+        }
+    }
+
+    Ok(HttpResponse::Ok().json(json!({
+        "tag": tag,
+        "dry_run": dry_run,
+        "count": result.affected.len(),
+        "files_modified": result.files_modified,
+        "files": result.affected,
+        "group_id": (!dry_run && result.files_modified > 0).then(|| group_id.clone()),
+    })))
+}
+
+/// Result of a vault-wide tag-delete scan (see [`scan_and_rewrite_tag`]).
+struct TagRewrite {
+    files_modified: usize,
+    /// Vault-relative paths that changed (or would change, in dry-run).
+    affected: Vec<String>,
+    /// `(rel_path, pre-delete raw content)` per written file, for undo snapshots.
+    receipts: Vec<(String, String)>,
+}
+
+/// Walk every `.md` file under `vault_path`, removing `tag` from frontmatter and
+/// inline `#tag` occurrences. Returns the change set without persisting undo
+/// receipts (the caller does that). Synchronous by design — invoked via
+/// `web::block` so the heavy FS/CPU work stays off the async worker (LIB-098).
+fn scan_and_rewrite_tag<P: AsRef<std::path::Path>>(
+    vault_path: P,
+    tag: &str,
+    dry_run: bool,
+) -> AppResult<TagRewrite> {
+    let vault_path = vault_path.as_ref();
+
     // Require a start-of-text/whitespace boundary before `#` so we never touch
     // `page#section` URL fragments, `#define`-style content, etc. The full tag
     // token is captured so deleting `#foo` leaves `#foobar` alone.
     let inline_re = Regex::new(r"(^|\s)#([A-Za-z0-9_-]+)")
         .map_err(|e| AppError::InternalError(format!("tag regex error: {e}")))?;
-    let mut files_modified = 0usize;
-    // Vault-relative paths of files that changed (or would change, in dry-run).
-    let mut affected: Vec<String> = Vec::new();
-    // Shared undo group: each rewritten file gets a snapshot receipt so the
-    // whole vault-wide delete can be reverted together.
-    let group_id = Uuid::new_v4().to_string();
 
-    for entry in WalkDir::new(&vault.path)
+    let mut files_modified = 0usize;
+    let mut affected: Vec<String> = Vec::new();
+    let mut receipts: Vec<(String, String)> = Vec::new();
+
+    for entry in WalkDir::new(vault_path)
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -218,7 +277,7 @@ async fn delete_tag(
 
         if !frontmatter_service::extract_tags(fm.as_ref(), &body)
             .iter()
-            .any(|t| t == &tag)
+            .any(|t| t == tag)
         {
             continue;
         }
@@ -226,7 +285,7 @@ async fn delete_tag(
         // Drop the tag from frontmatter `tags`, tracking whether it changed.
         let mut changed = false;
         let new_fm = fm.map(|mut v| {
-            if remove_tag_from_frontmatter(&mut v, &tag) {
+            if remove_tag_from_frontmatter(&mut v, tag) {
                 changed = true;
             }
             v
@@ -234,7 +293,7 @@ async fn delete_tag(
 
         // Drop exact inline `#tag` occurrences outside code (fenced + inline),
         // collapsing the leading whitespace and leaving other tags untouched.
-        let new_body = remove_inline_tag(&body, &tag, &inline_re);
+        let new_body = remove_inline_tag(&body, tag, &inline_re);
         if new_body != body {
             changed = true;
         }
@@ -247,7 +306,7 @@ async fn delete_tag(
 
         let rel = entry
             .path()
-            .strip_prefix(&vault.path)
+            .strip_prefix(vault_path)
             .unwrap_or(entry.path())
             .to_string_lossy()
             .trim_start_matches(['/', '\\'])
@@ -262,28 +321,15 @@ async fn delete_tag(
             frontmatter_service::serialize_frontmatter(new_fm.as_ref(), &new_body)?;
         if std::fs::write(entry.path(), new_content).is_ok() {
             files_modified += 1;
-            // Snapshot the pre-delete content so the operation can be undone.
-            let receipt = MlUndoReceipt {
-                receipt_id: Uuid::new_v4().to_string(),
-                vault_id: vault_id.clone(),
-                file_path: rel,
-                description: format!("Delete tag '#{tag}'"),
-                reverse_action: ReverseAction::RestoreContent { content: raw },
-                applied_at: Utc::now(),
-                group_id: Some(group_id.clone()),
-            };
-            let _ = state.db.save_ml_undo_receipt(&receipt).await;
+            receipts.push((rel, raw));
         }
     }
 
-    Ok(HttpResponse::Ok().json(json!({
-        "tag": tag,
-        "dry_run": dry_run,
-        "count": affected.len(),
-        "files_modified": files_modified,
-        "files": affected,
-        "group_id": (!dry_run && files_modified > 0).then(|| group_id.clone()),
-    })))
+    Ok(TagRewrite {
+        files_modified,
+        affected,
+        receipts,
+    })
 }
 
 /// Remove `tag` from a frontmatter object's `tags` field (array or scalar).
@@ -296,7 +342,13 @@ fn remove_tag_from_frontmatter(fm: &mut serde_json::Value, tag: &str) -> bool {
         Some(serde_json::Value::Array(arr)) => {
             let before = arr.len();
             arr.retain(|v| v.as_str() != Some(tag));
-            arr.len() != before
+            let changed = arr.len() != before;
+            // LIB-099: don't leave a dangling `tags: []` when the last entry is
+            // removed — drop the key entirely, matching the scalar case.
+            if arr.is_empty() {
+                obj.remove("tags");
+            }
+            changed
         }
         Some(serde_json::Value::String(s)) if s == tag => {
             obj.remove("tags");
@@ -427,5 +479,15 @@ mod tests {
 
         let mut absent = serde_json::json!({ "tags": ["a"] });
         assert!(!remove_tag_from_frontmatter(&mut absent, "foo"));
+    }
+
+    #[test]
+    fn frontmatter_removes_empty_tags_key() {
+        // LIB-099: removing the last array entry drops the `tags` key entirely
+        // rather than leaving a dangling `tags: []`.
+        let mut only = serde_json::json!({ "tags": ["foo"], "title": "x" });
+        assert!(remove_tag_from_frontmatter(&mut only, "foo"));
+        assert!(only.get("tags").is_none(), "empty tags array should be dropped");
+        assert_eq!(only["title"], "x");
     }
 }

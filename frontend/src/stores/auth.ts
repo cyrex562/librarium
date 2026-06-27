@@ -8,7 +8,12 @@ const EXPIRES_AT_KEY = 'obsidian_token_expires_at';
 const PENDING_TOTP_KEY = 'obsidian_pending_totp';
 // Legacy key: the refresh token now lives in an HttpOnly cookie and is never
 // persisted in localStorage. Purge any token left over from older versions.
-localStorage.removeItem('obsidian_refresh_token');
+// Guarded so a partial/absent localStorage (test env, SSR) can't throw at import.
+try {
+    localStorage.removeItem('obsidian_refresh_token');
+} catch {
+    /* no-op */
+}
 
 export const useAuthStore = defineStore('auth', () => {
     const accessToken = ref<string | null>(localStorage.getItem(ACCESS_TOKEN_KEY));
