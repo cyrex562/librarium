@@ -28,6 +28,15 @@
             @click="!folder.disabled && (selected = folder.path)"
           >
             <v-icon
+              v-if="folder.hasChildren"
+              :icon="folder.expanded ? 'mdi-chevron-down' : 'mdi-chevron-right'"
+              size="16"
+              class="flex-shrink-0 chevron"
+              color="secondary"
+              @click.stop="toggleExpand(folder.path)"
+            />
+            <span v-else class="chevron-spacer flex-shrink-0" />
+            <v-icon
               :icon="folder.path === '' ? 'mdi-folder-home-outline' : 'mdi-folder-outline'"
               size="16"
               class="mr-1 flex-shrink-0"
@@ -81,6 +90,9 @@ const filter = ref('');
 const selected = ref<string | null>(null);
 const moving = ref(false);
 const error = ref('');
+// Paths of folders whose children are shown. The vault root ('') starts open so
+// top-level folders are visible immediately (LIB-105).
+const expanded = ref<Set<string>>(new Set(['']));
 
 // Reset state each time the dialog opens.
 watch(
@@ -90,9 +102,17 @@ watch(
       filter.value = '';
       selected.value = null;
       error.value = '';
+      expanded.value = new Set(['']);
     }
   },
 );
+
+function toggleExpand(path: string) {
+  const next = new Set(expanded.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  expanded.value = next;
+}
 
 const sourceLabel = computed(() => {
   if (props.sourcePaths.length === 1) {
@@ -107,38 +127,80 @@ interface FolderRow {
   label: string;
   depth: number;
   disabled: boolean;
+  hasChildren: boolean;
+  expanded: boolean;
 }
 
-// Flatten the vault's directory tree (plus the vault root) into an indented list.
-const allFolders = computed<FolderRow[]>(() => {
-  const rows: FolderRow[] = [
-    { path: '', label: '/ (vault root)', depth: 0, disabled: isInvalidDest('') },
-  ];
+// Sorted directory children of a node list.
+function dirChildren(nodes: FileNode[]): FileNode[] {
+  return [...nodes]
+    .filter((n) => n.is_directory)
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+}
+
+// Tree view (no active filter): the vault root plus each folder's children only
+// when that folder is expanded, so the list is navigable rather than fully
+// flattened (LIB-105).
+const treeRows = computed<FolderRow[]>(() => {
+  const rows: FolderRow[] = [];
+  const rootDirs = dirChildren(filesStore.tree);
+  rows.push({
+    path: '',
+    label: '/ (vault root)',
+    depth: 0,
+    disabled: isInvalidDest(''),
+    hasChildren: rootDirs.length > 0,
+    expanded: expanded.value.has(''),
+  });
   const walk = (nodes: FileNode[], depth: number) => {
-    const dirs = [...nodes]
-      .filter((n) => n.is_directory)
-      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    for (const dir of dirs) {
+    for (const dir of dirChildren(nodes)) {
+      const kids = dir.children ? dirChildren(dir.children) : [];
       rows.push({
         path: dir.path,
         label: dir.name,
-        depth: depth + 1,
+        depth,
         disabled: isInvalidDest(dir.path),
+        hasChildren: kids.length > 0,
+        expanded: expanded.value.has(dir.path),
       });
-      if (dir.children) walk(dir.children, depth + 1);
+      if (expanded.value.has(dir.path) && dir.children) walk(dir.children, depth + 1);
     }
   };
-  walk(filesStore.tree, 0);
+  if (expanded.value.has('')) walk(filesStore.tree, 1);
   return rows;
 });
 
-const visibleFolders = computed(() => {
+// Filtered view: a flat list of every matching folder shown with its full path
+// for context (expansion state is irrelevant while searching).
+const filteredRows = computed<FolderRow[]>(() => {
   const q = filter.value.trim().toLowerCase();
-  if (!q) return allFolders.value;
-  return allFolders.value.filter(
-    (f) => f.label.toLowerCase().includes(q) || f.path.toLowerCase().includes(q),
-  );
+  const rows: FolderRow[] = [];
+  const consider = (path: string, label: string) => {
+    if (label.toLowerCase().includes(q) || path.toLowerCase().includes(q)) {
+      rows.push({
+        path,
+        label,
+        depth: 0,
+        disabled: isInvalidDest(path),
+        hasChildren: false,
+        expanded: false,
+      });
+    }
+  };
+  consider('', '/ (vault root)');
+  const walk = (nodes: FileNode[]) => {
+    for (const dir of dirChildren(nodes)) {
+      consider(dir.path, dir.path);
+      if (dir.children) walk(dir.children);
+    }
+  };
+  walk(filesStore.tree);
+  return rows;
 });
+
+const visibleFolders = computed(() =>
+  filter.value.trim() ? filteredRows.value : treeRows.value,
+);
 
 // A destination is invalid if it IS a source or a descendant of one (you can't
 // move a folder into itself or its own subtree).
@@ -228,5 +290,16 @@ async function doMove() {
 .folder-row.disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+.chevron {
+  cursor: pointer;
+}
+.chevron:hover {
+  color: rgb(var(--v-theme-primary)) !important;
+}
+/* Keep folder icons aligned whether or not a row has a chevron. */
+.chevron-spacer {
+  display: inline-block;
+  width: 16px;
 }
 </style>
