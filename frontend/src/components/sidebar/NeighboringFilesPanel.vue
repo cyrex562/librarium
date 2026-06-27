@@ -15,6 +15,7 @@
           class="neighbor-item d-flex align-center px-2 py-1 text-caption"
           :title="prev"
           @click="openFile(prev)"
+          @contextmenu.prevent="openMenu($event, prev)"
         >
           <v-icon icon="mdi-arrow-up" size="x-small" class="mr-1 flex-shrink-0" color="secondary" />
           <span class="text-truncate">{{ fileName(prev) }}</span>
@@ -24,6 +25,7 @@
           class="neighbor-item d-flex align-center px-2 py-1 text-caption"
           :title="next"
           @click="openFile(next)"
+          @contextmenu.prevent="openMenu($event, next)"
         >
           <v-icon icon="mdi-arrow-down" size="x-small" class="mr-1 flex-shrink-0" color="secondary" />
           <span class="text-truncate">{{ fileName(next) }}</span>
@@ -33,6 +35,15 @@
         No previous or next markdown file.
       </div>
     </div>
+
+    <v-menu v-model="menuOpen" :target="menuTarget" location="end">
+      <v-list density="compact">
+        <v-list-item base-color="error" @click="onDelete">
+          <template #prepend><v-icon icon="mdi-delete-outline" size="small" /></template>
+          <v-list-item-title class="text-caption">Delete note</v-list-item-title>
+        </v-list-item>
+      </v-list>
+    </v-menu>
   </div>
 </template>
 
@@ -40,6 +51,7 @@
 import { ref, computed } from 'vue';
 import { useFilesStore } from '@/stores/files';
 import { useTabsStore } from '@/stores/tabs';
+import { useDeleteNote } from '@/composables/useDeleteNote';
 import type { FileNode } from '@/api/types';
 
 const props = defineProps<{ filePath: string }>();
@@ -47,6 +59,22 @@ const props = defineProps<{ filePath: string }>();
 const expanded = ref(true);
 const filesStore = useFilesStore();
 const tabsStore = useTabsStore();
+const { deleteNote } = useDeleteNote();
+
+const menuOpen = ref(false);
+const menuTarget = ref<[number, number]>([0, 0]);
+const menuPath = ref('');
+
+function openMenu(e: MouseEvent, path: string) {
+  menuPath.value = path;
+  menuTarget.value = [e.clientX, e.clientY];
+  menuOpen.value = true;
+}
+
+async function onDelete() {
+  menuOpen.value = false;
+  if (menuPath.value) await deleteNote(menuPath.value);
+}
 
 function flattenTree(nodes: FileNode[]): string[] {
   const result: string[] = [];

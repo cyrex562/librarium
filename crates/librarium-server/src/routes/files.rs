@@ -563,6 +563,10 @@ async fn upload_files(
     let vault = state.db.get_vault(&vault_id).await?;
 
     let mut uploaded_files = Vec::new();
+    // Markdown files to index, collected during the upload loop so the whole
+    // batch is committed to the search index in a single fsync at the end
+    // instead of one commit per file (LIB: bulk-upload perf).
+    let mut md_batch: Vec<(String, String)> = Vec::new();
     let max_file_size = 100 * 1024 * 1024; // 100MB limit
     let mut requested_target_path = String::new();
 
@@ -621,12 +625,11 @@ async fn upload_files(
             &filename,
         )?;
 
-        // Update search index if it's a markdown file
+        // Defer indexing: queue markdown content for a single batched commit
+        // after all files in this request are written.
         if final_path_str.ends_with(".md") {
             if let Ok(content) = FileService::read_file(&vault.path, &final_path_str) {
-                state
-                    .search_index
-                    .update_file(&vault_id, &final_path_str, content.content)?;
+                md_batch.push((final_path_str.clone(), content.content));
             }
         }
 
@@ -635,6 +638,13 @@ async fn upload_files(
             "size": total_size,
             "filename": filename,
         }));
+    }
+
+    // One batched search-index commit for the whole upload.
+    if !md_batch.is_empty() {
+        if let Err(e) = state.search_index.update_files_batch(&vault_id, &md_batch) {
+            tracing::warn!("Batch search-index update failed after upload: {e}");
+        }
     }
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
@@ -1192,14 +1202,12 @@ async fn finish_upload_session(
         &effective_filename,
     )?;
 
-    // Update index if markdown
-    if final_path_str.ends_with(".md") {
-        if let Ok(content) = FileService::read_file(&vault.path, &final_path_str) {
-            state
-                .search_index
-                .update_file(&vault_id, &final_path_str, content.content)?;
-        }
-    }
+    // Indexing is intentionally NOT done here. This endpoint is called once per
+    // file by the bulk importer, so committing the search index inline would
+    // serialize every upload on the per-vault writer lock (one fsync each).
+    // Instead the file watcher picks up the newly written file and indexes it
+    // in the background, batching many uploads into a single commit. See the
+    // change-event loop in `librarium::run`.
 
     Ok(HttpResponse::Created().json(serde_json::json!({
         "path": final_path_str,
@@ -1358,7 +1366,7 @@ async fn import_archive(
                 .strip_prefix(&vault.path)
                 .unwrap_or(&final_dest)
                 .to_string_lossy()
-                .to_string();
+                .replace('\\', "/");
             extracted.push(relative);
         }
     } else {
@@ -1444,19 +1452,25 @@ async fn import_archive(
                 .strip_prefix(&vault.path)
                 .unwrap_or(&final_dest)
                 .to_string_lossy()
-                .to_string();
+                .replace('\\', "/");
             extracted.push(relative);
         }
     }
 
-    // Refresh search index for any markdown files extracted.
-    for path in &extracted {
-        if path.ends_with(".md") {
-            if let Ok(content) = FileService::read_file(&vault.path, path) {
-                let _ = state
-                    .search_index
-                    .update_file(&vault_id, path, content.content);
-            }
+    // Refresh search index for any markdown files extracted — one batched
+    // commit (single fsync) instead of one per file (LIB: bulk-upload perf).
+    let md_batch: Vec<(String, String)> = extracted
+        .iter()
+        .filter(|p| p.ends_with(".md"))
+        .filter_map(|p| {
+            FileService::read_file(&vault.path, p)
+                .ok()
+                .map(|c| (p.clone(), c.content))
+        })
+        .collect();
+    if !md_batch.is_empty() {
+        if let Err(e) = state.search_index.update_files_batch(&vault_id, &md_batch) {
+            tracing::warn!("Batch search-index update failed after archive import: {e}");
         }
     }
 

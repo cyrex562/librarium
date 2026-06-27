@@ -379,11 +379,18 @@ export interface UndoMlActionResponse {
     undone_count?: number;
 }
 
+export interface FolderCandidate {
+    path: string;
+    is_new: boolean;
+    confidence: number;
+}
+
 export interface OrganizationPlanRow {
     file_path: string;
     suggested_tags: string[];
     suggested_name?: string;
     target_folder?: string;
+    folder_candidates?: FolderCandidate[];
     cluster?: string;
     confidence: number;
 }
@@ -626,6 +633,7 @@ export type WsMessage =
     | { type: 'FileChanged'; vault_id: string; path: string; event_type: FileChangeType; etag?: string; timestamp: number }
     | { type: 'ReindexComplete'; vault_id: string; file_count: number; duration_ms: number }
     | { type: 'OrganizeComplete'; vault_id: string; plan_id: string; row_count: number; cluster_count: number }
+    | { type: 'IndexingStatus'; vault_id: string; active: boolean }
     | { type: 'SyncPing' }
     | { type: 'SyncPong'; server_time: number }
     | { type: 'Error'; message: string };

@@ -79,9 +79,15 @@ fn run_setup(app: &mut tauri::App) -> anyhow::Result<()> {
         paths.config_dir, paths.data_dir
     );
 
+    // Pin the search index (and its incremental-indexing manifest) to a stable
+    // absolute path under the data dir. Without this it defaults to a
+    // working-directory-relative path, so incremental indexing would only find
+    // its prior manifest when the app happens to launch from the same folder.
+    std::env::set_var("LIBRARIUM_INDEX_DIR", paths.data_dir.join("indices"));
+
     // 2. Load or create configuration (first-launch branch).
     let config_file = paths.config_dir.join("config.toml");
-    let config = if config_file.exists() {
+    let mut config = if config_file.exists() {
         info!("Loading existing config from {:?}", config_file);
         AppConfig::load_from_dirs(&paths)?
     } else {
@@ -91,6 +97,14 @@ fn run_setup(app: &mut tauri::App) -> anyhow::Result<()> {
             .context("Failed to create default vault directory")?;
         AppConfig::write_default(&paths)?
     };
+
+    // LIB-080: the desktop app should stay signed in essentially indefinitely.
+    // Enforce a long refresh-token lifetime floor (10 years) so the embedded
+    // session does not expire between launches, regardless of whether a
+    // config.toml is present. The short-lived access token still rotates
+    // normally. A config that already asks for a longer lifetime is respected.
+    const DESKTOP_REFRESH_TTL_SECS: u64 = 10 * 365 * 24 * 60 * 60;
+    config.auth.refresh_token_ttl = config.auth.refresh_token_ttl.max(DESKTOP_REFRESH_TTL_SECS);
 
     // 3. Set up the system tray (yellow = starting).
     setup_tray(app)?;
@@ -258,7 +272,12 @@ async fn poll_until_healthy_then_navigate(
     app: AppHandle,
     err_rx: std::sync::mpsc::Receiver<String>,
 ) {
-    let url = format!("http://localhost:{port}/api/health");
+    // Use 127.0.0.1 rather than "localhost": the embedded server binds the IPv4
+    // loopback, but "localhost" can resolve to ::1 (IPv6) first. On hosts where
+    // ::1 is dropped (not refused), each 2s poll request can hang on IPv6 and
+    // never fall through to IPv4, leaving the shell stuck on "failed to start"
+    // even though the server is healthy. Pinning IPv4 removes that ambiguity.
+    let url = format!("http://127.0.0.1:{port}/api/health");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()
@@ -286,10 +305,10 @@ async fn poll_until_healthy_then_navigate(
 
         match client.get(&url).send().await {
             Ok(r) if r.status().is_success() => {
-                info!("Server healthy — navigating WebView to http://localhost:{port}");
+                info!("Server healthy — navigating WebView to http://127.0.0.1:{port}");
                 update_tray_status(&app, "healthy");
                 let _ = window.eval(&format!(
-                    "window.location.replace('http://localhost:{port}')"
+                    "window.location.replace('http://127.0.0.1:{port}')"
                 ));
                 return;
             }

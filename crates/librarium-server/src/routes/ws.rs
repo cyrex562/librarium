@@ -20,6 +20,7 @@ fn ws_msg_vault_id(msg: &WsMessage) -> Option<&str> {
         WsMessage::FileChanged { vault_id, .. } => Some(vault_id),
         WsMessage::ReindexComplete { vault_id, .. } => Some(vault_id),
         WsMessage::OrganizeComplete { vault_id, .. } => Some(vault_id),
+        WsMessage::IndexingStatus { vault_id, .. } => Some(vault_id),
         // Global / connection-level messages — deliver to all authenticated clients.
         WsMessage::SyncPing | WsMessage::SyncPong { .. } | WsMessage::Error { .. } => None,
     }

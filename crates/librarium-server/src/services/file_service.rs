@@ -81,11 +81,15 @@ impl FileService {
             .unwrap_or("")
             .to_string();
 
+        // Forward-slash normalized: this is the canonical path the frontend uses
+        // to open files, store bookmarks, match tabs and cross-reference entities,
+        // so it must be identical on every OS (Windows would otherwise emit
+        // backslashes and silently break those lookups).
         let relative_path = path
             .strip_prefix(vault_root)
             .unwrap_or(path)
             .to_string_lossy()
-            .to_string();
+            .replace('\\', "/");
 
         let modified = metadata.modified().ok().and_then(system_time_to_datetime);
 
@@ -726,7 +730,7 @@ impl FileService {
             .strip_prefix(vault_path)
             .unwrap_or(&final_path)
             .to_string_lossy()
-            .to_string();
+            .replace('\\', "/");
 
         Ok(relative)
     }
@@ -762,7 +766,7 @@ impl FileService {
                         .strip_prefix(vault_path)
                         .unwrap_or(path)
                         .to_string_lossy()
-                        .to_string();
+                        .replace('\\', "/");
                     files.push((rel, content));
                 }
             }

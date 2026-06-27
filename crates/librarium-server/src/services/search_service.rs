@@ -107,6 +107,16 @@ fn extract_entity_meta(content: &str) -> EntityMeta {
     }
 }
 
+/// File modification time in milliseconds since the Unix epoch (0 if unknown).
+fn file_mtime_ms(path: &Path) -> i64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 // ── Tantivy schema ───────────────────────────────────────────────────────────
 
 struct IndexFields {
@@ -198,6 +208,14 @@ impl SearchIndex {
             .clone())
     }
 
+    /// Path to the per-vault index manifest (`path → mtime_ms`), used to make
+    /// `index_vault` incremental. `None` for in-RAM (test) indexes.
+    fn manifest_path(&self, vault_id: &str) -> Option<PathBuf> {
+        self.base_dir
+            .as_ref()
+            .map(|base| base.join(vault_id).join(".index_manifest.json"))
+    }
+
     fn open_index(&self, vault_id: &str, schema: Schema) -> AppResult<Index> {
         match &self.base_dir {
             Some(base) => {
@@ -229,15 +247,10 @@ impl SearchIndex {
         let (schema, fields) = build_schema();
         let index = self.open_index(vault_id, schema)?;
 
-        let mut writer = index
-            .writer::<TantivyDocument>(50_000_000)
-            .map_err(|e| AppError::InternalError(format!("Writer error: {e}")))?;
-
-        writer
-            .delete_all_documents()
-            .map_err(|e| AppError::InternalError(format!("Delete all error: {e}")))?;
-
-        let mut count = 0usize;
+        // Stat-walk the vault: collect every markdown file's relative path,
+        // absolute path and mtime. This reads directory metadata only; file
+        // *contents* are read below, and only for new/modified files.
+        let mut current: HashMap<String, (PathBuf, i64)> = HashMap::new();
         for entry in WalkDir::new(vault_path)
             .follow_links(false)
             .into_iter()
@@ -250,13 +263,59 @@ impl SearchIndex {
                 }
             }
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
-                if let Ok(content) = std::fs::read_to_string(path) {
-                    let rel = path
-                        .strip_prefix(vault_path)
-                        .unwrap_or(path)
-                        .to_string_lossy()
-                        .to_string();
-                    let title = path
+                // Forward-slash normalized so search keys match the API/watcher
+                // convention on Windows (raw paths would use backslashes).
+                let rel = path
+                    .strip_prefix(vault_path)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                current.insert(rel, (path.to_path_buf(), file_mtime_ms(path)));
+            }
+        }
+
+        // Load the previous manifest (path → mtime). Missing/unreadable (first
+        // index, in-RAM mode, or post-upgrade) means every file is treated as
+        // new — a full rebuild — and subsequent runs become incremental.
+        let manifest_path = self.manifest_path(vault_id);
+        let previous: HashMap<String, i64> = manifest_path
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+        let mut changed: Vec<String> = Vec::new();
+        for (rel, (_abs, mtime)) in &current {
+            if previous.get(rel) != Some(mtime) {
+                changed.push(rel.clone());
+            }
+        }
+        let mut deleted: Vec<String> = Vec::new();
+        for rel in previous.keys() {
+            if !current.contains_key(rel) {
+                deleted.push(rel.clone());
+            }
+        }
+
+        // Only open a writer (and re-read file contents) when something actually
+        // changed. Re-opening an unchanged vault skips straight to the reader,
+        // turning a full re-index into a cheap directory stat walk.
+        if !changed.is_empty() || !deleted.is_empty() {
+            let mut writer = index
+                .writer::<TantivyDocument>(50_000_000)
+                .map_err(|e| AppError::InternalError(format!("Writer error: {e}")))?;
+
+            for rel in &deleted {
+                writer.delete_term(Term::from_field_text(fields.path, rel.as_str()));
+            }
+
+            for rel in &changed {
+                writer.delete_term(Term::from_field_text(fields.path, rel.as_str()));
+                let Some((abs, _)) = current.get(rel) else {
+                    continue;
+                };
+                if let Ok(content) = std::fs::read_to_string(abs) {
+                    let title = Path::new(rel.as_str())
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("")
@@ -265,21 +324,33 @@ impl SearchIndex {
 
                     writer
                         .add_document(doc!(
-                            fields.path => rel,
+                            fields.path => rel.clone(),
                             fields.title => title,
                             fields.body => content,
                             fields.entity_type => meta.entity_type.unwrap_or_default(),
                             fields.labels => meta.labels.join(" "),
                         ))
                         .map_err(|e| AppError::InternalError(format!("Add doc error: {e}")))?;
-                    count += 1;
                 }
+            }
+
+            writer
+                .commit()
+                .map_err(|e| AppError::InternalError(format!("Commit error: {e}")))?;
+        }
+
+        // Persist the new manifest (best-effort; failure never aborts indexing).
+        if let Some(mp) = &manifest_path {
+            let snapshot: HashMap<&str, i64> = current
+                .iter()
+                .map(|(rel, (_abs, mtime))| (rel.as_str(), *mtime))
+                .collect();
+            if let Ok(json) = serde_json::to_string(&snapshot) {
+                let _ = std::fs::write(mp, json);
             }
         }
 
-        writer
-            .commit()
-            .map_err(|e| AppError::InternalError(format!("Commit error: {e}")))?;
+        let count = current.len();
 
         let reader = index
             .reader_builder()

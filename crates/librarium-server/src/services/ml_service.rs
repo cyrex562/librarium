@@ -779,13 +779,16 @@ impl MlService {
     ///
     /// This is the offline fallback used when no embedding backend is available;
     /// the heuristic `infer_category` remains the final fallback.
-    pub fn nearest_folder_tfidf(
+    /// Rank existing folders by TF-IDF cosine similarity to `target`, best-first,
+    /// returning at most `top_n` `(folder, score)` pairs. Empty when there are
+    /// fewer than two folders to choose between.
+    pub fn rank_folders_tfidf(
         target: &str,
         notes: &[(String, String)],
-        min_score: f32,
-    ) -> Option<(String, f32)> {
+        top_n: usize,
+    ) -> Vec<(String, f32)> {
         if notes.is_empty() {
-            return None;
+            return Vec::new();
         }
 
         // Aggregate token counts per folder.
@@ -798,7 +801,7 @@ impl MlService {
         }
         if folder_tf.len() < 2 {
             // With a single folder there is nothing to choose between.
-            return None;
+            return Vec::new();
         }
 
         // Document frequency across folders, then idf.
@@ -820,17 +823,17 @@ impl MlService {
             *target_vec.entry(tok).or_insert(0.0) += 1.0;
         }
         if target_vec.is_empty() {
-            return None;
+            return Vec::new();
         }
         for (tok, v) in target_vec.iter_mut() {
             *v *= idf(tok);
         }
         let target_norm = vec_norm(&target_vec);
         if target_norm == 0.0 {
-            return None;
+            return Vec::new();
         }
 
-        let mut best: Option<(String, f32)> = None;
+        let mut scored: Vec<(String, f32)> = Vec::with_capacity(folder_tf.len());
         for (folder, counts) in &folder_tf {
             let mut dot = 0.0f32;
             let mut fnorm_sq = 0.0f32;
@@ -845,12 +848,29 @@ impl MlService {
                 continue;
             }
             let score = dot / (target_norm * fnorm_sq.sqrt());
-            if best.as_ref().map(|(_, s)| score > *s).unwrap_or(true) {
-                best = Some((folder.clone(), score));
-            }
+            scored.push((folder.clone(), score));
         }
 
-        best.filter(|(_, s)| *s >= min_score)
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        scored.truncate(top_n);
+        scored
+    }
+
+    /// The single best-matching existing folder for `target`, or `None` if no
+    /// folder scores at least `min_score`.
+    pub fn nearest_folder_tfidf(
+        target: &str,
+        notes: &[(String, String)],
+        min_score: f32,
+    ) -> Option<(String, f32)> {
+        Self::rank_folders_tfidf(target, notes, usize::MAX)
+            .into_iter()
+            .next()
+            .filter(|(_, s)| *s >= min_score)
     }
 
     /// Lowercase alphanumeric word tokens of length >= 3, used by the TF-IDF

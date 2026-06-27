@@ -535,6 +535,8 @@ pub struct ApplyOrganizationSuggestionResponse {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ReverseAction {
     RemoveTag { tag: String },
+    /// Restore a file to an exact prior snapshot (used by vault-wide tag delete).
+    RestoreContent { content: String },
     RestoreCategory { previous_value: Option<String> },
     MoveBack { from_path: String, to_path: String },
     /// Undo a link-safe rename: move the note back and restore the wiki-link
@@ -580,6 +582,20 @@ fn default_one() -> usize {
 
 // ── LIB-063/064: vault-wide organization plan ─────────────────────────────────
 
+/// A candidate destination folder for a note — either an existing folder that
+/// the note's content matches, or a proposed new folder. The UI offers these as
+/// choices so the user can move into an existing folder or accept a new one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderCandidate {
+    /// Vault-relative folder path (may be nested, e.g. `programming/rust`).
+    pub path: String,
+    /// True if this folder does not exist yet and would be created on apply.
+    pub is_new: bool,
+    /// Match confidence (0..1): TF-IDF/embedding similarity for existing
+    /// folders, cluster/keyphrase strength for new ones.
+    pub confidence: f32,
+}
+
 /// One note's proposed reorganization. Nothing is mutated until the row is
 /// applied via `apply-plan`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -589,8 +605,14 @@ pub struct OrganizationPlanRow {
     pub suggested_tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_name: Option<String>,
+    /// Recommended destination folder (the top-ranked candidate, preferring an
+    /// existing folder per policy). `None` when the note is already well placed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_folder: Option<String>,
+    /// All destination-folder choices (existing + a proposed new one), ranked
+    /// best-first, for the user to pick from.
+    #[serde(default)]
+    pub folder_candidates: Vec<FolderCandidate>,
     /// Cluster label this note was grouped under (embeddings tier only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cluster: Option<String>,
@@ -738,6 +760,12 @@ pub enum WsMessage {
         plan_id: String,
         row_count: usize,
         cluster_count: usize,
+    },
+    /// Broadcast when background indexing for a vault starts (`active: true`)
+    /// or finishes (`active: false`). Drives the "Indexing…" status indicator.
+    IndexingStatus {
+        vault_id: String,
+        active: bool,
     },
     SyncPing,
     SyncPong {

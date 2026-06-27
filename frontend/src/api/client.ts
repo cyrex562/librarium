@@ -657,6 +657,16 @@ export const apiDeleteBookmark = (vaultId: string, bookmarkId: string): Promise<
 export const apiListTags = (vaultId: string): Promise<TagEntry[]> =>
     request(`/api/vaults/${vaultId}/tags`);
 
+export const apiDeleteTag = (
+    vaultId: string,
+    tag: string,
+    dryRun = false,
+): Promise<{ tag: string; dry_run: boolean; count: number; files_modified: number; files: string[]; group_id?: string | null }> =>
+    request(
+        `/api/vaults/${vaultId}/tags/${encodeURIComponent(tag)}${dryRun ? '?dry_run=true' : ''}`,
+        { method: 'DELETE' },
+    );
+
 // ── Backlinks ─────────────────────────────────────────────────────────────────
 
 export const apiGetBacklinks = (vaultId: string, path: string): Promise<BacklinkEntry[]> =>

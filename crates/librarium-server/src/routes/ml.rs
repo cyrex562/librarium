@@ -995,7 +995,19 @@ fn compute_rename_link_changes(
         if rel == old_path || rel == new_path {
             continue;
         }
-        let (frontmatter, body) = frontmatter_service::parse_frontmatter(&raw)?;
+        // A single note with malformed YAML frontmatter must not abort the whole
+        // rename. If parsing fails, treat the entire file as body so inbound
+        // links are still rewritten in place and the (invalid) frontmatter text
+        // is preserved verbatim rather than failing the operation.
+        let (frontmatter, body) = match frontmatter_service::parse_frontmatter(&raw) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(
+                    "rename link rewrite: keeping {rel} unsplit (invalid YAML frontmatter: {e})"
+                );
+                (None, raw)
+            }
+        };
         let (new_body, n) = rewrite_wiki_links(&body, old_stem, new_stem, old_dir);
         if n > 0 {
             changes.push((rel, frontmatter, new_body));
@@ -1168,6 +1180,18 @@ fn apply_reverse_action(
             let _ = state
                 .search_index
                 .update_file(vault_id, &receipt.file_path, updated.content);
+        }
+        ReverseAction::RestoreContent { content } => {
+            // Restore the file to its exact pre-delete snapshot.
+            let full = FileService::resolve_path(&vault.path, &receipt.file_path)?;
+            std::fs::write(&full, content)?;
+            // Best-effort reindex from the restored content (the watcher also
+            // picks this up); ignore parse errors on malformed frontmatter.
+            if let Ok(f) = FileService::read_file(&vault.path, &receipt.file_path) {
+                let _ = state
+                    .search_index
+                    .update_file(vault_id, &receipt.file_path, f.content);
+            }
         }
         ReverseAction::RestoreCategory { previous_value } => {
             let file = FileService::read_file(&vault.path, &receipt.file_path)?;

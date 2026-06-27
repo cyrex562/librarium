@@ -13,7 +13,9 @@
 use crate::config::MlConfig;
 use crate::db::Database;
 use crate::error::AppResult;
-use crate::models::{OrganizationPlan, OrganizationPlanRow, OrganizationSuggestionKind};
+use crate::models::{
+    FolderCandidate, OrganizationPlan, OrganizationPlanRow, OrganizationSuggestionKind,
+};
 use crate::services::embedding_service::{blob_to_vector, cosine_similarity};
 use crate::services::{frontmatter_service, FileService, MlService};
 use std::collections::HashMap;
@@ -104,10 +106,16 @@ pub async fn build_plan(
         }
     }
 
-    // Tier-1 folder corpus (folder, content) for notes without a cluster label.
+    // Folder corpus (folder, content) used to rank existing folders by content
+    // similarity, and the set of folders that already exist (for is_new).
     let tfidf_corpus: Vec<(String, String)> = notes
         .iter()
         .map(|n| (n.folder.clone(), n.body.clone()))
+        .collect();
+    let existing_folders: std::collections::HashSet<String> = notes
+        .iter()
+        .map(|n| n.folder.clone())
+        .filter(|f| !f.is_empty())
         .collect();
 
     let scheme = config.naming_scheme.clone();
@@ -140,31 +148,63 @@ pub async fn build_plan(
             &scheme,
         );
 
-        // Folder: cluster label (Tier 2) first, else TF-IDF nearest (Tier 1).
-        let (target_folder, cluster, confidence) = match note_label.get(&i) {
-            Some(label) => {
-                let folder = slugify_folder(label);
-                if folder.is_empty() || folder == note.folder {
-                    (None, Some(label.clone()), 0.6)
-                } else {
-                    (Some(folder), Some(label.clone()), 0.7)
-                }
+        // Folder candidates: existing folders ranked by content similarity
+        // (preferred), plus one proposed new folder from the note's cluster
+        // label (Tier 2) or its top suggested tag (Tier 1). Self-moves are
+        // filtered out so a note is never told to move where it already is.
+        let mut folder_candidates: Vec<FolderCandidate> =
+            MlService::rank_folders_tfidf(&note.body, &tfidf_corpus, 3)
+                .into_iter()
+                .filter(|(folder, score)| {
+                    *folder != note.folder && !folder.is_empty() && *score > 0.0
+                })
+                .map(|(folder, score)| FolderCandidate {
+                    path: folder,
+                    is_new: false,
+                    confidence: score,
+                })
+                .collect();
+
+        let new_folder = note_label
+            .get(&i)
+            .map(|label| slugify_folder(label))
+            .or_else(|| suggested_tags.first().map(|t| slugify_folder(t)))
+            .filter(|f| !f.is_empty() && *f != note.folder);
+
+        if let Some(nf) = new_folder {
+            if !folder_candidates.iter().any(|c| c.path == nf) {
+                let is_new = !existing_folders.contains(&nf);
+                let confidence = if note_label.contains_key(&i) { 0.7 } else { 0.55 };
+                folder_candidates.push(FolderCandidate {
+                    path: nf,
+                    is_new,
+                    confidence,
+                });
             }
-            None => match MlService::nearest_folder_tfidf(
-                &note.body,
-                &tfidf_corpus,
-                config.min_confidence,
-            ) {
-                Some((folder, score)) if folder != note.folder => (Some(folder), None, score),
-                _ => (None, None, 0.5),
-            },
-        };
+        }
+
+        let cluster = note_label.get(&i).cloned();
+
+        // Recommended target (policy D): prefer a confident existing folder;
+        // otherwise fall back to the best candidate (the proposed new folder
+        // when no existing folder is a good fit).
+        let target_folder = folder_candidates
+            .iter()
+            .find(|c| !c.is_new && c.confidence >= config.min_confidence)
+            .or_else(|| folder_candidates.first())
+            .map(|c| c.path.clone());
+        let confidence = target_folder
+            .as_ref()
+            .and_then(|t| folder_candidates.iter().find(|c| &c.path == t))
+            .map(|c| c.confidence)
+            .unwrap_or(0.5);
 
         rows.push(OrganizationPlanRow {
             file_path: note.rel.clone(),
             suggested_tags,
             suggested_name,
             target_folder,
+            folder_candidates,
             cluster,
             confidence,
         });

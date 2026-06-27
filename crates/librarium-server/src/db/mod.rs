@@ -9,8 +9,13 @@ use argon2::{
     Argon2,
 };
 use chrono::{DateTime, Utc};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
+    SqliteSynchronous,
+};
+use sqlx::Connection;
 use std::str::FromStr;
+use std::time::Duration;
 use uuid::Uuid;
 
 /// Generate a strong random password for an auto-provisioned admin account.
@@ -130,6 +135,33 @@ fn backup_database_if_needed(db_path: &std::path::Path) {
     }
 }
 
+/// Fold any pending `-wal` sidecar back into the main database file via a
+/// short-lived connection. Run before the pre-upgrade backup so the `.bak`
+/// snapshot contains all committed data: under WAL, recently committed
+/// transactions can live only in `-wal` until a checkpoint, and the file-copy
+/// backup sees just the main `.db`. Best-effort — never fails startup.
+async fn checkpoint_wal(database_url: &str) {
+    let opts = match SqliteConnectOptions::from_str(database_url) {
+        Ok(o) => o.create_if_missing(false).journal_mode(SqliteJournalMode::Wal),
+        Err(e) => {
+            tracing::warn!("WAL checkpoint: bad database URL: {e}");
+            return;
+        }
+    };
+    match SqliteConnection::connect_with(&opts).await {
+        Ok(mut conn) => {
+            if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+                .execute(&mut conn)
+                .await
+            {
+                tracing::warn!("WAL checkpoint before backup failed: {e}");
+            }
+            let _ = conn.close().await;
+        }
+        Err(e) => tracing::warn!("WAL checkpoint connect failed: {e}"),
+    }
+}
+
 impl Database {
     pub async fn new(database_url: &str) -> AppResult<Self> {
         // `create_if_missing` creates the database *file* but not its parent
@@ -144,12 +176,29 @@ impl Database {
                     let _ = std::fs::create_dir_all(parent);
                 }
             }
+            // Fold any prior session's WAL into the main file first, so the
+            // snapshot below isn't missing recently committed data.
+            if db_path.exists() {
+                checkpoint_wal(database_url).await;
+            }
             // Snapshot the database before running migrations so that a version
             // upgrade that modifies the schema never destroys existing data.
             backup_database_if_needed(db_path);
         }
 
-        let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
+        // WAL + synchronous=NORMAL is the standard high-performance configuration
+        // for an embedded SQLite database: writers append to a write-ahead log and
+        // only fsync at checkpoint time instead of on every statement, which turns
+        // a bulk index (hundreds of small transactions) from a per-row fsync storm
+        // into a handful of cheap appends. busy_timeout lets the (few) pooled
+        // connections wait for the single writer instead of erroring under
+        // contention. Durability tradeoff: at most the last transaction can be lost
+        // on a hard power cut — acceptable for a rebuildable local index.
+        let options = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(5));
 
         let pool = SqlitePoolOptions::new()
             .max_connections(5)

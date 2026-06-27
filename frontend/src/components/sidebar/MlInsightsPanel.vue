@@ -281,7 +281,9 @@ const filesStore = useFilesStore();
 const tabsStore = useTabsStore();
 const prefsStore = usePreferencesStore();
 
-const expanded = ref(false);
+// Default expanded so the AI actions (outline / suggest organization / rename /
+// organize vault) are visible without having to discover and click the header.
+const expanded = ref(true);
 const loading = ref(false);
 const applyingSuggestionId = ref<string | null>(null);
 const undoingSuggestionId = ref<string | null>(null);

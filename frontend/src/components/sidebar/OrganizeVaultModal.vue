@@ -69,13 +69,24 @@
                   <span v-else class="text-disabled">—</span>
                 </td>
                 <td class="pa-1">
-                  <v-checkbox
-                    v-if="row.target_folder"
-                    v-model="selections[row.file_path].folder"
-                    density="compact"
-                    hide-details
-                    :label="row.target_folder + (row.cluster ? ` (${row.cluster})` : '')"
-                  />
+                  <div v-if="folderOptions(row).length" class="d-flex align-center ga-1">
+                    <v-checkbox
+                      v-model="selections[row.file_path].folder"
+                      density="compact"
+                      hide-details
+                    />
+                    <v-select
+                      v-model="selections[row.file_path].folderChoice"
+                      :items="folderOptions(row)"
+                      item-title="label"
+                      item-value="path"
+                      density="compact"
+                      hide-details
+                      variant="plain"
+                      style="min-width: 180px;"
+                      :disabled="!selections[row.file_path].folder"
+                    />
+                  </div>
                   <span v-else class="text-disabled">—</span>
                 </td>
                 <td class="pa-1 text-right">{{ Math.round(row.confidence * 100) }}%</td>
@@ -145,13 +156,31 @@ interface RowSelection {
   tags: boolean;
   name: boolean;
   folder: boolean;
+  folderChoice: string;
 }
 const selections = reactive<Record<string, RowSelection>>({});
+
+// Destination-folder choices for a row: the ranked candidates (existing folders
+// first, then a proposed new one), falling back to a single legacy target.
+function folderOptions(row: OrganizationPlanRow): Array<{ path: string; label: string }> {
+  const candidates = row.folder_candidates ?? [];
+  if (candidates.length) {
+    return candidates.map((c) => ({
+      path: c.path,
+      label: `${c.path}${c.is_new ? '  (new)' : ''}  ·  ${Math.round(c.confidence * 100)}%`,
+    }));
+  }
+  return row.target_folder ? [{ path: row.target_folder, label: row.target_folder }] : [];
+}
 
 // Only rows that propose at least one action are worth showing.
 const actionableRows = computed<OrganizationPlanRow[]>(() =>
   (plan.value?.rows ?? []).filter(
-    (r) => r.suggested_tags.length > 0 || !!r.suggested_name || !!r.target_folder,
+    (r) =>
+      r.suggested_tags.length > 0 ||
+      !!r.suggested_name ||
+      !!r.target_folder ||
+      (r.folder_candidates?.length ?? 0) > 0,
   ),
 );
 
@@ -162,7 +191,7 @@ const selectedCount = computed(() => {
     if (!sel) continue;
     if (sel.tags && row.suggested_tags.length) n += 1;
     if (sel.name && row.suggested_name) n += 1;
-    if (sel.folder && row.target_folder) n += 1;
+    if (sel.folder && sel.folderChoice) n += 1;
   }
   return n;
 });
@@ -186,10 +215,13 @@ async function loadPlan() {
     // Default every available action to selected.
     for (const key of Object.keys(selections)) delete selections[key];
     for (const row of plan.value.rows) {
+      const options = folderOptions(row);
       selections[row.file_path] = {
         tags: row.suggested_tags.length > 0,
         name: !!row.suggested_name,
-        folder: !!row.target_folder,
+        folder: options.length > 0,
+        // Default to the recommended target, else the first (best) candidate.
+        folderChoice: row.target_folder ?? options[0]?.path ?? '',
       };
     }
   } catch (err) {
@@ -219,8 +251,8 @@ async function applySelected() {
       apply.apply_name = row.suggested_name;
       any = true;
     }
-    if (sel.folder && row.target_folder) {
-      apply.apply_folder = row.target_folder;
+    if (sel.folder && sel.folderChoice) {
+      apply.apply_folder = sel.folderChoice;
       any = true;
     }
     if (any) rows.push(apply);

@@ -28,6 +28,7 @@
           class="bookmark-item d-flex align-center px-2 py-1 text-caption"
           :title="bm.path"
           @click="openFile(bm.path)"
+          @contextmenu.prevent="openMenu($event, bm)"
         >
           <v-icon icon="mdi-bookmark-outline" size="x-small" class="mr-1 flex-shrink-0" color="primary" />
           <span class="text-truncate flex-1">{{ bm.title || fileName(bm.path) }}</span>
@@ -46,6 +47,15 @@
         No bookmarks yet. Click + to save the current note.
       </div>
     </div>
+
+    <v-menu v-model="menuOpen" :target="menuTarget" location="end">
+      <v-list density="compact">
+        <v-list-item base-color="error" @click="onDeleteNote">
+          <template #prepend><v-icon icon="mdi-delete-outline" size="small" /></template>
+          <v-list-item-title class="text-caption">Delete note</v-list-item-title>
+        </v-list-item>
+      </v-list>
+    </v-menu>
   </div>
 </template>
 
@@ -54,6 +64,7 @@ import { ref, watch, computed } from 'vue';
 import { useVaultsStore } from '@/stores/vaults';
 import { useTabsStore } from '@/stores/tabs';
 import { apiListBookmarks, apiCreateBookmark, apiDeleteBookmark } from '@/api/client';
+import { useDeleteNote } from '@/composables/useDeleteNote';
 import type { Bookmark } from '@/api/types';
 
 const expanded = ref(true);
@@ -62,6 +73,11 @@ const bookmarks = ref<Bookmark[]>([]);
 
 const vaultsStore = useVaultsStore();
 const tabsStore = useTabsStore();
+const { deleteNote } = useDeleteNote();
+
+const menuOpen = ref(false);
+const menuTarget = ref<[number, number]>([0, 0]);
+const menuBookmark = ref<Bookmark | null>(null);
 
 const activeFilePath = computed(() => tabsStore.activeTab?.filePath ?? null);
 
@@ -118,6 +134,21 @@ function fileName(path: string): string {
 
 function openFile(path: string) {
   tabsStore.openTab(tabsStore.activePaneId, path, fileName(path));
+}
+
+function openMenu(e: MouseEvent, bm: Bookmark) {
+  menuBookmark.value = bm;
+  menuTarget.value = [e.clientX, e.clientY];
+  menuOpen.value = true;
+}
+
+async function onDeleteNote() {
+  menuOpen.value = false;
+  const bm = menuBookmark.value;
+  if (!bm) return;
+  const deleted = await deleteNote(bm.path);
+  // The note is gone, so drop its now-dangling bookmark too.
+  if (deleted) await removeBookmark(bm.id);
 }
 </script>
 

@@ -25,36 +25,47 @@
 
     <SidebarActions />
 
-    <div style="flex: 1; overflow-y: auto; overflow-x: hidden;">
-      <FileTree v-if="vaultsStore.activeVaultId" />
-      <div v-else class="pa-4 text-secondary text-caption text-center">
-        <div class="mb-2">Create or select a vault to start.</div>
-        <v-btn
-          size="small"
-          variant="tonal"
-          prepend-icon="mdi-database-plus-outline"
-          @click="vaultManagerOpen = true"
-        >
-          Manage vaults
-        </v-btn>
+    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+      <!-- File tree: own scroll region, capped so it uses natural space when
+           short but never pushes the panels below off-screen in a large vault. -->
+      <div style="flex: 0 1 auto; max-height: 50vh; overflow-y: auto; overflow-x: hidden;">
+        <FileTree v-if="vaultsStore.activeVaultId" />
+        <div v-else class="pa-4 text-secondary text-caption text-center">
+          <div class="mb-2">Create or select a vault to start.</div>
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-database-plus-outline"
+            @click="vaultManagerOpen = true"
+          >
+            Manage vaults
+          </v-btn>
+        </div>
       </div>
 
-      <template v-if="vaultsStore.activeVaultId && activeMdContent !== null">
-        <MlInsightsPanel
-          :vault-id="vaultsStore.activeVaultId"
-          :file-path="tabsStore.activeTab?.filePath ?? ''"
-          :content="activeMdContent"
-        />
-        <OutlinePanel :content="activeMdContent" />
-        <OutgoingLinksPanel :content="activeMdContent" />
-        <BacklinksPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
-        <EntityRelationsPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
-        <NeighboringFilesPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
-      </template>
+      <!-- Context + navigation panels: independent scroll region, always
+           reachable regardless of how tall the file tree grows. -->
+      <div
+        v-if="vaultsStore.activeVaultId"
+        style="flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; border-top: 1px solid rgb(var(--v-theme-border));"
+      >
+        <template v-if="activeMdContent !== null">
+          <MlInsightsPanel
+            :vault-id="vaultsStore.activeVaultId"
+            :file-path="tabsStore.activeTab?.filePath ?? ''"
+            :content="activeMdContent"
+          />
+          <OutlinePanel :content="activeMdContent" />
+          <OutgoingLinksPanel :content="activeMdContent" />
+          <BacklinksPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
+          <EntityRelationsPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
+          <NeighboringFilesPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
+        </template>
 
-      <BookmarksPanel v-if="vaultsStore.activeVaultId" />
-      <RecentFilesPanel v-if="vaultsStore.activeVaultId" />
-      <TagsPanel v-if="vaultsStore.activeVaultId" @search="openTagSearch" />
+        <BookmarksPanel />
+        <RecentFilesPanel />
+        <TagsPanel @search="openTagSearch" />
+      </div>
     </div>
   </v-navigation-drawer>
 
@@ -62,6 +73,7 @@
 
   <v-main style="height: 100vh; display: flex; flex-direction: column; overflow: hidden;">
     <PaneContainer />
+    <StatusBar />
   </v-main>
 
   <div class="sidebar-resize-handle" @mousedown="startResize" />
@@ -102,6 +114,7 @@ import EntityRelationsPanel from '@/components/sidebar/EntityRelationsPanel.vue'
 import TagsPanel from '@/components/sidebar/TagsPanel.vue';
 import BookmarksPanel from '@/components/sidebar/BookmarksPanel.vue';
 import PaneContainer from '@/components/tabs/PaneContainer.vue';
+import StatusBar from '@/components/StatusBar.vue';
 import VaultManager from '@/components/modals/VaultManager.vue';
 import SearchModal from '@/components/modals/SearchModal.vue';
 import QuickSwitcher from '@/components/modals/QuickSwitcher.vue';

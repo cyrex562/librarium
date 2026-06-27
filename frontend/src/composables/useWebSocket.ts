@@ -4,6 +4,7 @@ import { useFilesStore } from '@/stores/files';
 import { useTabsStore } from '@/stores/tabs';
 import { useVaultsStore } from '@/stores/vaults';
 import { useAuthStore } from '@/stores/auth';
+import { useIndexingStore } from '@/stores/indexing';
 import { useNotifications } from '@/composables/useNotifications';
 
 const WS_BASE_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws`;
@@ -19,6 +20,26 @@ const connected = ref(false);
 
 function getReconnectDelay(): number {
     return Math.min(1_000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY_MS);
+}
+
+// Debounce file-tree reloads. A bulk import emits one `FileChanged` per file,
+// and every `loadTree` refetches and re-renders the entire tree. Without
+// coalescing, importing dozens of files fires dozens of full reloads back to
+// back and can lock up the WebView. Collapse a burst into a single reload.
+const pendingTreeReloads = new Set<string>();
+let treeReloadTimer: ReturnType<typeof setTimeout> | null = null;
+const TREE_RELOAD_DEBOUNCE_MS = 300;
+
+function scheduleTreeReload(vaultId: string) {
+    pendingTreeReloads.add(vaultId);
+    if (treeReloadTimer !== null) return;
+    treeReloadTimer = setTimeout(() => {
+        treeReloadTimer = null;
+        const vaultIds = [...pendingTreeReloads];
+        pendingTreeReloads.clear();
+        const filesStore = useFilesStore();
+        for (const id of vaultIds) void filesStore.loadTree(id);
+    }, TREE_RELOAD_DEBOUNCE_MS);
 }
 
 function handleMessage(event: MessageEvent) {
@@ -48,9 +69,10 @@ function handleMessage(event: MessageEvent) {
                 tabsStore.remapTabPaths(msg.event_type.renamed.from, msg.event_type.renamed.to);
             }
 
-            // Refresh the file tree for the affected vault.
+            // Refresh the file tree for the affected vault (debounced so a bulk
+            // import's burst of events collapses into one reload).
             if (vaultsStore.activeVaultId === msg.vault_id) {
-                void filesStore.loadTree(msg.vault_id);
+                scheduleTreeReload(msg.vault_id);
             }
 
             // If the changed file is open in a tab and not dirty, reload it.
@@ -76,6 +98,12 @@ function handleMessage(event: MessageEvent) {
             // A vault-wide organization plan finished computing; the initiating
             // view fetches the plan from the organize-vault response directly.
             break;
+        case 'IndexingStatus': {
+            // Drive the status-bar "Indexing…" indicator.
+            const indexingStore = useIndexingStore();
+            indexingStore.setActive(msg.vault_id, msg.active);
+            break;
+        }
         case 'SyncPing':
         case 'SyncPong':
             // Reserved for desktop sync heartbeat handling.

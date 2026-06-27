@@ -283,3 +283,38 @@ research citations, and rationale.
   route. Today only the ML rename path rewrites inbound `[[wiki-links]]`/`![[embeds]]`; a
   manual rename via the file tree still orphans links. Extract the rewrite + receipt logic so
   both paths stay link-safe.
+- [ ] LIB-074: looked a creating or adapting an existing VSLLM/MoE to help organize
+- [ ] LIB-075: add reinforcement to the organization process
+- [ ] LIB-076: multi-level folder structures
+- [ ] LIB-077: common terms for folder structure (like dewey decimal categories?)
+- [ ] LIB-078: colored folders
+- [x] LIB-079: show full path to note somewhere
+- [x] LIB-080: the desktop version of the app should remain logged in essentially indefinitely.
+- [x] LIB-081: right click on tag and select delete
+- [x] LIB-082: right click on note to delete in multiple location
+- [x] LIB-083: select and delete multiple tags
+- [ ] LIB-084: mark low quality tags
+
+### Code review findings (2026-06) — severity-tagged
+
+- [ ] **LIB-085 · CRITICAL** (C2) Frontmatter is rewritten via `serde_json`→YAML without `preserve_order`, so keys come out alphabetically sorted/reformatted on every write (delete-tag, rename link-rewrite, ML apply, normal saves). Fix: enable `serde_json` `preserve_order` feature.
+- [ ] **LIB-086 · CRITICAL** (C1) WAL switch undermines the startup DB backup — recent commits can live in an un-checkpointed `-wal` sidecar, so `.bak` may be stale/torn. Fix: `PRAGMA wal_checkpoint(TRUNCATE)` before copying (or copy `-wal`/`-shm`).
+- [ ] **LIB-087 · CRITICAL** (C3) Delete-tag has no dry-run/preview and no undo for a vault-wide destructive rewrite. Fix: preview affected-file count + reuse the ML undo-receipt mechanism.
+- [ ] **LIB-088 · CRITICAL** (C4) Inline `#tag` deletion is content-blind: strips tags inside code blocks/URLs and leaves dangling whitespace. Fix: word-boundary match, skip fenced code, swallow one adjacent space.
+- [ ] **LIB-089 · CRITICAL** (C5) LIB-080 stores a 10-year refresh token in `localStorage` and bumps the TTL on the server-global config (affects any client on that server). Fix: scope long lifetime to the embedded desktop session; move token to OS-secure storage. (Needs decision.)
+- [ ] **LIB-090 · HIGH** (H1) Incremental `index_vault` dropped `delete_all_documents`, so on first run after upgrade old backslash-keyed docs linger → duplicate search results. Fix: `delete_all` when manifest is missing on a non-empty index.
+- [ ] **LIB-091 · HIGH** (H2) Incremental indexing detects changes by mtime only; misses edits that preserve mtime (git checkout, restore, rsync). Fix: also compare file size (or hash).
+- [ ] **LIB-092 · HIGH** (H3) StatusBar active-note path uses global `activeTab`; may not track the focused pane in split view. Verify/fix.
+- [ ] **LIB-093 · HIGH** (H4) OrganizeVaultModal can leave the folder checkbox checked while `folderChoice` is empty, silently dropping the move. Fix: guard empty selection.
+- [ ] **LIB-094 · MEDIUM** (M1) IndexingStatus counter can stick `>0` (indicator stuck) if a `false` WS event is dropped or the client connects mid-operation. Fix: level-based state or reset on reconnect.
+- [ ] **LIB-095 · MEDIUM** (M2) WS reconnect doesn't resync indexing state or pending tree reloads. Fix: reconcile on reconnect.
+- [ ] **LIB-096 · MEDIUM** (M3) WAL + `max_connections=5` under the background indexer + watcher + reindex could surface 5s `busy_timeout` waits/500s. Verify no user-visible double-writer stall.
+- [ ] **LIB-097 · MEDIUM** (M4) The 25ms throttle sleep in the drain loop delays `FileChanged` WS broadcasts and entity writes for later events in a large batch. Acceptable; note the lag.
+- [ ] **LIB-098 · MEDIUM** (M5) Delete-tag walks + rewrites the whole vault synchronously on the actix worker thread. Fix: offload to `spawn_blocking`/background with a WS-completion message.
+- [ ] **LIB-099 · MEDIUM** (M6) Delete-tag leaves `tags: []` when the last array entry is removed; verify `%2F` tag path-segment decoding.
+- [ ] **LIB-100 · LOW** (L1) Drain loop `try_recv` batch is uncapped; under sustained high event rate `events` can grow large. Consider a max-batch cap.
+- [ ] **LIB-101 · LOW** (L3/L4) Delete-note error handling swallows failures and leaves partial side effects (bookmark removed for a still-existing file). Fix: try/catch + surface errors.
+- [ ] **LIB-102 · LOW** (L7) Manifest write is non-atomic (`fs::write` truncate+write); a crash mid-write corrupts it (safe-ish: triggers full re-index). Fix: write-temp-then-rename.
+- [ ] **LIB-103 · LOW** (L6) Verify MlInsightsPanel default-expanded doesn't auto-fire an ML/embedding request on every note open. for deletion
+
+- [ ] LIB-104: For large note collections we need a way to right click an element in the file listing, click "move", have a separate panel/pane apepar on screen to select the folder/sub-folder to move the element into.

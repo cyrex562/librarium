@@ -167,10 +167,17 @@ fn write_first_run_credentials(
 /// with its own `actix_web::rt::System`).
 pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     // --- Logging -----------------------------------------------------------
-    let log_dir = std::path::Path::new("./logs");
-    std::fs::create_dir_all(log_dir)?;
+    // Write logs next to the database so they're findable regardless of the
+    // process working directory (portable: ./data/logs; installed: alongside
+    // the app data dir). Falls back to ./logs only if the DB path has no parent.
+    // Best-effort dir creation: a logging-setup hiccup must never abort startup.
+    let log_dir = std::path::Path::new(&config.database.path)
+        .parent()
+        .map(|p| p.join("logs"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./logs"));
+    let _ = std::fs::create_dir_all(&log_dir);
 
-    let file_appender = tracing_appender::rolling::daily(log_dir, "librarium.log");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "librarium.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let use_json = std::env::var("LOG_FORMAT")
@@ -338,6 +345,7 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
 
     let search_index_clone = search_index.clone();
     let db_clone = db.clone();
+    let ws_batch = ws_tx.clone();
     tokio::spawn(async move {
         while let Some(first_event) = change_rx.recv().await {
             // Drain all queued events so we can batch search-index commits.
@@ -389,13 +397,33 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
 
             // One Tantivy commit per vault covers all files in this batch.
             for (vault_id, files) in &batch_by_vault {
+                let _ = ws_batch.send(models::WsMessage::IndexingStatus {
+                    vault_id: vault_id.clone(),
+                    active: true,
+                });
                 if let Err(e) = search_index_clone.update_files_batch(vault_id, files) {
                     warn!("Batch search index update failed for vault {vault_id}: {e}");
                 }
+                let _ = ws_batch.send(models::WsMessage::IndexingStatus {
+                    vault_id: vault_id.clone(),
+                    active: false,
+                });
             }
 
             // ── 2. Per-event processing (entity DB writes + non-md removes) ───
-            for change_event in &events {
+            // Entity reindex is the disk/DB-heavy step. Pace it so a big burst
+            // (e.g. a bulk import of hundreds of files) is spread over time and
+            // the OS disk scheduler can interleave foreground work, rather than
+            // hammering SQLite in one uninterruptible loop.
+            const REINDEX_THROTTLE_EVERY: usize = 40;
+            const REINDEX_THROTTLE_PAUSE_MS: u64 = 25;
+            for (event_idx, change_event) in events.iter().enumerate() {
+                if event_idx > 0 && event_idx % REINDEX_THROTTLE_EVERY == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        REINDEX_THROTTLE_PAUSE_MS,
+                    ))
+                    .await;
+                }
                 match &change_event.event_type {
                     models::FileChangeType::Created | models::FileChangeType::Modified => {
                         if change_event.path.ends_with(".md") {
@@ -523,18 +551,42 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
         }
         drop(w);
 
-        match search_index.index_vault(&vault.id, &vault.path) {
-            Ok(count) => info!("Indexed {} files in vault {}", count, vault.name),
-            Err(e) => error!("Failed to index vault {}: {}", vault.id, e),
-        }
-
+        // Index the vault in the background so the HTTP server can start
+        // serving (and the desktop window can load) immediately instead of
+        // blocking on a full re-index of a large vault. Incremental indexing
+        // keeps subsequent restarts cheap; the IndexingStatus broadcasts let the
+        // UI surface an "Indexing…" indicator while the work runs.
+        let search_bg = search_index.clone();
         let db_reindex = db.clone();
+        let ws_index = ws_tx.clone();
         let vid = vault.id.clone();
+        let vname = vault.name.clone();
         let vpath = vault.path.clone();
         tokio::spawn(async move {
+            let _ = ws_index.send(models::WsMessage::IndexingStatus {
+                vault_id: vid.clone(),
+                active: true,
+            });
+
+            // Search index is a blocking (disk-bound) operation — run it on the
+            // blocking pool so it never stalls async worker threads.
+            let s = search_bg.clone();
+            let vp = vpath.clone();
+            let vi = vid.clone();
+            match tokio::task::spawn_blocking(move || s.index_vault(&vi, &vp)).await {
+                Ok(Ok(count)) => info!("Indexed {} files in vault {}", count, vname),
+                Ok(Err(e)) => error!("Failed to index vault {}: {}", vid, e),
+                Err(e) => error!("Index task panicked for vault {}: {}", vid, e),
+            }
+
             if let Err(e) = ReindexService::reindex_vault(&db_reindex, &vid, &vpath).await {
                 error!("Entity reindex failed for vault {vid}: {e}");
             }
+
+            let _ = ws_index.send(models::WsMessage::IndexingStatus {
+                vault_id: vid.clone(),
+                active: false,
+            });
         });
     }
 

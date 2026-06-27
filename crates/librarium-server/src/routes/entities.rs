@@ -207,11 +207,17 @@ async fn trigger_reindex(path: web::Path<String>, state: web::Data<AppState>) ->
     let vpath = vault.path.clone();
     tokio::spawn(async move {
         let start = std::time::Instant::now();
+        let _ = ws_tx.send(crate::models::WsMessage::IndexingStatus {
+            vault_id: vid.clone(),
+            active: true,
+        });
         let search_result = search_index.index_vault(&vid, &vpath);
-        match (
-            search_result,
-            ReindexService::reindex_vault(&db, &vid, &vpath).await,
-        ) {
+        let reindex_result = ReindexService::reindex_vault(&db, &vid, &vpath).await;
+        let _ = ws_tx.send(crate::models::WsMessage::IndexingStatus {
+            vault_id: vid.clone(),
+            active: false,
+        });
+        match (search_result, reindex_result) {
             (Ok(search_count), Ok(file_count)) => {
                 let duration_ms = start.elapsed().as_millis() as i64;
                 let msg = crate::models::WsMessage::ReindexComplete {

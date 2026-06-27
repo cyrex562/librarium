@@ -30,6 +30,11 @@ import type {
     ImportResultItem,
 } from '@/api/types';
 
+// How many files to upload concurrently during a bulk import. The server
+// writes each file then indexes it in the background, so a handful of parallel
+// uploads keeps the localhost connection saturated without overwhelming it.
+const UPLOAD_CONCURRENCY = 5;
+
 function normalizePath(value: string): string {
     return value
         .replace(/\\/g, '/')
@@ -331,38 +336,56 @@ export const useFilesStore = defineStore('files', () => {
                 await createDirectoryIfMissing(vaultId, directory);
             }
 
-            // ── 3. Upload regular files ──────────────────────────────────────────
-            for (const candidate of regularCandidates) {
-                throwIfAborted(signal);
-                const relativeDir = dirname(candidate.relativePath);
-                const destinationDir = joinPath(normalizedTarget, relativeDir);
-                const currentFile = candidate.relativePath;
-
-                const result = await uploadCandidateFile(vaultId, candidate, destinationDir, (fileUploadedBytes) => {
-                    onProgress?.({
-                        totalFiles,
-                        completedFiles,
-                        totalBytes,
-                        uploadedBytes: baseUploadedBytes + fileUploadedBytes,
-                        currentFile,
-                    });
-                }, conflict, signal);
-
-                if (result.skipped) {
-                    skipped.push({ ...result, size: candidate.file.size });
-                } else {
-                    uploaded.push(result);
-                }
-                completedFiles += 1;
-                baseUploadedBytes += candidate.file.size;
+            // ── 3. Upload regular files (bounded concurrency) ────────────────────
+            // Upload several files at once instead of strictly one-at-a-time so
+            // the per-file round-trips (create session → chunks → finish) overlap.
+            // Progress is the archive bytes already done plus the live sum of
+            // every regular file's uploaded bytes.
+            const perFileUploaded = new Array<number>(regularCandidates.length).fill(0);
+            const emitRegularProgress = (currentFile?: string) => {
+                const regularUploaded = perFileUploaded.reduce((sum, n) => sum + n, 0);
                 onProgress?.({
                     totalFiles,
                     completedFiles,
                     totalBytes,
-                    uploadedBytes: baseUploadedBytes,
+                    uploadedBytes: baseUploadedBytes + regularUploaded,
                     currentFile,
                 });
-            }
+            };
+
+            let nextIndex = 0;
+            const uploadWorker = async () => {
+                for (;;) {
+                    const index = nextIndex;
+                    nextIndex += 1;
+                    if (index >= regularCandidates.length) return;
+                    throwIfAborted(signal);
+
+                    const candidate = regularCandidates[index];
+                    const relativeDir = dirname(candidate.relativePath);
+                    const destinationDir = joinPath(normalizedTarget, relativeDir);
+                    const currentFile = candidate.relativePath;
+
+                    const result = await uploadCandidateFile(vaultId, candidate, destinationDir, (fileUploadedBytes) => {
+                        perFileUploaded[index] = fileUploadedBytes;
+                        emitRegularProgress(currentFile);
+                    }, conflict, signal);
+
+                    if (result.skipped) {
+                        skipped.push({ ...result, size: candidate.file.size });
+                    } else {
+                        uploaded.push(result);
+                    }
+                    // Count the file as fully transferred even if no chunk
+                    // callback fired (e.g. a zero-byte or skipped file).
+                    perFileUploaded[index] = candidate.file.size;
+                    completedFiles += 1;
+                    emitRegularProgress(currentFile);
+                }
+            };
+
+            const workerCount = Math.min(UPLOAD_CONCURRENCY, regularCandidates.length);
+            await Promise.all(Array.from({ length: workerCount }, () => uploadWorker()));
 
             return {
                 uploaded,

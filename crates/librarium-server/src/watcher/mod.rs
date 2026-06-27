@@ -217,11 +217,14 @@ fn is_ignored(path: &Path) -> bool {
     })
 }
 
-/// Return the vault-relative string for `abs_path` under `vault_path`.
+/// Return the vault-relative string for `abs_path` under `vault_path`,
+/// normalized to forward slashes so watcher-derived paths match the API and
+/// frontend convention on every OS (Windows otherwise yields backslashes,
+/// which break search keys, entity paths and open-tab matching).
 fn rel(vault_path: &Path, abs_path: &Path) -> String {
     abs_path
         .strip_prefix(vault_path)
         .unwrap_or(abs_path)
         .to_string_lossy()
-        .to_string()
+        .replace('\\', "/")
 }

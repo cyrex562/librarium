@@ -30,7 +30,11 @@ impl ReindexService {
 
         for abs_path in &md_files {
             let rel_path = match abs_path.strip_prefix(vault_path) {
-                Some(p) => p.trim_start_matches('/').to_string(),
+                // Normalize to forward slashes and drop any leading separator so
+                // entity paths match the API/frontend convention on every OS.
+                // On Windows a raw strip left "\hero.md" / "Characters\hero.md",
+                // which broke entity, backlink and tab lookups.
+                Some(p) => p.trim_start_matches(['/', '\\']).replace('\\', "/"),
                 None => {
                     warn!("Could not make {abs_path} relative to {vault_path}");
                     continue;
