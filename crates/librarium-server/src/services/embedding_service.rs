@@ -9,7 +9,7 @@
 //!
 //! See `docs/ORGANIZATION_ML_PLAN.md`.
 
-use crate::config::{MlConfig, MlTier};
+use crate::config::MlConfig;
 use crate::error::AppResult;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -53,7 +53,7 @@ pub fn set_embedder_for_test(e: Option<Arc<dyn Embedder>>) -> bool {
 }
 
 fn init_embedder(config: &MlConfig) -> Option<Arc<dyn Embedder>> {
-    if !config.enabled || config.tier != MlTier::Embeddings {
+    if !config.enabled || !config.tier.uses_embeddings() {
         return None;
     }
 

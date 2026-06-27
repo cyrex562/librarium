@@ -570,17 +570,13 @@ export const apiLogin = (username: string, password: string): Promise<LoginRespo
         body: JSON.stringify({ username, password }),
     });
 
-export const apiRefreshToken = (refreshToken: string): Promise<LoginResponse> =>
-    request('/api/auth/refresh', {
-        method: 'POST',
-        body: JSON.stringify({ refresh_token: refreshToken }),
-    });
+// The refresh token now travels in an HttpOnly cookie set by the server, so we
+// send no body — the browser attaches the cookie automatically (same-origin).
+export const apiRefreshToken = (): Promise<LoginResponse> =>
+    request('/api/auth/refresh', { method: 'POST' });
 
-export const apiLogout = (refreshToken?: string | null): Promise<void> =>
-    request('/api/auth/logout', {
-        method: 'POST',
-        body: JSON.stringify({ refresh_token: refreshToken ?? undefined }),
-    });
+export const apiLogout = (): Promise<void> =>
+    request('/api/auth/logout', { method: 'POST' });
 
 export const apiVerifyTotpLogin = (code: string): Promise<TotpLoginVerifyResponse> =>
     request('/api/auth/totp/login-verify', {

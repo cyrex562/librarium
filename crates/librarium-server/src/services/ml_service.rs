@@ -76,7 +76,7 @@ impl MlService {
     /// statistical work is done.
     pub fn keyphrases_for_tier(content: &str, tier: &str, max: usize) -> Vec<Keyphrase> {
         match tier {
-            "classical" | "embeddings" => Self::extract_keyphrases(content, max),
+            "classical" | "embeddings" | "local_lm" => Self::extract_keyphrases(content, max),
             _ => Vec::new(),
         }
     }

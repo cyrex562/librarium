@@ -186,12 +186,16 @@ async fn totp_login_verify(
         .create_session(&refresh_jti, &user.user_id, refresh_exp)
         .await?;
 
-    Ok(HttpResponse::Ok().json(TotpLoginVerifyResponse {
-        success: true,
-        access_token: response.access_token,
-        refresh_token: response.refresh_token,
-        expires_in: response.expires_in,
-    }))
+    let refresh_cookie =
+        crate::routes::auth::build_refresh_cookie(&response.refresh_token, config.auth.refresh_token_ttl);
+    Ok(HttpResponse::Ok()
+        .cookie(refresh_cookie)
+        .json(TotpLoginVerifyResponse {
+            success: true,
+            access_token: response.access_token,
+            refresh_token: response.refresh_token,
+            expires_in: response.expires_in,
+        }))
 }
 
 /// Disable TOTP 2FA.

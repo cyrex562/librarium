@@ -91,6 +91,7 @@ export interface UserPreferences {
     font_size: number;
     window_layout?: string;
     icon_map?: Record<string, string>;
+    color_map?: Record<string, string>;
 }
 
 // ── Entity / Plugin schema types ──────────────────────────────────────────────
@@ -412,6 +413,10 @@ export interface ApplyPlanRow {
     apply_tags?: string[];
     apply_name?: string;
     apply_folder?: string;
+    /** Folder candidates offered but not chosen — recorded as reject signals (LIB-075). */
+    reject_folders?: string[];
+    /** Suggested tags offered but not applied — reject signals (LIB-075). */
+    reject_tags?: string[];
 }
 
 export interface ApplyPlanRequest {

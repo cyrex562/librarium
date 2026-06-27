@@ -283,11 +283,33 @@ research citations, and rationale.
   route. Today only the ML rename path rewrites inbound `[[wiki-links]]`/`![[embeds]]`; a
   manual rename via the file tree still orphans links. Extract the rewrite + receipt logic so
   both paths stay link-safe.
-- [ ] LIB-074: looked a creating or adapting an existing VSLLM/MoE to help organize
-- [ ] LIB-075: add reinforcement to the organization process
-- [ ] LIB-076: multi-level folder structures
-- [ ] LIB-077: common terms for folder structure (like dewey decimal categories?)
-- [ ] LIB-078: colored folders
+- [x] LIB-074: looked a creating or adapting an existing VSLLM/MoE to help organize — added a
+  `local_lm` ML tier (option B). `local_lm_service` exposes a `LabelScorer` whose default backend
+  is a zero-shot scorer reusing the side-loaded ONNX embedding model (embeds note + humanized
+  candidate labels, cosine→[0,1]); `build_plan` blends those scores into folder-candidate ranking
+  via `blend_label_scores`. The provider returns `None` (graceful fallback to embeddings/classical)
+  when the tier is off or no local model is present, so the air-gap default holds (no download).
+  Tier serde fixed to `snake_case` so `tier = "local_lm"` round-trips. Unit-tested.
+- [x] LIB-075: add reinforcement to the organization process — per-vault `org_feedback` SQLite table
+  of `(kind, target) -> (accepts, rejects)`. Signals captured in the apply/undo routes: applying a
+  folder/tag = accept, an applied group undone = reject, and offered-but-unchosen candidates (new
+  `reject_folders`/`reject_tags` on `ApplyPlanRow`, sent by OrganizeVaultModal) = reject. `build_plan`
+  reweights folder + tag candidates by a Laplace-smoothed acceptance-rate multiplier (neutral 1.0,
+  bounded 0–2) and drops candidates rejected ≥3× with low acceptance. Simple, explainable, unit-tested.
+- [x] LIB-076: multi-level folder structures — `nested_cluster_labels` sub-clusters each large
+  top-level cluster at a tighter cosine threshold (0.78) and labels each cohesive subgroup via
+  c-TF-IDF, emitting nested `parent/child` `target_folder`/`folder_candidates`. Path-aware
+  `slugify_folder_path` preserves `/`. Unit-tested; data model + apply path already handle nesting.
+- [x] LIB-077: common terms for folder structure (like dewey decimal categories?) — a controlled
+  vocabulary layered over cluster labels. `build_taxonomy` sources categories from the vault's
+  `librarium_type` entity types + tags (always) plus optional `[ml] folder_taxonomy` config;
+  `canonicalize_label`/`canonicalize_label_path` map raw cluster term-labels to the closest category
+  by deterministic keyword/prefix overlap (air-gap safe, no model). Per-segment, nesting-aware,
+  dedups `parent/parent`. Unit-tested.
+- [x] LIB-078: colored folders — per-path `color_map` in preferences (mirrors `icon_map`,
+  persisted server-side for both anon + per-user prefs), a "Set/Clear folder color" context-menu
+  item + v-color-picker dialog in FileTreeNode, folder icon tinted from the map, and colors
+  remap/clear alongside icons on rename/move/delete.
 - [x] LIB-079: show full path to note somewhere
 - [x] LIB-080: the desktop version of the app should remain logged in essentially indefinitely.
 - [x] LIB-081: right click on tag and select delete
@@ -317,4 +339,8 @@ research citations, and rationale.
 - [ ] **LIB-102 · LOW** (L7) Manifest write is non-atomic (`fs::write` truncate+write); a crash mid-write corrupts it (safe-ish: triggers full re-index). Fix: write-temp-then-rename.
 - [ ] **LIB-103 · LOW** (L6) Verify MlInsightsPanel default-expanded doesn't auto-fire an ML/embedding request on every note open. for deletion
 
-- [ ] LIB-104: For large note collections we need a way to right click an element in the file listing, click "move", have a separate panel/pane apepar on screen to select the folder/sub-folder to move the element into.
+- [x] LIB-104: For large note collections we need a way to right click an element in the file listing, click "move", have a separate panel/pane apepar on screen to select the folder/sub-folder to move the element into.
+- [ ] LIB-105: display the folder choosing window for moving folder list as a tree rather than flat list
+- [ ] LIB-106: when opening the folder choosing window, automatically put cursor in filter box so that typing begins typing a filter pattern
+- [ ] LIB-107: when in the folder choosing window, enable arrow key navigation and tab navigation between elements, such that after typing a fitler, the user can arrow down or tab to the list. Once a folder is selected, typing enter should confirm it and then close the window.
+- [ ] LIB-108 look at VSLLM for categorization folder organization for articles. It needs to suggest categories like DIY and Making for an article about choosing an anvil for smithing, and things like that. The sub-system needs completion/next token suggestion capabailities like an LLM rather than just pulling a word from the article itself. If hosting a VSLLM is more generally useful, I want it to support turning articles like listicles into just the list of pieces of advice.

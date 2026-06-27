@@ -6,6 +6,7 @@ pub mod frontmatter_service;
 pub mod image_service;
 pub mod label_service;
 pub mod ldap_provider;
+pub mod local_lm_service;
 pub mod markdown_service;
 pub mod ml_service;
 pub mod oidc_provider;

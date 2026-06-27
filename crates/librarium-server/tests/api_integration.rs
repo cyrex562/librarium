@@ -703,3 +703,94 @@ async fn test_public_vault_allows_anonymous_reads() {
 
     let _ = state; // keep state alive
 }
+
+/// LIB-089: the refresh token must be delivered as an HttpOnly cookie and a
+/// refresh must succeed using ONLY that cookie (no body token), so the browser
+/// never needs to store the refresh token in JS-readable storage.
+#[actix_web::test]
+async fn test_refresh_works_with_only_the_httponly_cookie() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("cookie-auth-test.db");
+    let db_url = format!("sqlite://{}", db_path.display());
+    let db = Database::new(&db_url).await.unwrap();
+    db.bootstrap_admin_if_empty(Some("admin"), Some("hunter2"))
+        .await
+        .unwrap();
+
+    let search_index = SearchIndex::new();
+    let (watcher, _) = FileWatcher::new().unwrap();
+    let watcher = Arc::new(Mutex::new(watcher));
+    let (event_tx, _) = broadcast::channel(100);
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        search_index,
+        watcher,
+        event_broadcaster: event_tx,
+        ws_broadcaster: tokio::sync::broadcast::channel::<librarium::models::WsMessage>(16).0,
+        change_log_retention_days: 7,
+        ml_undo_store: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        shutdown_tx: tokio::sync::broadcast::channel::<()>(1).0,
+        document_parser: Arc::new(MarkdownParser),
+        entity_type_registry: librarium::services::EntityTypeRegistry::new(),
+        relation_type_registry: librarium::services::RelationTypeRegistry::new(),
+        plugins_dir: std::path::PathBuf::new(),
+    });
+    let mut config = AppConfig::default();
+    config.auth.enabled = true;
+    config.auth.jwt_secret = "cookie-auth-secret".to_string();
+    let config = web::Data::new(config);
+
+    let app = test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .app_data(config.clone())
+            .wrap(AuthMiddleware)
+            .configure(auth::configure),
+    )
+    .await;
+
+    // Login should set an HttpOnly refresh cookie.
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/login")
+            .set_json(json!({ "username": "admin", "password": "hunter2" }))
+            .to_request(),
+    )
+    .await;
+    assert!(login_resp.status().is_success(), "login should succeed");
+
+    let cookie = login_resp
+        .response()
+        .cookies()
+        .find(|c| c.name() == "librarium_refresh")
+        .expect("login must set the refresh cookie");
+    assert!(
+        cookie.http_only().unwrap_or(false),
+        "refresh cookie must be HttpOnly"
+    );
+    let cookie_value = cookie.value().to_string();
+    assert!(!cookie_value.is_empty(), "refresh cookie must carry a token");
+
+    // Refresh with ONLY the cookie — no JSON body token at all.
+    let refresh_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/refresh")
+            .cookie(actix_web::cookie::Cookie::new(
+                "librarium_refresh",
+                cookie_value,
+            ))
+            .to_request(),
+    )
+    .await;
+    assert!(
+        refresh_resp.status().is_success(),
+        "refresh must succeed using the cookie alone"
+    );
+    let body: serde_json::Value = test::read_body_json(refresh_resp).await;
+    assert!(
+        body["access_token"].as_str().is_some_and(|t| !t.is_empty()),
+        "cookie refresh must return a new access token"
+    );
+}

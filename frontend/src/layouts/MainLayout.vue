@@ -85,6 +85,7 @@
   <TemplateSelector v-model="uiStore.templateSelectorOpen" />
   <ConflictResolver v-model="uiStore.conflictResolverOpen" />
   <ImportVaultDialog v-model="uiStore.importDialogOpen" />
+  <MoveToFolderModal v-model="uiStore.moveDialogOpen" :source-paths="uiStore.moveSourcePaths" />
 </template>
 
 <script setup lang="ts">
@@ -122,6 +123,7 @@ import PluginManager from '@/components/modals/PluginManager.vue';
 import TemplateSelector from '@/components/modals/TemplateSelector.vue';
 import ConflictResolver from '@/components/modals/ConflictResolver.vue';
 import ImportVaultDialog from '@/components/modals/ImportVaultDialog.vue';
+import MoveToFolderModal from '@/components/modals/MoveToFolderModal.vue';
 
 const vaultsStore = useVaultsStore();
 const filesStore = useFilesStore();

@@ -646,6 +646,13 @@ pub struct ApplyPlanRow {
     pub apply_name: Option<String>,
     #[serde(default)]
     pub apply_folder: Option<String>,
+    /// Folder candidates that were offered for this row but NOT chosen — recorded
+    /// as reject signals for reinforcement (LIB-075). Optional; absent = none.
+    #[serde(default)]
+    pub reject_folders: Option<Vec<String>>,
+    /// Suggested tags that were offered but NOT applied — reject signals (LIB-075).
+    #[serde(default)]
+    pub reject_tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -701,6 +708,8 @@ pub struct UserPreferences {
     pub font_size: u16,
     pub window_layout: Option<String>,
     pub icon_map: Option<HashMap<String, String>>,
+    /// Per-path folder color overrides (vault-relative path -> CSS color string).
+    pub color_map: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -720,6 +729,7 @@ impl Default for UserPreferences {
             font_size: 14,
             window_layout: None,
             icon_map: None,
+            color_map: None,
         }
     }
 }

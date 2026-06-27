@@ -8,7 +8,33 @@ const DEFAULT_PREFS: UserPreferences = {
     editor_mode: 'formatted_raw',
     font_size: 14,
     icon_map: {},
+    color_map: {},
 };
+
+/** Move a single path's entry and all descendant entries from one prefix to another. */
+function remapMapPaths(map: Record<string, string>, fromPath: string, toPath: string) {
+    const direct = map[fromPath];
+    if (direct !== undefined) {
+        map[toPath] = direct;
+        delete map[fromPath];
+    }
+    const prefix = `${fromPath}/`;
+    const newPrefix = `${toPath}/`;
+    for (const key of Object.keys(map)) {
+        if (!key.startsWith(prefix)) continue;
+        map[`${newPrefix}${key.slice(prefix.length)}`] = map[key];
+        delete map[key];
+    }
+}
+
+/** Delete a path's entry and all descendant entries. */
+function clearMapUnderPath(map: Record<string, string>, path: string) {
+    delete map[path];
+    const prefix = `${path}/`;
+    for (const key of Object.keys(map)) {
+        if (key.startsWith(prefix)) delete map[key];
+    }
+}
 
 export const usePreferencesStore = defineStore('preferences', () => {
     const prefs = ref<UserPreferences>({ ...DEFAULT_PREFS });
@@ -57,34 +83,30 @@ export const usePreferencesStore = defineStore('preferences', () => {
         delete prefs.value.icon_map[path];
     }
 
+    // Path lifecycle (delete/rename/move) applies to every per-path map so icons
+    // and colors stay in sync. Callers invoke these at the same FS-mutation sites.
     function clearIconsUnderPath(path: string) {
-        if (!prefs.value.icon_map) return;
-        delete prefs.value.icon_map[path];
-        const prefix = `${path}/`;
-        for (const key of Object.keys(prefs.value.icon_map)) {
-            if (key.startsWith(prefix)) {
-                delete prefs.value.icon_map[key];
-            }
-        }
+        if (prefs.value.icon_map) clearMapUnderPath(prefs.value.icon_map, path);
+        if (prefs.value.color_map) clearMapUnderPath(prefs.value.color_map, path);
     }
 
     function remapPathIcon(fromPath: string, toPath: string) {
-        if (!prefs.value.icon_map) return;
-        const direct = prefs.value.icon_map[fromPath];
-        if (direct !== undefined) {
-            prefs.value.icon_map[toPath] = direct;
-            delete prefs.value.icon_map[fromPath];
-        }
+        if (prefs.value.icon_map) remapMapPaths(prefs.value.icon_map, fromPath, toPath);
+        if (prefs.value.color_map) remapMapPaths(prefs.value.color_map, fromPath, toPath);
+    }
 
-        const prefix = `${fromPath}/`;
-        const newPrefix = `${toPath}/`;
-        for (const key of Object.keys(prefs.value.icon_map)) {
-            if (!key.startsWith(prefix)) continue;
-            const value = prefs.value.icon_map[key];
-            const mapped = `${newPrefix}${key.slice(prefix.length)}`;
-            prefs.value.icon_map[mapped] = value;
-            delete prefs.value.icon_map[key];
-        }
+    function getColor(path: string): string | undefined {
+        return prefs.value.color_map?.[path];
+    }
+
+    function setColor(path: string, color: string) {
+        if (!prefs.value.color_map) prefs.value.color_map = {};
+        prefs.value.color_map[path] = color;
+    }
+
+    function clearColor(path: string) {
+        if (!prefs.value.color_map) return;
+        delete prefs.value.color_map[path];
     }
 
     return {
@@ -100,5 +122,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
         clearIcon,
         clearIconsUnderPath,
         remapPathIcon,
+        getColor,
+        setColor,
+        clearColor,
     };
 });
