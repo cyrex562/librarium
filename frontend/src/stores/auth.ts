@@ -4,13 +4,17 @@ import { apiLogin, apiRefreshToken, apiLogout, apiMe, apiChangePassword, apiVeri
 import type { LoginResponse, AuthenticatedUserProfile } from '@/api/types';
 
 const ACCESS_TOKEN_KEY = 'obsidian_access_token';
-const REFRESH_TOKEN_KEY = 'obsidian_refresh_token';
 const EXPIRES_AT_KEY = 'obsidian_token_expires_at';
 const PENDING_TOTP_KEY = 'obsidian_pending_totp';
+// Legacy key: the refresh token now lives in an HttpOnly cookie and is never
+// persisted in localStorage. Purge any token left over from older versions.
+localStorage.removeItem('obsidian_refresh_token');
 
 export const useAuthStore = defineStore('auth', () => {
     const accessToken = ref<string | null>(localStorage.getItem(ACCESS_TOKEN_KEY));
-    const refreshToken = ref<string | null>(localStorage.getItem(REFRESH_TOKEN_KEY));
+    // Held only in memory for the current page session; the durable copy is the
+    // HttpOnly cookie, so refresh/logout work even after a reload clears this.
+    const refreshToken = ref<string | null>(null);
     const expiresAt = ref<number>(parseInt(localStorage.getItem(EXPIRES_AT_KEY) ?? '0', 10));
     const pendingTotp = ref(localStorage.getItem(PENDING_TOTP_KEY) === 'true');
     const profile = ref<AuthenticatedUserProfile | null>(null);
@@ -28,7 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
         expiresAt.value = Date.now() + resp.expires_in * 1000;
         pendingTotp.value = !!resp.totp_required;
         localStorage.setItem(ACCESS_TOKEN_KEY, resp.access_token);
-        localStorage.setItem(REFRESH_TOKEN_KEY, resp.refresh_token);
+        // Refresh token intentionally NOT persisted — it's in the HttpOnly cookie.
         localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt.value));
         localStorage.setItem(PENDING_TOTP_KEY, String(pendingTotp.value));
     }
@@ -55,20 +59,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     async function refresh() {
-        if (!refreshToken.value) throw new Error('No refresh token');
-        const resp = await apiRefreshToken(refreshToken.value);
+        // The refresh token rides in the HttpOnly cookie; the server reads it
+        // there. Succeeds across reloads even when the in-memory copy is gone.
+        const resp = await apiRefreshToken();
         _applyTokens(resp);
     }
 
     async function logout() {
-        try { await apiLogout(refreshToken.value); } catch { /* ignore server errors on logout */ }
+        try { await apiLogout(); } catch { /* ignore server errors on logout */ }
         accessToken.value = null;
         refreshToken.value = null;
         expiresAt.value = 0;
         pendingTotp.value = false;
         profile.value = null;
         localStorage.removeItem(ACCESS_TOKEN_KEY);
-        localStorage.removeItem(REFRESH_TOKEN_KEY);
         localStorage.removeItem(EXPIRES_AT_KEY);
         localStorage.removeItem(PENDING_TOTP_KEY);
     }

@@ -255,7 +255,19 @@ async function applySelected() {
       apply.apply_folder = sel.folderChoice;
       any = true;
     }
-    if (any) rows.push(apply);
+    if (any) {
+      // Reinforcement (LIB-075): on a row the user engaged with, any offered
+      // folder candidate they didn't pick — and suggested tags they didn't
+      // apply — count as reject signals.
+      const rejectFolders = (row.folder_candidates ?? [])
+        .map((c) => c.path)
+        .filter((p) => p !== apply.apply_folder);
+      if (rejectFolders.length) apply.reject_folders = rejectFolders;
+      if (!apply.apply_tags && row.suggested_tags.length) {
+        apply.reject_tags = row.suggested_tags;
+      }
+      rows.push(apply);
+    }
   }
 
   try {

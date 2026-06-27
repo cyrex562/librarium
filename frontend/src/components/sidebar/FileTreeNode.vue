@@ -37,9 +37,9 @@
         v-if="node.is_directory && isMdiIcon"
         :icon="resolvedIcon"
         size="16"
-        style="flex-shrink: 0; color: rgb(var(--v-theme-secondary));"
+        :style="folderIconStyle"
       />
-      <span v-else-if="node.is_directory" class="custom-icon text-caption ml-1">{{ resolvedIcon }}</span>
+      <span v-else-if="node.is_directory" class="custom-icon text-caption ml-1" :style="folderColor ? { color: folderColor } : undefined">{{ resolvedIcon }}</span>
       <v-icon
         v-else-if="isMdiIcon"
         :icon="resolvedIcon"
@@ -112,7 +112,10 @@
         <v-list-item v-if="!node.is_directory" title="Open in split" prepend-icon="mdi-flip-horizontal" data-testid="ctx-open-split" @click="openSplit" />
         <v-list-item title="Set custom icon" prepend-icon="mdi-emoticon-outline" data-testid="ctx-set-icon" @click="setCustomIcon" />
         <v-list-item title="Clear custom icon" prepend-icon="mdi-emoticon-remove-outline" data-testid="ctx-clear-icon" @click="clearCustomIcon" />
+        <v-list-item v-if="node.is_directory" title="Set folder color" prepend-icon="mdi-palette-outline" data-testid="ctx-set-color" @click="openColorDialog" />
+        <v-list-item v-if="node.is_directory && folderColor" title="Clear folder color" prepend-icon="mdi-palette-swatch-outline" data-testid="ctx-clear-color" @click="clearFolderColor" />
         <v-list-item title="Rename" prepend-icon="mdi-pencil-outline" data-testid="ctx-rename" @click="startEdit" />
+        <v-list-item title="Move to…" prepend-icon="mdi-folder-move-outline" data-testid="ctx-move" @click="openMoveDialog" />
         <v-divider />
         <v-list-item title="Export as ZIP" prepend-icon="mdi-folder-zip-outline" data-testid="ctx-export-zip" @click="exportAsZip" />
         <v-list-item title="Export as tar.gz" prepend-icon="mdi-archive-arrow-down-outline" data-testid="ctx-export-tar" @click="exportAsTar" />
@@ -120,6 +123,28 @@
         <v-list-item title="Delete" prepend-icon="mdi-delete-outline" base-color="error" data-testid="ctx-delete" @click="onDelete" />
       </v-list>
     </v-menu>
+
+    <!-- Folder color picker -->
+    <v-dialog v-model="colorDialog" width="auto">
+      <v-card>
+        <v-card-title class="text-subtitle-2">Folder color</v-card-title>
+        <v-card-text class="pt-0">
+          <v-color-picker
+            v-model="colorDraft"
+            mode="hexa"
+            :modes="['hexa', 'rgba']"
+            show-swatches
+            data-testid="folder-color-picker"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-btn v-if="folderColor" variant="text" color="error" @click="clearFolderColor">Clear</v-btn>
+          <v-spacer />
+          <v-btn variant="text" @click="colorDialog = false">Cancel</v-btn>
+          <v-btn color="primary" variant="flat" data-testid="folder-color-apply" @click="applyFolderColor">Apply</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -153,6 +178,8 @@ const cmX = ref(0);
 const cmY = ref(0);
 const importDragOver = ref(false);
 const moveDragOver = ref(false);
+const colorDialog = ref(false);
+const colorDraft = ref('#90CAF9');
 
 const sort = inject<Ref<'asc' | 'desc'>>('fileTreeSort', ref('asc'));
 const selectionOrder = inject<Ref<string[]>>('fileTreeSelectionOrder', ref([]));
@@ -196,6 +223,14 @@ const fileIcon = computed(() => {
 
 const resolvedIcon = computed(() => prefsStore.getIcon(props.node.path) ?? fileIcon.value);
 const isMdiIcon = computed(() => resolvedIcon.value.startsWith('mdi-'));
+
+const folderColor = computed(() =>
+  props.node.is_directory ? prefsStore.getColor(props.node.path) : undefined,
+);
+const folderIconStyle = computed(() => ({
+  flexShrink: 0,
+  color: folderColor.value ?? 'rgb(var(--v-theme-secondary))',
+}));
 
 async function onClick(event: MouseEvent) {
   if (event.ctrlKey || event.metaKey || event.shiftKey || filesStore.selectionMode) {
@@ -339,6 +374,25 @@ async function clearCustomIcon() {
   await prefsStore.save();
 }
 
+function openColorDialog() {
+  colorDraft.value = folderColor.value ?? '#90CAF9';
+  colorDialog.value = true;
+}
+
+async function applyFolderColor() {
+  const color = colorDraft.value?.trim();
+  if (!color) return;
+  prefsStore.setColor(props.node.path, color);
+  colorDialog.value = false;
+  await prefsStore.save();
+}
+
+async function clearFolderColor() {
+  prefsStore.clearColor(props.node.path);
+  colorDialog.value = false;
+  await prefsStore.save();
+}
+
 async function newFileInFolder() {
   if (!props.node.is_directory) return;
   const vaultId = vaultsStore.activeVaultId;
@@ -368,6 +422,20 @@ async function newFolderInFolder() {
   const folderPath = `${props.node.path}/${folderName.trim()}`;
   await filesStore.createDirectory(vaultId, folderPath);
   expanded.value = true;
+}
+
+// Paths to move via the "Move to…" dialog: the multi-selection when this node
+// is part of it, otherwise just this node.
+function moveSources(): string[] {
+  if (filesStore.selectionMode && filesStore.isSelected(props.node.path)) {
+    const selected = filesStore.selectedTopLevelNodes().map((n) => n.path);
+    if (selected.length > 0) return selected;
+  }
+  return [props.node.path];
+}
+
+function openMoveDialog() {
+  uiStore.openMoveDialog(moveSources());
 }
 
 function importTargetPath() {

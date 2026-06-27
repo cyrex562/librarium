@@ -236,6 +236,7 @@ impl Database {
                 font_size INTEGER NOT NULL DEFAULT 14,
                 window_layout TEXT,
                 icon_map TEXT,
+                color_map TEXT,
                 updated_at TEXT NOT NULL
             )
             "#,
@@ -260,6 +261,10 @@ impl Database {
             .await;
 
         let _ = sqlx::query("ALTER TABLE preferences ADD COLUMN icon_map TEXT")
+            .execute(&self.pool)
+            .await;
+
+        let _ = sqlx::query("ALTER TABLE preferences ADD COLUMN color_map TEXT")
             .execute(&self.pool)
             .await;
 
@@ -326,6 +331,7 @@ impl Database {
                 font_size INTEGER NOT NULL DEFAULT 14,
                 window_layout TEXT,
                 icon_map TEXT,
+                color_map TEXT,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
@@ -335,6 +341,10 @@ impl Database {
         .await?;
 
         let _ = sqlx::query("ALTER TABLE user_preferences ADD COLUMN icon_map TEXT")
+            .execute(&self.pool)
+            .await;
+
+        let _ = sqlx::query("ALTER TABLE user_preferences ADD COLUMN color_map TEXT")
             .execute(&self.pool)
             .await;
 
@@ -499,6 +509,26 @@ impl Database {
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_ml_undo_receipts_group_id ON ml_undo_receipts(group_id)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // LIB-075: per-vault reinforcement signal for the organize feature. One
+        // row per (kind, target) with accumulated accept/reject counts. `kind`
+        // is "folder" or "tag"; `target` is the folder path or tag string.
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS org_feedback (
+                vault_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                target TEXT NOT NULL,
+                accepts INTEGER NOT NULL DEFAULT 0,
+                rejects INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (vault_id, kind, target),
+                FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+            )
+            "#,
         )
         .execute(&self.pool)
         .await?;
@@ -920,6 +950,62 @@ impl Database {
             .map_err(AppError::from)?;
 
         rows.into_iter().map(|r| r.into_receipt()).collect()
+    }
+
+    // ── LIB-075: organize reinforcement signal ────────────────────────────────
+
+    /// Record one accept/reject signal for an organize suggestion, accumulating
+    /// the per-`(kind, target)` counters for the vault. `kind` is `"folder"` or
+    /// `"tag"`; `target` is the folder path or tag string.
+    pub async fn record_org_feedback(
+        &self,
+        vault_id: &str,
+        kind: &str,
+        target: &str,
+        accepted: bool,
+    ) -> AppResult<()> {
+        let now = Utc::now().to_rfc3339();
+        let (acc, rej) = if accepted { (1, 0) } else { (0, 1) };
+        sqlx::query(
+            r#"
+            INSERT INTO org_feedback (vault_id, kind, target, accepts, rejects, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(vault_id, kind, target) DO UPDATE SET
+                accepts = accepts + excluded.accepts,
+                rejects = rejects + excluded.rejects,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(vault_id)
+        .bind(kind)
+        .bind(target)
+        .bind(acc)
+        .bind(rej)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+        Ok(())
+    }
+
+    /// Load the vault's accumulated organize feedback as a
+    /// `(kind, target) -> (accepts, rejects)` map for reranking suggestions.
+    pub async fn get_org_feedback_map(
+        &self,
+        vault_id: &str,
+    ) -> AppResult<std::collections::HashMap<(String, String), (i64, i64)>> {
+        let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
+            "SELECT kind, target, accepts, rejects FROM org_feedback WHERE vault_id = ?",
+        )
+        .bind(vault_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::from)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(kind, target, a, r)| ((kind, target), (a, r)))
+            .collect())
     }
 
     // ── LIB-060: note embeddings ──────────────────────────────────────────────
@@ -1864,12 +1950,17 @@ impl Database {
         &self,
         user_id: Option<&str>,
     ) -> AppResult<UserPreferences> {
-        let row: Option<(String, String, i64, Option<String>, Option<String>)> = if let Some(
-            user_id,
-        ) = user_id
-        {
+        type PrefsRow = (
+            String,
+            String,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let row: Option<PrefsRow> = if let Some(user_id) = user_id {
             sqlx::query_as(
-                "SELECT theme, editor_mode, font_size, window_layout, icon_map FROM user_preferences WHERE user_id = ?",
+                "SELECT theme, editor_mode, font_size, window_layout, icon_map, color_map FROM user_preferences WHERE user_id = ?",
             )
             .bind(user_id)
             .fetch_optional(&self.pool)
@@ -1877,15 +1968,20 @@ impl Database {
             .map_err(AppError::from)?
         } else {
             sqlx::query_as(
-                "SELECT theme, editor_mode, font_size, window_layout, icon_map FROM preferences WHERE id = 1",
+                "SELECT theme, editor_mode, font_size, window_layout, icon_map, color_map FROM preferences WHERE id = 1",
             )
             .fetch_optional(&self.pool)
             .await
             .map_err(AppError::from)?
         };
 
-        if let Some((theme, editor_mode, font_size, window_layout, icon_map_raw)) = row {
+        if let Some((theme, editor_mode, font_size, window_layout, icon_map_raw, color_map_raw)) =
+            row
+        {
             let icon_map = icon_map_raw
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok());
+            let color_map = color_map_raw
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok());
             return Ok(UserPreferences {
@@ -1894,6 +1990,7 @@ impl Database {
                 font_size: font_size as u16,
                 window_layout,
                 icon_map,
+                color_map,
             });
         }
 
@@ -1903,17 +2000,26 @@ impl Database {
             return Ok(default);
         }
 
-        let fallback_row: Option<(String, String, i64, Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT theme, editor_mode, font_size, window_layout, icon_map FROM preferences WHERE id = 1",
+        let fallback_row: Option<PrefsRow> = sqlx::query_as(
+            "SELECT theme, editor_mode, font_size, window_layout, icon_map, color_map FROM preferences WHERE id = 1",
         )
         .fetch_optional(&self.pool)
         .await
         .map_err(AppError::from)?;
 
-        let fallback = if let Some((theme, editor_mode, font_size, window_layout, icon_map_raw)) =
-            fallback_row
+        let fallback = if let Some((
+            theme,
+            editor_mode,
+            font_size,
+            window_layout,
+            icon_map_raw,
+            color_map_raw,
+        )) = fallback_row
         {
             let icon_map = icon_map_raw
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok());
+            let color_map = color_map_raw
                 .as_deref()
                 .and_then(|raw| serde_json::from_str(raw).ok());
             UserPreferences {
@@ -1922,6 +2028,7 @@ impl Database {
                 font_size: font_size as u16,
                 window_layout,
                 icon_map,
+                color_map,
             }
         } else {
             UserPreferences::default()
@@ -1946,18 +2053,23 @@ impl Database {
             .icon_map
             .as_ref()
             .and_then(|m| serde_json::to_string(m).ok());
+        let color_map_json = prefs
+            .color_map
+            .as_ref()
+            .and_then(|m| serde_json::to_string(m).ok());
 
         if let Some(user_id) = user_id {
             sqlx::query(
                 r#"
-                INSERT INTO user_preferences (user_id, theme, editor_mode, font_size, window_layout, icon_map, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_preferences (user_id, theme, editor_mode, font_size, window_layout, icon_map, color_map, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     theme = excluded.theme,
                     editor_mode = excluded.editor_mode,
                     font_size = excluded.font_size,
                     window_layout = excluded.window_layout,
                     icon_map = excluded.icon_map,
+                    color_map = excluded.color_map,
                     updated_at = excluded.updated_at
                 "#,
             )
@@ -1967,6 +2079,7 @@ impl Database {
             .bind(prefs.font_size as i64)
             .bind(&prefs.window_layout)
             .bind(&icon_map_json)
+            .bind(&color_map_json)
             .bind(&now)
             .execute(&self.pool)
             .await?;
@@ -1976,7 +2089,7 @@ impl Database {
         sqlx::query(
             r#"
             UPDATE preferences
-            SET theme = ?, editor_mode = ?, font_size = ?, window_layout = ?, icon_map = ?, updated_at = ?
+            SET theme = ?, editor_mode = ?, font_size = ?, window_layout = ?, icon_map = ?, color_map = ?, updated_at = ?
             WHERE id = 1
             "#,
         )
@@ -1985,6 +2098,7 @@ impl Database {
         .bind(prefs.font_size as i64)
         .bind(&prefs.window_layout)
         .bind(&icon_map_json)
+        .bind(&color_map_json)
         .bind(now)
         .execute(&self.pool)
         .await?;

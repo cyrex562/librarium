@@ -97,7 +97,10 @@ change_log_retention_days = 30
 # See docs/ORGANIZATION_ML_PLAN.md.
 [ml]
 enabled = true
-tier = "classical"            # heuristic | classical | embeddings
+tier = "classical"            # heuristic | classical | embeddings | local_lm
+                              # local_lm: zero-shot folder scoring over the local
+                              # ONNX model (LIB-074); needs an embeddings build +
+                              # a pre-seeded model, else falls back automatically.
 model = "bge-small-en-v1.5"   # used only when tier = "embeddings"
 cache_dir = ""                # empty -> {data_dir}/ml-models
 allow_model_download = false  # air-gap default: never fetch at runtime
@@ -105,3 +108,9 @@ auto_suggest_on_open = false
 naming_scheme = "kebab-case"  # kebab-case | title-case | date-prefixed | category-slug
 min_confidence = 0.55
 max_suggestions = 8
+# Optional controlled vocabulary for Organize-Vault folder names (LIB-077).
+# Cluster term-labels are mapped to the closest of these human categories. The
+# vault's own librarium_type entity types and tags are always used as sources
+# too; this list just adds/overrides. Purely a deterministic keyword match — no
+# model is required, so it stays air-gap safe.
+# folder_taxonomy = ["Programming", "Cooking", "Finance", "Health"]

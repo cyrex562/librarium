@@ -5,6 +5,8 @@ use crate::models::AuthenticatedUserProfile;
 use crate::models::ChangePasswordRequest;
 use crate::routes::vaults::AppState;
 use crate::services::{authenticate_username_password, validate_password_policy};
+use actix_web::cookie::time::Duration as CookieDuration;
+use actix_web::cookie::{Cookie, SameSite};
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString},
@@ -48,6 +50,49 @@ pub struct LogoutRequest {
 
 fn default_totp_verified() -> bool {
     true
+}
+
+/// Name of the HttpOnly cookie that carries the refresh token for browser /
+/// desktop clients. Keeping the refresh token in an HttpOnly, SameSite=Strict
+/// cookie (instead of `localStorage`) means page JavaScript — and therefore any
+/// XSS — cannot read or exfiltrate it. Scoped to `/api/auth` so it is only sent
+/// to the refresh/logout endpoints. Non-browser clients (the Rust CLI) keep
+/// using the `refresh_token` returned in the JSON body.
+const REFRESH_COOKIE: &str = "librarium_refresh";
+
+/// Build the refresh-token cookie. `Secure` is intentionally NOT set: the
+/// desktop/portable deployment serves over `http://127.0.0.1`, where a `Secure`
+/// cookie would simply be dropped. HttpOnly + SameSite=Strict still prevent JS
+/// access and cross-site sending; loopback traffic never leaves the machine.
+pub(crate) fn build_refresh_cookie(token: &str, ttl_secs: u64) -> Cookie<'static> {
+    Cookie::build(REFRESH_COOKIE, token.to_owned())
+        .http_only(true)
+        .same_site(SameSite::Strict)
+        .path("/api/auth")
+        .max_age(CookieDuration::seconds(ttl_secs.min(i64::MAX as u64) as i64))
+        .finish()
+}
+
+/// Cookie that immediately expires the refresh cookie (used on logout).
+fn clear_refresh_cookie() -> Cookie<'static> {
+    Cookie::build(REFRESH_COOKIE, "")
+        .http_only(true)
+        .same_site(SameSite::Strict)
+        .path("/api/auth")
+        .max_age(CookieDuration::seconds(0))
+        .finish()
+}
+
+/// Read the refresh token from the HttpOnly cookie, falling back to the JSON
+/// body field (for non-browser clients that don't use cookies).
+fn refresh_token_from(req: &HttpRequest, body: Option<&str>) -> Option<String> {
+    req.cookie(REFRESH_COOKIE)
+        .map(|c| c.value().to_string())
+        .or_else(|| {
+            body.map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -96,16 +141,20 @@ async fn login(
         .create_session(&refresh_jti, &principal.user_id, refresh_exp)
         .await;
 
-    Ok(HttpResponse::Ok().json(response))
+    let cookie = build_refresh_cookie(&response.refresh_token, config.auth.refresh_token_ttl);
+    Ok(HttpResponse::Ok().cookie(cookie).json(response))
 }
 
 #[post("/api/auth/refresh")]
 async fn refresh_access_token(
     state: web::Data<AppState>,
     config: web::Data<AppConfig>,
-    req: web::Json<RefreshRequest>,
+    http_req: HttpRequest,
+    body: Option<web::Json<RefreshRequest>>,
 ) -> AppResult<HttpResponse> {
-    let old_claims = decode_token(&req.refresh_token, &config.auth.jwt_secret)?;
+    let token = refresh_token_from(&http_req, body.as_ref().map(|b| b.refresh_token.as_str()))
+        .ok_or_else(|| AppError::Unauthorized("No refresh token provided".to_string()))?;
+    let old_claims = decode_token(&token, &config.auth.jwt_secret)?;
 
     if old_claims.token_type != "refresh" {
         return Err(AppError::Unauthorized("Invalid refresh token".to_string()));
@@ -134,7 +183,8 @@ async fn refresh_access_token(
         .create_session(&refresh_jti, &old_claims.sub, refresh_exp)
         .await;
 
-    Ok(HttpResponse::Ok().json(response))
+    let cookie = build_refresh_cookie(&response.refresh_token, config.auth.refresh_token_ttl);
+    Ok(HttpResponse::Ok().cookie(cookie).json(response))
 }
 
 /// Log out the authenticated user.
@@ -165,14 +215,11 @@ async fn logout(
         .cloned()
         .ok_or_else(|| AppError::Unauthorized("Authentication required".to_string()))?;
 
-    let refresh_token = body
-        .as_ref()
-        .and_then(|payload| payload.refresh_token.as_deref())
-        .map(str::trim)
-        .filter(|token| !token.is_empty());
+    let refresh_token =
+        refresh_token_from(&req, body.as_ref().and_then(|p| p.refresh_token.as_deref()));
 
     if let Some(refresh_token) = refresh_token {
-        let claims = decode_token(refresh_token, &config.auth.jwt_secret)?;
+        let claims = decode_token(&refresh_token, &config.auth.jwt_secret)?;
         if claims.token_type != "refresh" || claims.sub != user.user_id {
             return Err(AppError::Unauthorized("Invalid refresh token".to_string()));
         }
@@ -182,7 +229,10 @@ async fn logout(
         let _ = state.db.revoke_all_sessions(&user.user_id).await?;
     }
 
-    Ok(HttpResponse::Ok().json(LogoutResponse { success: true }))
+    // Always clear the browser refresh cookie on logout.
+    Ok(HttpResponse::Ok()
+        .cookie(clear_refresh_cookie())
+        .json(LogoutResponse { success: true }))
 }
 
 #[get("/api/auth/me")]

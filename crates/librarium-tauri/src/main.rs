@@ -103,6 +103,13 @@ fn run_setup(app: &mut tauri::App) -> anyhow::Result<()> {
     // session does not expire between launches, regardless of whether a
     // config.toml is present. The short-lived access token still rotates
     // normally. A config that already asks for a longer lifetime is respected.
+    //
+    // Scope (LIB-089): this floor is applied ONLY by the desktop binary — a
+    // standalone/server deployment keeps its configured lifetime. The desktop
+    // server binds 127.0.0.1 (loopback, single local user), and the refresh
+    // token itself is delivered to the WebView as an HttpOnly cookie (see
+    // routes::auth::build_refresh_cookie) rather than being readable by page JS,
+    // so the long-lived credential can't be exfiltrated by XSS.
     const DESKTOP_REFRESH_TTL_SECS: u64 = 10 * 365 * 24 * 60 * 60;
     config.auth.refresh_token_ttl = config.auth.refresh_token_ttl.max(DESKTOP_REFRESH_TTL_SECS);
 

@@ -246,11 +246,21 @@ pub struct MlConfig {
     /// Maximum number of suggestions returned per note.
     #[serde(default = "default_ml_max_suggestions")]
     pub max_suggestions: usize,
+
+    /// Optional controlled vocabulary of folder categories (LIB-077). When set,
+    /// raw cluster term-labels are mapped to the closest of these human category
+    /// names. Combined with the vault's own `librarium_type` entity types and
+    /// tags, which are always used as taxonomy sources. Air-gap friendly: this
+    /// is purely a deterministic keyword match, no model required.
+    #[serde(default)]
+    pub folder_taxonomy: Vec<String>,
 }
 
 /// Intelligence tier for the organization feature. See [`MlConfig`].
+// `snake_case` keeps the single-word variants lowercase (`classical`, etc.) and
+// renders `LocalLm` as `local_lm`, matching [`MlTier::as_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum MlTier {
     /// Keyword rules only; no extra dependencies.
     Heuristic,
@@ -259,6 +269,11 @@ pub enum MlTier {
     Classical,
     /// Adds local ONNX sentence embeddings.
     Embeddings,
+    /// LIB-074: layers a small, fully-local "LM" label scorer (zero-shot over the
+    /// side-loaded ONNX model) on top of the embeddings tier to sharpen folder /
+    /// category choices. Falls back to embeddings/classical when no model is
+    /// present, so the air-gap default still holds (no download).
+    LocalLm,
 }
 
 impl MlTier {
@@ -268,7 +283,14 @@ impl MlTier {
             MlTier::Heuristic => "heuristic",
             MlTier::Classical => "classical",
             MlTier::Embeddings => "embeddings",
+            MlTier::LocalLm => "local_lm",
         }
+    }
+
+    /// Whether this tier uses local ONNX embeddings (directly, or as the backbone
+    /// of the local-LM scorer).
+    pub fn uses_embeddings(&self) -> bool {
+        matches!(self, MlTier::Embeddings | MlTier::LocalLm)
     }
 }
 
@@ -377,6 +399,7 @@ impl Default for MlConfig {
             naming_scheme: default_ml_naming_scheme(),
             min_confidence: default_ml_min_confidence(),
             max_suggestions: default_ml_max_suggestions(),
+            folder_taxonomy: Vec::new(),
         }
     }
 }
@@ -611,6 +634,29 @@ mod tests {
             config.cors.allowed_origins,
             vec!["http://localhost:5173".to_string()]
         );
+    }
+
+    #[test]
+    fn ml_tier_serde_matches_as_str() {
+        // The TOML token, the serde representation, and as_str() must agree so
+        // `tier = "local_lm"` round-trips (LIB-074).
+        for tier in [
+            MlTier::Heuristic,
+            MlTier::Classical,
+            MlTier::Embeddings,
+            MlTier::LocalLm,
+        ] {
+            let json = serde_json::to_string(&tier).unwrap();
+            assert_eq!(json, format!("\"{}\"", tier.as_str()));
+            let back: MlTier = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, tier);
+        }
+        assert_eq!(
+            serde_json::from_str::<MlTier>("\"local_lm\"").unwrap(),
+            MlTier::LocalLm
+        );
+        assert!(MlTier::LocalLm.uses_embeddings());
+        assert!(!MlTier::Classical.uses_embeddings());
     }
 
     #[test]

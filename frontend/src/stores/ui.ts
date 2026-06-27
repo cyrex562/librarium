@@ -23,6 +23,9 @@ export const useUiStore = defineStore('ui', () => {
     const importDialogOpen = ref(false);
     const importTargetPath = ref('');
     const importEntries = ref<ImportCandidate[]>([]);
+    // Move-to-folder picker (LIB-104): the vault-relative paths being moved.
+    const moveDialogOpen = ref(false);
+    const moveSourcePaths = ref<string[]>([]);
 
     function openTemplateSelector() {
         templateSelectorOpen.value = true;
@@ -72,6 +75,17 @@ export const useUiStore = defineStore('ui', () => {
         importEntries.value = [];
     }
 
+    function openMoveDialog(sourcePaths: string[]) {
+        if (sourcePaths.length === 0) return;
+        moveSourcePaths.value = [...sourcePaths];
+        moveDialogOpen.value = true;
+    }
+
+    function closeMoveDialog() {
+        moveDialogOpen.value = false;
+        moveSourcePaths.value = [];
+    }
+
     return {
         templateSelectorOpen,
         conflictResolverOpen,
@@ -79,6 +93,8 @@ export const useUiStore = defineStore('ui', () => {
         importDialogOpen,
         importTargetPath,
         importEntries,
+        moveDialogOpen,
+        moveSourcePaths,
         openTemplateSelector,
         closeTemplateSelector,
         openConflictResolver,
@@ -88,5 +104,7 @@ export const useUiStore = defineStore('ui', () => {
         setImportEntries,
         appendImportEntries,
         clearImportEntries,
+        openMoveDialog,
+        closeMoveDialog,
     };
 });

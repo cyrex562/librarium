@@ -784,6 +784,43 @@ async fn apply_plan(
             any_applied = true;
         }
 
+        // Reinforcement signal (LIB-075): a chosen action is an accept; an
+        // offered-but-unchosen candidate is a reject. Only on real applies.
+        if !req.dry_run {
+            if error.is_none() {
+                if let Some(folder) = &row.apply_folder {
+                    let _ = state
+                        .db
+                        .record_org_feedback(&vault_id, "folder", folder, true)
+                        .await;
+                }
+                if let Some(tags) = &row.apply_tags {
+                    for tag in tags {
+                        let _ = state
+                            .db
+                            .record_org_feedback(&vault_id, "tag", &normalize_tag(tag), true)
+                            .await;
+                    }
+                }
+            }
+            if let Some(folders) = &row.reject_folders {
+                for folder in folders {
+                    let _ = state
+                        .db
+                        .record_org_feedback(&vault_id, "folder", folder, false)
+                        .await;
+                }
+            }
+            if let Some(tags) = &row.reject_tags {
+                for tag in tags {
+                    let _ = state
+                        .db
+                        .record_org_feedback(&vault_id, "tag", &normalize_tag(tag), false)
+                        .await;
+                }
+            }
+        }
+
         results.push(ApplyPlanRowResult {
             file_path: row.file_path.clone(),
             final_path: if current_path == row.file_path {
@@ -962,6 +999,12 @@ fn parent_dir(file_path: &str) -> String {
         .to_string()
 }
 
+/// Canonical key for a tag in the reinforcement store (LIB-075): trimmed, no
+/// leading `#`, lowercased — so accept/reject signals collapse onto one entry.
+fn normalize_tag(tag: &str) -> String {
+    tag.trim().trim_start_matches('#').to_lowercase()
+}
+
 /// Validate a proposed rename target is a bare filename (no directory parts,
 /// no traversal). Renames keep the note in its current folder.
 fn validate_bare_filename(name: &str) -> AppResult<()> {
@@ -1125,6 +1168,7 @@ async fn undo_ml_action(
         let count = receipts.len();
         for receipt in &receipts {
             apply_reverse_action(&state, &vault, &vault_id, receipt)?;
+            record_undo_rejection(&state, &vault_id, receipt).await;
         }
         let response = UndoMlActionResponse {
             receipt_id: group_id,
@@ -1145,6 +1189,7 @@ async fn undo_ml_action(
         .await?;
 
     apply_reverse_action(&state, &vault, &vault_id, &receipt)?;
+    record_undo_rejection(&state, &vault_id, &receipt).await;
 
     let response = UndoMlActionResponse {
         receipt_id,
@@ -1155,6 +1200,34 @@ async fn undo_ml_action(
     };
 
     Ok(HttpResponse::Ok().json(response))
+}
+
+/// Record a reject signal (LIB-075) when an applied organize action is undone:
+/// a folder move that was reverted demotes that destination folder, a tag that
+/// was removed demotes that tag. Other reverse actions carry no folder/tag.
+async fn record_undo_rejection(
+    state: &AppState,
+    vault_id: &str,
+    receipt: &MlUndoReceipt,
+) {
+    match &receipt.reverse_action {
+        ReverseAction::MoveBack { to_path, .. } => {
+            let folder = parent_dir(to_path);
+            if !folder.is_empty() {
+                let _ = state
+                    .db
+                    .record_org_feedback(vault_id, "folder", &folder, false)
+                    .await;
+            }
+        }
+        ReverseAction::RemoveTag { tag } => {
+            let _ = state
+                .db
+                .record_org_feedback(vault_id, "tag", &normalize_tag(tag), false)
+                .await;
+        }
+        _ => {}
+    }
 }
 
 /// Apply a single receipt's reverse action to the filesystem + search index.
