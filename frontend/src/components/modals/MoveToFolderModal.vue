@@ -15,6 +15,7 @@
           prepend-inner-icon="mdi-magnify"
           hide-details
           clearable
+          autofocus
           class="mb-2"
         />
         <div class="folder-list">
