@@ -169,7 +169,7 @@ const tabsStore = useTabsStore();
 const uiStore = useUiStore();
 const prefsStore = usePreferencesStore();
 
-const expanded = ref(props.depth < 1); // auto-expand first level
+const expanded = ref(false); // start collapsed
 const hovering = ref(false);
 const editing = ref(false);
 const editName = ref('');

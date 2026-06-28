@@ -1,6 +1,6 @@
 {
   "name": "librarium-frontend",
-  "version": "0.1.0",
+  "version": "0.100.0",
   "description": "Frontend for Librarium",
   "type": "module",
   "scripts": {

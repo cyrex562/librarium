@@ -60,6 +60,13 @@ fn default_totp_verified() -> bool {
 /// using the `refresh_token` returned in the JSON body.
 const REFRESH_COOKIE: &str = "librarium_refresh";
 
+/// A configured refresh-token lifetime at or above this (≈ the desktop binary's
+/// 10-year floor) marks an intentionally long-lived "stay signed in" session,
+/// for which the refresh token is NOT rotated on refresh. See the rationale in
+/// [`refresh_access_token`]. Normal, shorter-lived deployments keep rotation for
+/// its stolen-token-detection benefit.
+const NON_ROTATING_REFRESH_TTL_SECS: u64 = 365 * 24 * 60 * 60; // 1 year
+
 /// Build the refresh-token cookie. `Secure` is intentionally NOT set: the
 /// desktop/portable deployment serves over `http://127.0.0.1`, where a `Secure`
 /// cookie would simply be dropped. HttpOnly + SameSite=Strict still prevent JS
@@ -165,6 +172,32 @@ async fn refresh_access_token(
         return Err(AppError::Unauthorized(
             "Session has been revoked".to_string(),
         ));
+    }
+
+    // Long-lived "stay signed in" sessions (the desktop's ~10-year refresh TTL):
+    // do NOT rotate the refresh token. Rotation revokes the prior token, so if a
+    // client doesn't perfectly persist the rotated HttpOnly cookie — as the
+    // desktop WebView does not — the *next* refresh sends a now-revoked token and
+    // the user is logged out after an hour or two despite the long lifetime. We
+    // keep the refresh token stable and just mint a fresh access token; the
+    // session is only ever invalidated by an explicit logout.
+    if config.auth.refresh_token_ttl >= NON_ROTATING_REFRESH_TTL_SECS {
+        let (access_token, expires_in) = issue_access_token(
+            &old_claims.sub,
+            &old_claims.username,
+            &old_claims.auth_method,
+            old_claims.totp_verified,
+            &config.auth,
+        )?;
+        let response = LoginResponse {
+            access_token,
+            refresh_token: token.clone(),
+            expires_in,
+            totp_required: !old_claims.totp_verified,
+        };
+        // Re-set the same cookie so its browser-side lifetime keeps sliding.
+        let cookie = build_refresh_cookie(&token, config.auth.refresh_token_ttl);
+        return Ok(HttpResponse::Ok().cookie(cookie).json(response));
     }
 
     // Rotate: revoke the old session, issue fresh tokens.
@@ -398,6 +431,37 @@ fn issue_tokens(
         refresh_jti,
         refresh_expires_at,
     ))
+}
+
+/// Mint only a fresh access token for an already-authenticated principal. Used
+/// by the non-rotating refresh path, where the long-lived refresh token (and its
+/// session) is reused unchanged. Returns `(access_token, expires_in_secs)`.
+fn issue_access_token(
+    sub: &str,
+    username: &str,
+    auth_method: &str,
+    totp_verified: bool,
+    auth_cfg: &crate::config::AuthConfig,
+) -> AppResult<(String, u64)> {
+    let secret = effective_jwt_secret(auth_cfg);
+    let now = Utc::now().timestamp();
+    let access_claims = Claims {
+        sub: sub.to_string(),
+        username: username.to_string(),
+        auth_method: auth_method.to_string(),
+        token_type: "access".to_string(),
+        iat: now,
+        exp: now + auth_cfg.access_token_ttl as i64,
+        jti: uuid::Uuid::new_v4().to_string(),
+        totp_verified,
+    };
+    let access_token = encode(
+        &Header::default(),
+        &access_claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| AppError::InternalError(format!("Failed to issue access token: {e}")))?;
+    Ok((access_token, auth_cfg.access_token_ttl))
 }
 
 fn decode_token(token: &str, jwt_secret: &str) -> AppResult<Claims> {
