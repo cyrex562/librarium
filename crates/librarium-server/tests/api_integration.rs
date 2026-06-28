@@ -794,3 +794,103 @@ async fn test_refresh_works_with_only_the_httponly_cookie() {
         "cookie refresh must return a new access token"
     );
 }
+
+/// LIB-089 follow-up: with a long-lived ("stay signed in") refresh TTL — as the
+/// desktop binary configures — the refresh token must NOT rotate, so the SAME
+/// token can be used for refresh repeatedly. This is what keeps the desktop app
+/// signed in: rotation would revoke the prior token and, if the rotated cookie
+/// isn't perfectly persisted by the client, the next refresh would 401.
+#[actix_web::test]
+async fn test_long_lived_session_does_not_rotate_refresh_token() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("non-rotating-test.db");
+    let db_url = format!("sqlite://{}", db_path.display());
+    let db = Database::new(&db_url).await.unwrap();
+    db.bootstrap_admin_if_empty(Some("admin"), Some("hunter2"))
+        .await
+        .unwrap();
+
+    let search_index = SearchIndex::new();
+    let (watcher, _) = FileWatcher::new().unwrap();
+    let watcher = Arc::new(Mutex::new(watcher));
+    let (event_tx, _) = broadcast::channel(100);
+    let state = web::Data::new(AppState {
+        db: db.clone(),
+        search_index,
+        watcher,
+        event_broadcaster: event_tx,
+        ws_broadcaster: tokio::sync::broadcast::channel::<librarium::models::WsMessage>(16).0,
+        change_log_retention_days: 7,
+        ml_undo_store: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        shutdown_tx: tokio::sync::broadcast::channel::<()>(1).0,
+        document_parser: Arc::new(MarkdownParser),
+        entity_type_registry: librarium::services::EntityTypeRegistry::new(),
+        relation_type_registry: librarium::services::RelationTypeRegistry::new(),
+        plugins_dir: std::path::PathBuf::new(),
+    });
+    let mut config = AppConfig::default();
+    config.auth.enabled = true;
+    config.auth.jwt_secret = "non-rotating-secret".to_string();
+    // Mirror the desktop's 10-year refresh-token floor.
+    config.auth.refresh_token_ttl = 10 * 365 * 24 * 60 * 60;
+    let config = web::Data::new(config);
+
+    let app = test::init_service(
+        App::new()
+            .app_data(state.clone())
+            .app_data(config.clone())
+            .wrap(AuthMiddleware)
+            .configure(auth::configure),
+    )
+    .await;
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/auth/login")
+            .set_json(json!({ "username": "admin", "password": "hunter2" }))
+            .to_request(),
+    )
+    .await;
+    assert!(login_resp.status().is_success());
+    let original = login_resp
+        .response()
+        .cookies()
+        .find(|c| c.name() == "librarium_refresh")
+        .expect("login must set the refresh cookie")
+        .value()
+        .to_string();
+
+    let refresh_once = |token: String| {
+        let app = &app;
+        async move {
+            test::call_service(
+                app,
+                test::TestRequest::post()
+                    .uri("/api/auth/refresh")
+                    .cookie(actix_web::cookie::Cookie::new("librarium_refresh", token))
+                    .to_request(),
+            )
+            .await
+        }
+    };
+
+    // First refresh with the original token: succeeds and returns the SAME token.
+    let r1 = refresh_once(original.clone()).await;
+    assert!(r1.status().is_success(), "first refresh should succeed");
+    let b1: serde_json::Value = test::read_body_json(r1).await;
+    assert_eq!(
+        b1["refresh_token"].as_str(),
+        Some(original.as_str()),
+        "long-lived refresh must reuse (not rotate) the refresh token"
+    );
+
+    // Second refresh with the SAME original token still succeeds — under rotation
+    // this would 401 because the first refresh would have revoked it. This is the
+    // exact failure that logged the desktop app out after an hour or two.
+    let r2 = refresh_once(original).await;
+    assert!(
+        r2.status().is_success(),
+        "the same long-lived token must keep working across refreshes"
+    );
+}
