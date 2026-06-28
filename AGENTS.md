@@ -11,7 +11,8 @@ This repository is a Rust workspace for a self-hosted Obsidian-compatible knowle
 - `frontend`: Vue 3 + TypeScript + Vuetify SPA
 - `plugins`: built-in plugin manifests and scripts
 - `tests`: workspace-level Rust integration tests
-- `docs`: architecture, feature, and deployment references
+- `docs/DESIGN.md`: the canonical, current design & architecture document
+- `docs/archive`: historical design notes, feature plans, and superseded specs (background only)
 
 ## Working Style
 
@@ -46,6 +47,22 @@ This repository is a Rust workspace for a self-hosted Obsidian-compatible knowle
 - Search index consistency: `crates/librarium-server/src/services/search_service.rs`
 - Reindex and entity sync: `crates/librarium-server/src/services/reindex_service.rs`
 - Frontend editor state and tab behavior: `frontend/src/stores`, `frontend/src/components/editor`, `frontend/src/components/tabs`
+
+## Documentation Guardrails
+
+- `docs/DESIGN.md` and the root `README.md` are living documents. Keep them
+  describing the system **as it is now**.
+- When a change is breaking or otherwise alters architecture, data flow, public
+  REST/WebSocket payloads, the frontend⇄backend contract, the persistence model,
+  auth/authorization, config keys, or build/run commands, **update `docs/DESIGN.md`
+  in the same change** — and `README.md` too if the overview or quick start is
+  affected.
+- Bump the project version across `crates/*/Cargo.toml`, `frontend/package.json`,
+  and `crates/librarium-tauri/tauri.conf.json` together; the `/api/version`
+  endpoint derives from `CARGO_PKG_VERSION`.
+- When a design note in `docs/DESIGN.md` is fully superseded, move the long-form
+  detail into `docs/archive/` and leave a short pointer behind. Do not resurrect
+  archived docs as the source of truth.
 
 ## Change Guardrails
 
