@@ -202,3 +202,74 @@ describe('column operations', () => {
         expect(serializeTable(t).split('\n')[1]).toBe('| ----- | :--: |');
     });
 });
+
+import { createTable, applyTableCommand, insertTableAt } from './table';
+
+describe('createTable', () => {
+    it('creates a header plus the requested body rows', () => {
+        expect(createTable(2, 2)).toBe([
+            '|     |     |',
+            '| --- | --- |',
+            '|     |     |',
+            '|     |     |',
+        ].join('\n'));
+    });
+
+    it('clamps to at least one row and one column', () => {
+        expect(createTable(0, 0)).toBe('|     |\n| --- |\n|     |');
+    });
+});
+
+describe('applyTableCommand', () => {
+    it('returns null when the cursor is not in a table', () => {
+        expect(applyTableCommand('prose', 2, 'table_row_insert_below')).toBeNull();
+    });
+
+    it('adds a row below and re-aligns the whole table', () => {
+        const res = applyTableCommand(TABLE, TABLE.indexOf('Ada'), 'table_row_insert_below')!;
+        expect(res.content).toBe([
+            '| Name  | Role |',
+            '| ----- | ---: |',
+            '| Ada   | Eng  |',
+            '|       |      |',
+            '| Grace | Eng  |',
+        ].join('\n'));
+    });
+
+    it('places the cursor in the newly created row', () => {
+        const res = applyTableCommand(TABLE, TABLE.indexOf('Ada'), 'table_row_insert_below')!;
+        const line = res.content.slice(0, res.selectionStart).split('\n').length;
+        expect(line).toBe(4);
+    });
+
+    it('preserves surrounding document text', () => {
+        const doc = `intro\n\n${TABLE}\n\noutro`;
+        const res = applyTableCommand(doc, doc.indexOf('Ada'), 'table_row_insert_below')!;
+        expect(res.content.startsWith('intro\n\n')).toBe(true);
+        expect(res.content.endsWith('\n\noutro')).toBe(true);
+    });
+
+    it('deletes the whole table when the last row is removed', () => {
+        const single = '| a |\n| --- |\n| 1 |';
+        const res = applyTableCommand(single, single.indexOf('1'), 'table_row_delete')!;
+        expect(res.content).toBe('');
+    });
+
+    it('deletes the whole table on table_delete', () => {
+        const doc = `intro\n\n${TABLE}\n\noutro`;
+        const res = applyTableCommand(doc, doc.indexOf('Ada'), 'table_delete')!;
+        expect(res.content).toBe('intro\n\n\noutro');
+    });
+
+    it('sets alignment on the cursor column', () => {
+        const res = applyTableCommand(TABLE, TABLE.indexOf('Name'), 'table_align_center')!;
+        expect(res.content.split('\n')[1]).toBe('| :---: | ---: |');
+    });
+});
+
+describe('insertTableAt', () => {
+    it('inserts a table at the cursor with surrounding newlines', () => {
+        const res = insertTableAt('abc', 3, 3, 1, 2);
+        expect(res.content).toBe('abc\n|     |     |\n| --- | --- |\n|     |     |');
+    });
+});

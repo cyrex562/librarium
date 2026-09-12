@@ -8,6 +8,10 @@
  * visibility and by the operations themselves so the two cannot disagree.
  */
 
+// Type-only, so there is no runtime cycle with markdown-toolbar.ts (which
+// imports this module's functions).
+import type { MarkdownCommandResult } from './markdown-toolbar';
+
 export type ColumnAlignment = 'none' | 'left' | 'center' | 'right';
 
 export interface ParsedTable {
@@ -319,4 +323,155 @@ export function setColumnAlignment(
     const alignments = [...table.alignments];
     alignments[at] = alignment;
     return { ...table, alignments };
+}
+
+export type TableCommand =
+    | 'table_col_insert_before'
+    | 'table_col_insert_after'
+    | 'table_col_delete'
+    | 'table_col_move_left'
+    | 'table_col_move_right'
+    | 'table_row_insert_above'
+    | 'table_row_insert_below'
+    | 'table_row_delete'
+    | 'table_row_move_up'
+    | 'table_row_move_down'
+    | 'table_delete'
+    | 'table_align_none'
+    | 'table_align_left'
+    | 'table_align_center'
+    | 'table_align_right';
+
+/** `rows` counts body rows; a header row is always added on top. */
+export function createTable(rows: number, cols: number): string {
+    const nCols = Math.max(1, Math.floor(cols));
+    const nRows = Math.max(1, Math.floor(rows));
+    const table: ParsedTable = {
+        indent: '',
+        header: Array.from({ length: nCols }, () => ''),
+        alignments: Array.from({ length: nCols }, () => 'none' as ColumnAlignment),
+        rows: Array.from({ length: nRows }, () => Array.from({ length: nCols }, () => '')),
+        blockStart: 0,
+        blockEnd: 0,
+    };
+    return serializeTable(table);
+}
+
+export function insertTableAt(
+    content: string,
+    start: number,
+    end: number,
+    rows: number,
+    cols: number,
+): MarkdownCommandResult {
+    const table = createTable(rows, cols);
+    const prefix = start > 0 && content[start - 1] !== '\n' ? '\n' : '';
+    const suffix = end < content.length && content[end] !== '\n' ? '\n' : '';
+    const insertion = `${prefix}${table}${suffix}`;
+    const nextContent = `${content.slice(0, start)}${insertion}${content.slice(end)}`;
+    // Land in the first header cell: past the newline prefix, then "| ".
+    const caret = start + prefix.length + 2;
+    return { content: nextContent, selectionStart: caret, selectionEnd: caret };
+}
+
+function replaceBlock(
+    content: string,
+    table: ParsedTable,
+    next: ParsedTable | null,
+    cursor: TableCursor,
+): MarkdownCommandResult {
+    if (next === null) {
+        // Also consume the newline the removed block leaves behind, so
+        // deleting a table does not open a stray blank line in its place.
+        const after = content[table.blockEnd] === '\n' ? table.blockEnd + 1 : table.blockEnd;
+        const nextContent = content.slice(0, table.blockStart) + content.slice(after);
+        return {
+            content: nextContent,
+            selectionStart: table.blockStart,
+            selectionEnd: table.blockStart,
+        };
+    }
+
+    const serialized = serializeTable(next);
+    const nextContent =
+        content.slice(0, table.blockStart) + serialized + content.slice(table.blockEnd);
+
+    const safeCursor: TableCursor = {
+        rowIndex: Math.min(cursor.rowIndex, next.rows.length - 1),
+        colIndex: Math.max(0, Math.min(cursor.colIndex, next.header.length - 1)),
+    };
+    const caret = offsetOfCell({ ...next, blockStart: table.blockStart }, safeCursor);
+    return { content: nextContent, selectionStart: caret, selectionEnd: caret };
+}
+
+export function applyTableCommand(
+    content: string,
+    offset: number,
+    command: TableCommand,
+): MarkdownCommandResult | null {
+    const table = findTableAt(content, offset);
+    if (!table) return null;
+
+    const cursor = locateCursor(table, content, offset);
+    const row = Math.max(0, cursor.rowIndex);
+    const col = cursor.colIndex;
+
+    switch (command) {
+        case 'table_col_insert_before':
+            return replaceBlock(content, table, insertColumn(table, col, 'before'), cursor);
+        case 'table_col_insert_after':
+            return replaceBlock(content, table, insertColumn(table, col, 'after'), {
+                ...cursor,
+                colIndex: col + 1,
+            });
+        case 'table_col_delete':
+            return replaceBlock(content, table, deleteColumn(table, col), cursor);
+        case 'table_col_move_left':
+            return replaceBlock(content, table, moveColumn(table, col, 'left'), {
+                ...cursor,
+                colIndex: Math.max(0, col - 1),
+            });
+        case 'table_col_move_right':
+            return replaceBlock(content, table, moveColumn(table, col, 'right'), {
+                ...cursor,
+                colIndex: Math.min(table.header.length - 1, col + 1),
+            });
+        case 'table_row_insert_above':
+            return replaceBlock(content, table, insertRow(table, row, 'above'), {
+                ...cursor,
+                rowIndex: row,
+            });
+        case 'table_row_insert_below':
+            return replaceBlock(content, table, insertRow(table, row, 'below'), {
+                ...cursor,
+                rowIndex: row + 1,
+            });
+        case 'table_row_delete':
+            return replaceBlock(content, table, deleteRow(table, row), {
+                ...cursor,
+                rowIndex: Math.max(0, row - 1),
+            });
+        case 'table_row_move_up':
+            return replaceBlock(content, table, moveRow(table, row, 'up'), {
+                ...cursor,
+                rowIndex: Math.max(0, row - 1),
+            });
+        case 'table_row_move_down':
+            return replaceBlock(content, table, moveRow(table, row, 'down'), {
+                ...cursor,
+                rowIndex: Math.min(table.rows.length - 1, row + 1),
+            });
+        case 'table_delete':
+            return replaceBlock(content, table, null, cursor);
+        case 'table_align_none':
+            return replaceBlock(content, table, setColumnAlignment(table, col, 'none'), cursor);
+        case 'table_align_left':
+            return replaceBlock(content, table, setColumnAlignment(table, col, 'left'), cursor);
+        case 'table_align_center':
+            return replaceBlock(content, table, setColumnAlignment(table, col, 'center'), cursor);
+        case 'table_align_right':
+            return replaceBlock(content, table, setColumnAlignment(table, col, 'right'), cursor);
+        default:
+            return null;
+    }
 }
