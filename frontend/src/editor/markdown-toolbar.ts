@@ -1,4 +1,5 @@
 import { applyLineIndent } from './line-indent';
+import { applyTableCommand, insertTableAt, type TableCommand } from './table';
 
 export type MarkdownToolbarCommand =
     | 'bold'
@@ -21,7 +22,8 @@ export type MarkdownToolbarCommand =
     | 'image'
     | 'code_block'
     | 'horizontal_rule'
-    | 'table'
+    | 'table_create'
+    | TableCommand
     | 'indent'
     | 'outdent'
     | 'extract_to_note';
@@ -178,27 +180,9 @@ function insertAtCursor(content: string, start: number, end: number, insertion: 
     return { content: nextContent, selectionStart: cursor, selectionEnd: cursor };
 }
 
-function insertTable(content: string, start: number, end: number): MarkdownCommandResult {
-    const table = [
-        '| Column 1 | Column 2 | Column 3 |',
-        '| --- | --- | --- |',
-        '|  |  |  |',
-    ].join('\n');
-
-    const prefix = start > 0 && content[start - 1] !== '\n' ? '\n' : '';
-    const suffix = end < content.length && content[end] !== '\n' ? '\n' : '';
-    const insertion = `${prefix}${table}${suffix}`;
-
-    const nextContent = `${content.slice(0, start)}${insertion}${content.slice(end)}`;
-    const tableStart = start + prefix.length;
-    const firstCellStart = tableStart + 2; // "| "
-    const firstCellEnd = firstCellStart + 'Column 1'.length;
-
-    return {
-        content: nextContent,
-        selectionStart: firstCellStart,
-        selectionEnd: firstCellEnd,
-    };
+export interface TableCreatePayload {
+    rows: number;
+    cols: number;
 }
 
 export function applyMarkdownToolbarCommand(
@@ -206,6 +190,7 @@ export function applyMarkdownToolbarCommand(
     selectionStart: number,
     selectionEnd: number,
     command: MarkdownToolbarCommand,
+    payload?: TableCreatePayload,
 ): MarkdownCommandResult {
     const { start, end } = normalizeSelection(content, selectionStart, selectionEnd);
 
@@ -260,8 +245,8 @@ export function applyMarkdownToolbarCommand(
         }
         case 'horizontal_rule':
             return insertAtCursor(content, start, end, '\n---\n');
-        case 'table':
-            return insertTable(content, start, end);
+        case 'table_create':
+            return insertTableAt(content, start, end, payload?.rows ?? 3, payload?.cols ?? 3);
         case 'indent': {
             const result = applyLineIndent(content, start, end, 'indent');
             if (!result) return { content, selectionStart: start, selectionEnd: end };
@@ -272,6 +257,28 @@ export function applyMarkdownToolbarCommand(
             if (!result) return { content, selectionStart: start, selectionEnd: end };
             return result;
         }
+        case 'table_col_insert_before':
+        case 'table_col_insert_after':
+        case 'table_col_delete':
+        case 'table_col_move_left':
+        case 'table_col_move_right':
+        case 'table_row_insert_above':
+        case 'table_row_insert_below':
+        case 'table_row_delete':
+        case 'table_row_move_up':
+        case 'table_row_move_down':
+        case 'table_delete':
+        case 'table_align_none':
+        case 'table_align_left':
+        case 'table_align_center':
+        case 'table_align_right':
+            return (
+                applyTableCommand(content, start, command) ?? {
+                    content,
+                    selectionStart: start,
+                    selectionEnd: end,
+                }
+            );
         default:
             return { content, selectionStart: start, selectionEnd: end };
     }

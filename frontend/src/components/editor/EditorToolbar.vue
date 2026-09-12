@@ -55,7 +55,7 @@
       <div class="toolbar-sep" />
 
       <!-- Inserts -->
-      <v-btn v-bind="btn" icon="mdi-table-plus" title="Insert table" @mousedown.prevent="emit('command', 'table')" />
+      <v-btn v-bind="btn" icon="mdi-table-plus" title="Insert table" @mousedown.prevent="emit('command', 'table_create')" />
       <v-btn v-bind="btn" icon="mdi-code-braces-box" title="Code block" @mousedown.prevent="emit('command', 'code_block')" />
       <v-btn v-bind="btn" icon="mdi-minus" title="Horizontal rule" @mousedown.prevent="emit('command', 'horizontal_rule')" />
 
