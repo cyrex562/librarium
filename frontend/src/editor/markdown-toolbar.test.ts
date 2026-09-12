@@ -61,16 +61,22 @@ describe('applyMarkdownToolbarCommand', () => {
         expect(res.content).toBe('\n```\nconst x = 1;\n```\n');
     });
 
-    it('inserts markdown table template', () => {
-        const res = applyMarkdownToolbarCommand('', 0, 0, 'table');
+    it('inserts an empty 3x3 table by default', () => {
+        const res = applyMarkdownToolbarCommand('', 0, 0, 'table_create');
         expect(res.content).toBe(
-            '| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |',
+            [
+                '|     |     |     |',
+                '| --- | --- | --- |',
+                '|     |     |     |',
+                '|     |     |     |',
+                '|     |     |     |',
+            ].join('\n'),
         );
     });
 
     it('inserts table on a new line when cursor is mid-text', () => {
-        const res = applyMarkdownToolbarCommand('hello world', 5, 5, 'table');
-        expect(res.content).toContain('\n| Column 1 | Column 2 | Column 3 |');
+        const res = applyMarkdownToolbarCommand('hello world', 5, 5, 'table_create');
+        expect(res.content).toContain('\n|     |     |     |');
     });
 
     it('the indent/outdent commands delegate to applyLineIndent', () => {
@@ -84,5 +90,30 @@ describe('applyMarkdownToolbarCommand', () => {
     it('outdent is a harmless no-op (unchanged content) when there is nothing to dedent', () => {
         const res = applyMarkdownToolbarCommand('hello', 2, 2, 'outdent');
         expect(res.content).toBe('hello');
+    });
+});
+
+describe('table commands', () => {
+    const TABLE = '| a | b |\n| --- | --- |\n| 1 | 2 |';
+
+    it('dispatches a row insert through the driver', () => {
+        const at = TABLE.indexOf('1');
+        const res = applyMarkdownToolbarCommand(TABLE, at, at, 'table_row_insert_below');
+        expect(res.content.split('\n').length).toBe(4);
+    });
+
+    it('is a no-op when the cursor is not in a table', () => {
+        const res = applyMarkdownToolbarCommand('prose', 2, 2, 'table_col_delete');
+        expect(res.content).toBe('prose');
+    });
+
+    it('creates a table from a payload', () => {
+        const res = applyMarkdownToolbarCommand('', 0, 0, 'table_create', { rows: 1, cols: 2 });
+        expect(res.content).toBe('|     |     |\n| --- | --- |\n|     |     |');
+    });
+
+    it('defaults to 3x3 when table_create has no payload', () => {
+        const res = applyMarkdownToolbarCommand('', 0, 0, 'table_create');
+        expect(res.content.split('\n').length).toBe(5);
     });
 });

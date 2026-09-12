@@ -28,6 +28,7 @@
       <EditorToolbar
         v-if="isMd"
         :mode="normalizedEditorMode"
+        :table-context="tableContext"
         @command="onToolbarCommand"
         @mode-change="onModeChange"
       />
@@ -44,6 +45,7 @@
           :mode="normalizedEditorMode"
           class="editor-column"
           @update="onEditorUpdate"
+          @table-context="tableContext = $event"
         />
         <!-- Preview only in preview mode -->
         <MarkdownPreview
@@ -112,7 +114,7 @@ import type { EditorMode } from '@/api/types';
 
 import DocumentMetaBar from './DocumentMetaBar.vue';
 import FrontmatterPanel from './FrontmatterPanel.vue';
-import MarkdownEditor from './MarkdownEditor.vue';
+import MarkdownEditor, { type TableContext } from './MarkdownEditor.vue';
 import EditorToolbar from './EditorToolbar.vue';
 const MarkdownPreview = defineAsyncComponent(() => import('./MarkdownPreview.vue'));
 const StructuralEditor = defineAsyncComponent(() => import('./StructuralEditor.vue'));
@@ -126,6 +128,7 @@ const props = defineProps<{ paneId: string }>();
 
 const tabsStore = useTabsStore();
 const markdownEditorRef = ref<InstanceType<typeof MarkdownEditor> | null>(null);
+const tableContext = ref<TableContext | null>(null);
 
 const vaultsStore = useVaultsStore();
 const editorStore = useEditorStore();
@@ -233,12 +236,12 @@ function onModeChange(value: EditorMode | null) {
   }
 }
 
-function onToolbarCommand(cmd: string) {
+function onToolbarCommand(cmd: string, payload?: { rows: number; cols: number }) {
   if (cmd === 'undo') { markdownEditorRef.value?.callUndo(); return; }
   if (cmd === 'redo') { markdownEditorRef.value?.callRedo(); return; }
   if (cmd === 'collapse_all_folds') { markdownEditorRef.value?.collapseAllFolds(); return; }
   if (cmd === 'expand_all_folds') { markdownEditorRef.value?.expandAllFolds(); return; }
-  markdownEditorRef.value?.applyCommand(cmd as any);
+  markdownEditorRef.value?.applyCommand(cmd as any, payload);
 }
 </script>
 

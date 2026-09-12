@@ -8,7 +8,19 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useUndoRedo } from '@/composables/useUndoRedo';
 import { renderFormattedMarkdown, highlightPlainText } from '@/utils/highlight';
-import { applyMarkdownToolbarCommand, type MarkdownToolbarCommand } from '@/editor/markdown-toolbar';
+import {
+  applyMarkdownToolbarCommand,
+  type MarkdownToolbarCommand,
+  type MarkdownCommandResult,
+  type TableCreatePayload,
+} from '@/editor/markdown-toolbar';
+import {
+  findTableAt,
+  locateCursor,
+  handleTableEnterAt,
+  handleTableTabAt,
+  type ColumnAlignment,
+} from '@/editor/table';
 import { applyListIndent } from '@/editor/list-indent';
 import { applyLineIndent } from '@/editor/line-indent';
 import { applyHeadingSpaceDedent, applyHeadingEnter } from '@/editor/heading-behavior';
@@ -27,7 +39,19 @@ const props = defineProps<{
   mode: EditorMode;
 }>();
 
-const emit = defineEmits<{ update: [value: string] }>();
+/** Where the caret sits inside a table, for the contextual toolbar group. */
+export interface TableContext {
+  rowIndex: number;
+  colIndex: number;
+  rowCount: number;
+  colCount: number;
+  alignment: ColumnAlignment;
+}
+
+const emit = defineEmits<{
+  update: [value: string];
+  'table-context': [ctx: TableContext | null];
+}>();
 
 const editorEl = ref<HTMLElement | null>(null);
 let jar: any = null;
@@ -147,6 +171,10 @@ onMounted(async () => {
   editorEl.value.addEventListener('click', onEditorClick, true);
   editorEl.value.addEventListener('focus', onEditorFocus);
   editorEl.value.addEventListener('blur', onEditorBlur);
+  // Caret movement drives the contextual table toolbar. keyup covers arrow
+  // keys and typing; click covers pointer placement.
+  editorEl.value.addEventListener('keyup', onCaretMaybeMoved);
+  editorEl.value.addEventListener('click', onCaretMaybeMoved);
 });
 
 onUnmounted(() => {
@@ -154,6 +182,8 @@ onUnmounted(() => {
   editorEl.value?.removeEventListener('click', onEditorClick, true);
   editorEl.value?.removeEventListener('focus', onEditorFocus);
   editorEl.value?.removeEventListener('blur', onEditorBlur);
+  editorEl.value?.removeEventListener('keyup', onCaretMaybeMoved);
+  editorEl.value?.removeEventListener('click', onCaretMaybeMoved);
   jar = null;
 });
 
@@ -236,7 +266,7 @@ function onKeydown(e: KeyboardEvent) {
 
   // Automatic List Management
   if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-    if (handleTableEnter(e)) return;
+    if (applyHandlerResult(handleTableEnterAt(currentSource(), caretOffset()), e)) return;
     if (handleHeadingEnterKey(e)) return;
     if (handleListEnter(e)) return;
   }
@@ -246,167 +276,97 @@ function onKeydown(e: KeyboardEvent) {
   }
 
   if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    if (handleTableTab(e, e.shiftKey)) return;
+    if (applyHandlerResult(handleTableTabAt(currentSource(), caretOffset(), e.shiftKey), e)) return;
     if (handleListTab(e, e.shiftKey)) return;
     if (e.shiftKey && handleGenericDedent(e)) return;
   }
 }
 
+// ── Table behaviour (pure logic lives in @/editor/table) ─────────────────────
+
+function onCaretMaybeMoved() {
+  emitTableContext();
+}
+
+function currentSource(): string {
+  return (jar?.toString() as string) ?? '';
+}
+
+/**
+ * Last caret position known to be inside the editor.
+ *
+ * Toolbar menus (`v-menu` + `v-list-item`) take focus when opened, unlike the
+ * plain icon buttons which suppress it with `@mousedown.prevent`. Once focus
+ * leaves, `window.getSelection()` no longer points into the editor and
+ * `getSelectionOffsets` falls back to end-of-document — which silently
+ * retargets or no-ops the command. Remembering the last in-editor caret makes
+ * menu-driven commands act on the cell the user was actually in.
+ */
+let lastSelection = { start: 0, end: 0 };
+
+function selectionIsInEditor(): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editorEl.value) return false;
+  const range = sel.getRangeAt(0);
+  return (
+    editorEl.value.contains(range.startContainer) &&
+    editorEl.value.contains(range.endContainer)
+  );
+}
+
+function currentSelection(): { start: number; end: number } {
+  if (editorEl.value && selectionIsInEditor()) {
+    lastSelection = getSelectionOffsets(editorEl.value);
+  }
+  return lastSelection;
+}
+
+function caretOffset(): number {
+  return currentSelection().start;
+}
+
+/** Apply a pure handler's result, if it produced one. Returns true if handled. */
+function applyHandlerResult(result: MarkdownCommandResult | null, e: KeyboardEvent): boolean {
+  if (!result || !jar) return false;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  recordChange(result.content);
+  ignoreNextChange = true;
+  jar.updateCode(result.content);
+  emit('update', result.content);
+  restoreSelection(result.selectionStart, result.selectionEnd);
+  emitTableContext();
+  return true;
+}
+
+/**
+ * Tell the toolbar whether the caret is inside a table, and where. Uses the
+ * same `findTableAt` predicate the commands use, so the toolbar can never
+ * offer an action the command layer would refuse.
+ */
+function emitTableContext() {
+  if (!jar || !editorEl.value) {
+    emit('table-context', null);
+    return;
+  }
+  const content = currentSource();
+  const offset = caretOffset();
+  const table = findTableAt(content, offset);
+  if (!table) {
+    emit('table-context', null);
+    return;
+  }
+  const cursor = locateCursor(table, content, offset);
+  emit('table-context', {
+    rowIndex: cursor.rowIndex,
+    colIndex: cursor.colIndex,
+    rowCount: table.rows.length,
+    colCount: table.header.length,
+    alignment: table.alignments[cursor.colIndex] ?? 'none',
+  });
+}
+
 // ── Automatic List Management ─────────────────────────────────────────────────
-
-function isTableLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed.includes('|')) return false;
-  const pipeCount = [...line].filter((ch) => ch === '|').length;
-  return pipeCount >= 2;
-}
-
-function isTableDividerLine(line: string): boolean {
-  return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(line);
-}
-
-function tableColumnCount(line: string): number {
-  const seps = getPipeIndices(line);
-  return Math.max(0, seps.length - 1);
-}
-
-function getPipeIndices(line: string): number[] {
-  const indices: number[] = [];
-  for (let i = 0; i < line.length; i += 1) {
-    if (line[i] === '|') indices.push(i);
-  }
-  return indices;
-}
-
-function getCellBounds(line: string, colIndex: number): { start: number; end: number } | null {
-  const seps = getPipeIndices(line);
-  if (seps.length < 2 || colIndex < 0 || colIndex >= seps.length - 1) return null;
-  const rawStart = seps[colIndex] + 1;
-  const rawEnd = seps[colIndex + 1];
-  let start = rawStart;
-  let end = rawEnd;
-  while (start < end && line[start] === ' ') start += 1;
-  while (end > start && line[end - 1] === ' ') end -= 1;
-  if (start >= end) {
-    start = Math.min(rawStart + 1, rawEnd);
-    end = start;
-  }
-  return { start, end };
-}
-
-function currentTableColumnIndex(line: string, cursorInLine: number): number {
-  const seps = getPipeIndices(line);
-  for (let i = 0; i < seps.length - 1; i += 1) {
-    if (cursorInLine <= seps[i + 1]) return i;
-  }
-  return Math.max(0, seps.length - 2);
-}
-
-function makeBlankTableRowFrom(line: string): string {
-  const indent = (line.match(/^(\s*)/)?.[1] ?? '');
-  const cols = Math.max(1, tableColumnCount(line));
-  return `${indent}| ${Array(cols).fill('').join(' | ')} |`;
-}
-
-function rowCellAbsoluteSelection(row: string, lineStartAbsolute: number, colIndex: number): { start: number; end: number } {
-  const bounds = getCellBounds(row, colIndex) ?? { start: 0, end: 0 };
-  return {
-    start: lineStartAbsolute + bounds.start,
-    end: lineStartAbsolute + bounds.end,
-  };
-}
-
-function handleTableEnter(e: KeyboardEvent): boolean {
-  if (!jar || !editorEl.value) return false;
-  const content = jar.toString() as string;
-  const { start, end } = getSelectionOffsets(editorEl.value);
-  if (start !== end) return false;
-
-  const { lineStart, lineEnd, line } = getLineRange(content, start);
-  if (!isTableLine(line) || isTableDividerLine(line)) return false;
-
-  e.preventDefault();
-  e.stopImmediatePropagation();
-
-  const newRow = makeBlankTableRowFrom(line);
-  const insertionPoint = lineEnd;
-  const newContent = `${content.slice(0, insertionPoint)}\n${newRow}${content.slice(insertionPoint)}`;
-
-  const newRowStart = insertionPoint + 1;
-  const nextSel = rowCellAbsoluteSelection(newRow, newRowStart, 0);
-
-  recordChange(newContent);
-  ignoreNextChange = true;
-  jar.updateCode(newContent);
-  emit('update', newContent);
-  restoreSelection(nextSel.start, nextSel.end);
-
-  return true;
-}
-
-function handleTableTab(e: KeyboardEvent, reverse: boolean): boolean {
-  if (!jar || !editorEl.value) return false;
-  const content = jar.toString() as string;
-  const { start, end } = getSelectionOffsets(editorEl.value);
-  if (start !== end) return false;
-
-  const { lineStart, lineEnd, line } = getLineRange(content, start);
-  if (!isTableLine(line)) return false;
-
-  e.preventDefault();
-  e.stopImmediatePropagation();
-
-  const cursorInLine = start - lineStart;
-  const colCount = Math.max(1, tableColumnCount(line));
-  const currentCol = currentTableColumnIndex(line, cursorInLine);
-
-  const jumpTo = (absStart: number, absEnd: number) => restoreSelection(absStart, absEnd);
-
-  if (reverse) {
-    if (currentCol > 0) {
-      const bounds = rowCellAbsoluteSelection(line, lineStart, currentCol - 1);
-      jumpTo(bounds.start, bounds.end);
-      return true;
-    }
-
-    if (lineStart === 0) return true;
-    const prevLineEnd = lineStart - 1;
-    const prevMeta = getLineRange(content, prevLineEnd);
-    if (!isTableLine(prevMeta.line) || isTableDividerLine(prevMeta.line)) return true;
-    const prevCols = Math.max(1, tableColumnCount(prevMeta.line));
-    const target = rowCellAbsoluteSelection(prevMeta.line, prevMeta.lineStart, prevCols - 1);
-    jumpTo(target.start, target.end);
-    return true;
-  }
-
-  if (currentCol < colCount - 1) {
-    const bounds = rowCellAbsoluteSelection(line, lineStart, currentCol + 1);
-    jumpTo(bounds.start, bounds.end);
-    return true;
-  }
-
-  if (lineEnd < content.length) {
-    const nextMeta = getLineRange(content, lineEnd + 1);
-    if (isTableLine(nextMeta.line) && !isTableDividerLine(nextMeta.line)) {
-      const target = rowCellAbsoluteSelection(nextMeta.line, nextMeta.lineStart, 0);
-      jumpTo(target.start, target.end);
-      return true;
-    }
-  }
-
-  const newRow = makeBlankTableRowFrom(line);
-  const insertionPoint = lineEnd;
-  const newContent = `${content.slice(0, insertionPoint)}\n${newRow}${content.slice(insertionPoint)}`;
-  const newRowStart = insertionPoint + 1;
-  const target = rowCellAbsoluteSelection(newRow, newRowStart, 0);
-
-  recordChange(newContent);
-  ignoreNextChange = true;
-  jar.updateCode(newContent);
-  emit('update', newContent);
-  jumpTo(target.start, target.end);
-  return true;
-}
 
 function getLineRange(content: string, cursorPos: number): { lineStart: number; lineEnd: number; line: string } {
   const lineStart = content.lastIndexOf('\n', cursorPos - 1) + 1;
@@ -761,7 +721,7 @@ async function extractSelectionToNote() {
   }
 }
 
-async function applyCommand(command: MarkdownToolbarCommand) {
+async function applyCommand(command: MarkdownToolbarCommand, payload?: TableCreatePayload) {
   if (!jar || !editorEl.value) return;
 
   if (command === 'extract_to_note') {
@@ -770,13 +730,14 @@ async function applyCommand(command: MarkdownToolbarCommand) {
   }
 
   const source = jar.toString() as string;
-  const { start, end } = getSelectionOffsets(editorEl.value);
-  const result = applyMarkdownToolbarCommand(source, start, end, command);
+  const { start, end } = currentSelection();
+  const result = applyMarkdownToolbarCommand(source, start, end, command, payload);
 
   ignoreNextChange = true;
   jar.updateCode(result.content);
   emit('update', result.content);
   restoreSelection(result.selectionStart, result.selectionEnd);
+  emitTableContext();
 }
 
 function getSelectionOffsets(root: HTMLElement): { start: number; end: number } {

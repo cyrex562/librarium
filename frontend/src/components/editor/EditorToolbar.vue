@@ -55,9 +55,79 @@
       <div class="toolbar-sep" />
 
       <!-- Inserts -->
-      <v-btn v-bind="btn" icon="mdi-table-plus" title="Insert table" @mousedown.prevent="emit('command', 'table')" />
+      <v-menu v-model="gridMenu" :close-on-content-click="false" location="bottom start">
+        <template #activator="{ props: menuProps }">
+          <v-btn v-bind="{ ...btn, ...menuProps }" icon="mdi-table-plus" title="Insert table" />
+        </template>
+        <v-card class="pa-3">
+          <div class="text-caption mb-2">{{ gridRows }} × {{ gridCols }}</div>
+          <div v-for="r in 8" :key="r" class="d-flex">
+            <div
+              v-for="c in 10"
+              :key="c"
+              class="grid-cell"
+              :class="{ 'is-active': r <= gridRows && c <= gridCols }"
+              @mouseenter="gridRows = r; gridCols = c"
+              @click="emitCreate(r, c)"
+            />
+          </div>
+          <div class="d-flex ga-2 mt-3 align-center">
+            <v-text-field
+              v-model.number="gridRows"
+              label="Rows"
+              type="number"
+              density="compact"
+              hide-details
+              min="1"
+              style="max-width: 90px;"
+            />
+            <v-text-field
+              v-model.number="gridCols"
+              label="Columns"
+              type="number"
+              density="compact"
+              hide-details
+              min="1"
+              style="max-width: 110px;"
+            />
+            <v-btn size="small" @click="emitCreate(gridRows, gridCols)">Insert</v-btn>
+          </div>
+        </v-card>
+      </v-menu>
       <v-btn v-bind="btn" icon="mdi-code-braces-box" title="Code block" @mousedown.prevent="emit('command', 'code_block')" />
       <v-btn v-bind="btn" icon="mdi-minus" title="Horizontal rule" @mousedown.prevent="emit('command', 'horizontal_rule')" />
+
+      <!-- Table controls — only while the caret is inside a table -->
+      <template v-if="inTable">
+        <div class="toolbar-sep" />
+        <v-btn v-bind="btn" icon="mdi-table-column-plus-before" title="Add column left" @mousedown.prevent="emit('command', 'table_col_insert_before')" />
+        <v-btn v-bind="btn" icon="mdi-table-column-plus-after" title="Add column right" @mousedown.prevent="emit('command', 'table_col_insert_after')" />
+        <v-btn v-bind="btn" icon="mdi-table-column-remove" title="Delete column" @mousedown.prevent="emit('command', 'table_col_delete')" />
+        <v-btn v-bind="btn" icon="mdi-table-row-plus-before" title="Add row above" @mousedown.prevent="emit('command', 'table_row_insert_above')" />
+        <v-btn v-bind="btn" icon="mdi-table-row-plus-after" title="Add row below" @mousedown.prevent="emit('command', 'table_row_insert_below')" />
+        <v-btn v-bind="btn" icon="mdi-table-row-remove" title="Delete row" @mousedown.prevent="emit('command', 'table_row_delete')" />
+
+        <v-menu location="bottom start">
+          <template #activator="{ props: menuProps }">
+            <v-btn v-bind="{ ...btn, ...menuProps }" icon="mdi-table-cog" title="More table options" />
+          </template>
+          <v-list density="compact" min-width="220">
+            <v-list-subheader>Column alignment</v-list-subheader>
+            <v-list-item prepend-icon="mdi-format-align-left" title="Left" :active="activeAlignment === 'left'" @click="emit('command', 'table_align_left')" />
+            <v-list-item prepend-icon="mdi-format-align-center" title="Center" :active="activeAlignment === 'center'" @click="emit('command', 'table_align_center')" />
+            <v-list-item prepend-icon="mdi-format-align-right" title="Right" :active="activeAlignment === 'right'" @click="emit('command', 'table_align_right')" />
+            <v-list-item prepend-icon="mdi-format-align-justify" title="Default" :active="activeAlignment === 'none'" @click="emit('command', 'table_align_none')" />
+            <v-divider class="my-1" />
+            <v-list-subheader>Reorder</v-list-subheader>
+            <v-list-item prepend-icon="mdi-arrow-up" title="Move row up" @click="emit('command', 'table_row_move_up')" />
+            <v-list-item prepend-icon="mdi-arrow-down" title="Move row down" @click="emit('command', 'table_row_move_down')" />
+            <v-list-item prepend-icon="mdi-arrow-left" title="Move column left" @click="emit('command', 'table_col_move_left')" />
+            <v-list-item prepend-icon="mdi-arrow-right" title="Move column right" @click="emit('command', 'table_col_move_right')" />
+            <v-divider class="my-1" />
+            <v-list-item prepend-icon="mdi-table-remove" title="Delete table" @click="emit('command', 'table_delete')" />
+          </v-list>
+        </v-menu>
+      </template>
 
       <div class="toolbar-sep" />
 
@@ -105,18 +175,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { MarkdownToolbarCommand } from '@/editor/markdown-toolbar';
 import type { EditorMode } from '@/api/types';
+import type { TableContext } from './MarkdownEditor.vue';
 
 type ToolbarCommand = MarkdownToolbarCommand | 'undo' | 'redo' | 'collapse_all_folds' | 'expand_all_folds';
 
 const props = defineProps<{
   mode: EditorMode;
+  tableContext?: TableContext | null;
 }>();
 
 const emit = defineEmits<{
-  command: [cmd: ToolbarCommand];
+  command: [cmd: ToolbarCommand, payload?: { rows: number; cols: number }];
   'mode-change': [mode: EditorMode];
 }>();
 
@@ -125,6 +197,20 @@ const isFormattedMode = computed(() => props.mode === 'formatted_raw');
 
 // Shared button binding applied to every icon button in the toolbar
 const btn = { size: 'small', variant: 'text' as const, density: 'compact' as const };
+
+// Table controls appear only while the caret is inside a table.
+const inTable = computed(() => !!props.tableContext);
+const activeAlignment = computed(() => props.tableContext?.alignment ?? 'none');
+
+// Grid picker state for "insert table".
+const gridMenu = ref(false);
+const gridRows = ref(3);
+const gridCols = ref(3);
+
+function emitCreate(rows: number, cols: number) {
+  gridMenu.value = false;
+  emit('command', 'table_create', { rows: Math.max(1, rows), cols: Math.max(1, cols) });
+}
 </script>
 
 <style scoped>
@@ -153,6 +239,17 @@ const btn = { size: 'small', variant: 'text' as const, density: 'compact' as con
   .editor-toolbar::-webkit-scrollbar {
     display: none;
   }
+}
+
+.grid-cell {
+  width: 16px;
+  height: 16px;
+  margin: 1px;
+  border: 1px solid rgb(var(--v-theme-border));
+  cursor: pointer;
+}
+.grid-cell.is-active {
+  background: rgb(var(--v-theme-primary));
 }
 
 .toolbar-sep {
