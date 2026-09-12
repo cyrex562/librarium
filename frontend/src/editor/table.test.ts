@@ -151,3 +151,54 @@ describe('row operations', () => {
         expect(t.rows).toEqual([['Ada', 'Eng'], ['Grace', 'Eng']]);
     });
 });
+
+import { insertColumn, deleteColumn, moveColumn, setColumnAlignment } from './table';
+
+describe('column operations', () => {
+    const base = () => findTableAt(TABLE, 0)!;
+
+    it('inserts a column before the given index', () => {
+        const t = insertColumn(base(), 1, 'before');
+        expect(t.header).toEqual(['Name', '', 'Role']);
+        expect(t.rows[0]).toEqual(['Ada', '', 'Eng']);
+        expect(t.alignments).toEqual(['none', 'none', 'right']);
+    });
+
+    it('inserts a column after the given index', () => {
+        const t = insertColumn(base(), 0, 'after');
+        expect(t.header).toEqual(['Name', '', 'Role']);
+    });
+
+    it('deletes a column and its alignment', () => {
+        const t = deleteColumn(base(), 0)!;
+        expect(t.header).toEqual(['Role']);
+        expect(t.alignments).toEqual(['right']);
+        expect(t.rows).toEqual([['Eng'], ['Eng']]);
+    });
+
+    it('returns null when the last column is deleted', () => {
+        const t = deleteColumn(base(), 0)!;
+        expect(deleteColumn(t, 0)).toBeNull();
+    });
+
+    it('moves a column right, carrying its alignment', () => {
+        const t = moveColumn(base(), 0, 'right');
+        expect(t.header).toEqual(['Role', 'Name']);
+        expect(t.alignments).toEqual(['right', 'none']);
+        expect(t.rows[1]).toEqual(['Eng', 'Grace']);
+    });
+
+    it('moving the first column left is a no-op', () => {
+        expect(moveColumn(base(), 0, 'left').header).toEqual(['Name', 'Role']);
+    });
+
+    it('sets a column alignment', () => {
+        const t = setColumnAlignment(base(), 0, 'center');
+        expect(t.alignments).toEqual(['center', 'right']);
+    });
+
+    it('serializes centre alignment with the minimum width', () => {
+        const t = setColumnAlignment(base(), 1, 'center');
+        expect(serializeTable(t).split('\n')[1]).toBe('| ----- | :--: |');
+    });
+});

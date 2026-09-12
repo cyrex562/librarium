@@ -263,3 +263,60 @@ export function moveRow(table: ParsedTable, at: number, dir: 'up' | 'down'): Par
     [rows[at], rows[target]] = [rows[target], rows[at]];
     return { ...table, rows };
 }
+
+export function insertColumn(table: ParsedTable, at: number, side: 'before' | 'after'): ParsedTable {
+    const index = Math.max(0, Math.min(side === 'before' ? at : at + 1, table.header.length));
+    const header = [...table.header];
+    const alignments = [...table.alignments];
+    header.splice(index, 0, '');
+    alignments.splice(index, 0, 'none');
+    const rows = table.rows.map((r) => {
+        const next = [...r];
+        next.splice(index, 0, '');
+        return next;
+    });
+    return { ...table, header, alignments, rows };
+}
+
+/** Returns null when the table would be left with no columns. */
+export function deleteColumn(table: ParsedTable, at: number): ParsedTable | null {
+    if (table.header.length <= 1) return null;
+    const header = [...table.header];
+    const alignments = [...table.alignments];
+    header.splice(at, 1);
+    alignments.splice(at, 1);
+    const rows = table.rows.map((r) => {
+        const next = [...r];
+        next.splice(at, 1);
+        return next;
+    });
+    return { ...table, header, alignments, rows };
+}
+
+export function moveColumn(table: ParsedTable, at: number, dir: 'left' | 'right'): ParsedTable {
+    const target = dir === 'left' ? at - 1 : at + 1;
+    if (target < 0 || target >= table.header.length) return table;
+
+    const swap = <T,>(arr: T[]): T[] => {
+        const next = [...arr];
+        [next[at], next[target]] = [next[target], next[at]];
+        return next;
+    };
+
+    return {
+        ...table,
+        header: swap(table.header),
+        alignments: swap(table.alignments),
+        rows: table.rows.map((r) => swap(r)),
+    };
+}
+
+export function setColumnAlignment(
+    table: ParsedTable,
+    at: number,
+    alignment: ColumnAlignment,
+): ParsedTable {
+    const alignments = [...table.alignments];
+    alignments[at] = alignment;
+    return { ...table, alignments };
+}
