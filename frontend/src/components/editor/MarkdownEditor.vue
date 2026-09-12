@@ -292,9 +292,37 @@ function currentSource(): string {
   return (jar?.toString() as string) ?? '';
 }
 
+/**
+ * Last caret position known to be inside the editor.
+ *
+ * Toolbar menus (`v-menu` + `v-list-item`) take focus when opened, unlike the
+ * plain icon buttons which suppress it with `@mousedown.prevent`. Once focus
+ * leaves, `window.getSelection()` no longer points into the editor and
+ * `getSelectionOffsets` falls back to end-of-document — which silently
+ * retargets or no-ops the command. Remembering the last in-editor caret makes
+ * menu-driven commands act on the cell the user was actually in.
+ */
+let lastSelection = { start: 0, end: 0 };
+
+function selectionIsInEditor(): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !editorEl.value) return false;
+  const range = sel.getRangeAt(0);
+  return (
+    editorEl.value.contains(range.startContainer) &&
+    editorEl.value.contains(range.endContainer)
+  );
+}
+
+function currentSelection(): { start: number; end: number } {
+  if (editorEl.value && selectionIsInEditor()) {
+    lastSelection = getSelectionOffsets(editorEl.value);
+  }
+  return lastSelection;
+}
+
 function caretOffset(): number {
-  if (!editorEl.value) return 0;
-  return getSelectionOffsets(editorEl.value).start;
+  return currentSelection().start;
 }
 
 /** Apply a pure handler's result, if it produced one. Returns true if handled. */
@@ -702,7 +730,7 @@ async function applyCommand(command: MarkdownToolbarCommand, payload?: TableCrea
   }
 
   const source = jar.toString() as string;
-  const { start, end } = getSelectionOffsets(editorEl.value);
+  const { start, end } = currentSelection();
   const result = applyMarkdownToolbarCommand(source, start, end, command, payload);
 
   ignoreNextChange = true;
