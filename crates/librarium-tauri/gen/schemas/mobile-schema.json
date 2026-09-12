@@ -177,6 +177,24 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the auth_token_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-auth-token-clear",
+          "markdownDescription": "Enables the auth_token_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the auth_token_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-auth-token-get",
+          "markdownDescription": "Enables the auth_token_get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the auth_token_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-auth-token-set",
+          "markdownDescription": "Enables the auth_token_set command without any pre-configured scope."
+        },
+        {
           "description": "Enables the backlinks command without any pre-configured scope.",
           "type": "string",
           "const": "allow-backlinks",
@@ -501,6 +519,30 @@
           "markdownDescription": "Enables the vault_list command without any pre-configured scope."
         },
         {
+          "description": "Enables the write_binary_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-write-binary-file",
+          "markdownDescription": "Enables the write_binary_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the auth_token_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-auth-token-clear",
+          "markdownDescription": "Denies the auth_token_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the auth_token_get command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-auth-token-get",
+          "markdownDescription": "Denies the auth_token_get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the auth_token_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-auth-token-set",
+          "markdownDescription": "Denies the auth_token_set command without any pre-configured scope."
+        },
+        {
           "description": "Denies the backlinks command without any pre-configured scope.",
           "type": "string",
           "const": "deny-backlinks",
@@ -823,6 +865,12 @@
           "type": "string",
           "const": "deny-vault-list",
           "markdownDescription": "Denies the vault_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the write_binary_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-write-binary-file",
+          "markdownDescription": "Denies the write_binary_file command without any pre-configured scope."
         },
         {
           "description": "Default permissions for the background service plugin\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-is-running`\n- `allow-get-service-state`\n- `allow-get-platform-capabilities`\n- `allow-enable-auto-restart`\n- `allow-disable-auto-restart`\n- `allow-get-desired-service-state`\n- `allow-get-desired-state-status`\n- `allow-validate-setup`\n- `allow-get-lifecycle-status`\n- `allow-configure-recovery`\n- `allow-native-lifecycle-event`\n- `allow-get-scheduling-status`\n- `allow-get-pending-bg-task`\n- `allow-get-notification-permission-status`\n- `allow-request-notification-permission`\n- `allow-request-battery-exemption`\n- `allow-can-use-full-screen-intent`\n- `allow-open-full-screen-intent-settings`\n- `allow-install-service`\n- `allow-uninstall-service`\n- `allow-start-os-service`\n- `allow-stop-os-service`\n- `allow-restart-os-service`\n- `allow-get-os-service-status`",
