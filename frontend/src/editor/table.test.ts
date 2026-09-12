@@ -273,3 +273,58 @@ describe('insertTableAt', () => {
         expect(res.content).toBe('abc\n|     |     |\n| --- | --- |\n|     |     |');
     });
 });
+
+import { handleTableEnterAt, handleTableTabAt } from './table';
+
+describe('handleTableEnterAt — #122 separator bug', () => {
+    it('inserts a separator row and a blank body row after a bare header', () => {
+        const src = '| Name | Role |';
+        const res = handleTableEnterAt(src, src.length)!;
+        expect(res.content).toBe([
+            '| Name | Role |',
+            '| ---- | ---- |',
+            '|      |      |',
+        ].join('\n'));
+    });
+
+    it('puts the caret in the first cell of the new body row', () => {
+        const src = '| Name | Role |';
+        const res = handleTableEnterAt(src, src.length)!;
+        const before = res.content.slice(0, res.selectionStart);
+        expect(before.split('\n').length).toBe(3);
+    });
+
+    it('adds a plain blank row when a separator already exists', () => {
+        const res = handleTableEnterAt(TABLE, TABLE.indexOf('Eng'))!;
+        expect(res.content.split('\n').length).toBe(5);
+    });
+
+    it('returns null outside a table', () => {
+        expect(handleTableEnterAt('prose', 3)).toBeNull();
+    });
+});
+
+describe('handleTableTabAt', () => {
+    it('moves to the next cell in the same row', () => {
+        const res = handleTableTabAt(TABLE, TABLE.indexOf('Ada'), false)!;
+        const after = res.content.slice(res.selectionStart);
+        expect(after.startsWith('Eng')).toBe(true);
+    });
+
+    it('wraps from the last cell of the last row into a new row', () => {
+        const offset = TABLE.lastIndexOf('Eng');
+        const res = handleTableTabAt(TABLE, offset, false)!;
+        expect(res.content.split('\n').length).toBe(5);
+    });
+
+    it('never lands on the separator row going backwards', () => {
+        const offset = TABLE.indexOf('Ada');
+        const res = handleTableTabAt(TABLE, offset, true)!;
+        const line = res.content.slice(0, res.selectionStart).split('\n').length;
+        expect(line).toBe(1);
+    });
+
+    it('returns null outside a table', () => {
+        expect(handleTableTabAt('prose', 3, false)).toBeNull();
+    });
+});

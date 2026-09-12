@@ -475,3 +475,86 @@ export function applyTableCommand(
             return null;
     }
 }
+
+/**
+ * Enter inside a table.
+ *
+ * The bug this fixes (#122): a freshly typed header row has no separator
+ * beneath it, so the block is not yet a table and `findTableAt` returns
+ * null. The editor previously inserted another content row, so the
+ * separator was never written and the block stayed invalid Markdown.
+ * That case is now detected explicitly and produces separator + blank row.
+ */
+export function handleTableEnterAt(content: string, offset: number): MarkdownCommandResult | null {
+    const lines = lineBounds(content);
+    const idx = lines.findIndex((l) => offset >= l.start && offset <= l.end);
+    if (idx === -1) return null;
+
+    const line = lines[idx];
+    if (!isTableCandidate(line.text) || isSeparatorRow(line.text)) return null;
+
+    if (findTableAt(content, offset)) {
+        // Already a valid table: add a blank row below the cursor's row.
+        return applyTableCommand(content, offset, 'table_row_insert_below');
+    }
+
+    // Bare header with no separator beneath it.
+    const header = splitRow(line.text);
+    if (header.length === 0) return null;
+
+    const indent = line.text.match(/^(\s*)/)?.[1] ?? '';
+    const table: ParsedTable = {
+        indent,
+        header,
+        alignments: header.map(() => 'none' as ColumnAlignment),
+        rows: [header.map(() => '')],
+        blockStart: line.start,
+        blockEnd: line.end,
+    };
+    const serialized = serializeTable(table);
+    const nextContent = content.slice(0, line.start) + serialized + content.slice(line.end);
+    const caret = offsetOfCell(table, { rowIndex: 0, colIndex: 0 });
+    return { content: nextContent, selectionStart: caret, selectionEnd: caret };
+}
+
+/** Tab / Shift-Tab cell navigation that never lands on the separator row. */
+export function handleTableTabAt(
+    content: string,
+    offset: number,
+    reverse: boolean,
+): MarkdownCommandResult | null {
+    const table = findTableAt(content, offset);
+    if (!table) return null;
+
+    const cursor = locateCursor(table, content, offset);
+    const lastCol = table.header.length - 1;
+    const lastRow = table.rows.length - 1;
+
+    let { rowIndex, colIndex } = cursor;
+
+    if (reverse) {
+        if (colIndex > 0) {
+            colIndex -= 1;
+        } else if (rowIndex > -1) {
+            rowIndex -= 1;
+            colIndex = lastCol;
+        } else {
+            return null; // At the very first cell; let the default happen.
+        }
+    } else if (colIndex < lastCol) {
+        colIndex += 1;
+    } else if (rowIndex < lastRow) {
+        rowIndex += 1;
+        colIndex = 0;
+    } else {
+        // Past the last cell: grow the table by one row.
+        const grown = insertRow(table, Math.max(0, lastRow), 'below');
+        return replaceBlock(content, table, grown, { rowIndex: lastRow + 1, colIndex: 0 });
+    }
+
+    const caret = offsetOfCell(table, { rowIndex, colIndex });
+    const serialized = serializeTable(table);
+    const nextContent =
+        content.slice(0, table.blockStart) + serialized + content.slice(table.blockEnd);
+    return { content: nextContent, selectionStart: caret, selectionEnd: caret };
+}
