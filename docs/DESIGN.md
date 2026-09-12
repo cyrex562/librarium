@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.1
+**Version:** 0.102.2
 
 ---
 
@@ -194,10 +194,30 @@ how a file changed.
 ## 5. Frontend (`frontend/`)
 
 **Stack:** Vue 3 (Composition API), TypeScript, Vuetify 3, Pinia, Vue Router 4,
-Vite 6. Editing uses **Tiptap** (rich/WYSIWYG Markdown) and **CodeJar** (raw
-Markdown). Rendering helpers: `highlight.js` (code), `mermaid` (diagrams),
-`pdfjs-dist` (PDF preview), `d3-force`/`d3-selection` (graph view), `dompurify`
-(sanitization), `yaml` (frontmatter).
+Vite 6. Editing uses **CodeJar** (a `contenteditable`) over the Markdown source,
+with a bespoke line-based highlighter (`utils/highlight.ts`) providing the
+`formatted_raw` mode. Tiptap is present in `package.json` and
+`components/editor/TiptapEditor.vue` exists, but **nothing imports it** — it is
+currently dead code, not the editing path. Rendering helpers: `highlight.js`
+(code), `mermaid` (diagrams), `pdfjs-dist` (PDF preview),
+`d3-force`/`d3-selection` (graph view), `dompurify` (sanitization), `yaml`
+(frontmatter).
+
+**Markdown tables** (#122) are handled entirely as source text. `editor/table.ts`
+is a pure-function module — parse a table block into a `ParsedTable`
+(`{indent, header, alignments, rows, blockStart, blockEnd}`), mutate the
+structure, serialize back with columns padded to their widest cell.
+`findTableAt` returns non-null only when a valid separator row is present, and
+that single predicate drives both the contextual toolbar's visibility and the
+commands themselves, so the two cannot disagree. Every table operation
+re-serializes the whole block, so tables are auto-aligned on every edit.
+Enter and Tab behaviour lives here too as pure functions, with
+`MarkdownEditor.vue` reduced to a thin adapter; the table logic previously sat
+inside that component where it could not be unit-tested, which is how the
+separator-row bug reached users. Deliberately, `formatted_raw` shows aligned
+Markdown source rather than a rendered grid: files on disk are the source of
+truth, and a rich-text document model would round-trip the whole document and
+risk reformatting content the user never touched.
 
 ### Source layout (`frontend/src/`)
 
