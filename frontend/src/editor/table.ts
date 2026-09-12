@@ -236,3 +236,30 @@ export function locateCursor(table: ParsedTable, content: string, offset: number
         colIndex: Math.max(0, Math.min(colIndex, table.header.length - 1)),
     };
 }
+
+function blankRow(table: ParsedTable): string[] {
+    return table.header.map(() => '');
+}
+
+export function insertRow(table: ParsedTable, at: number, side: 'above' | 'below'): ParsedTable {
+    const index = side === 'above' ? at : at + 1;
+    const rows = [...table.rows];
+    rows.splice(Math.max(0, Math.min(index, rows.length)), 0, blankRow(table));
+    return { ...table, rows };
+}
+
+/** Returns null when the table would be left with no body rows. */
+export function deleteRow(table: ParsedTable, at: number): ParsedTable | null {
+    if (table.rows.length <= 1) return null;
+    const rows = [...table.rows];
+    rows.splice(at, 1);
+    return { ...table, rows };
+}
+
+export function moveRow(table: ParsedTable, at: number, dir: 'up' | 'down'): ParsedTable {
+    const target = dir === 'up' ? at - 1 : at + 1;
+    if (target < 0 || target >= table.rows.length) return table;
+    const rows = [...table.rows];
+    [rows[at], rows[target]] = [rows[target], rows[at]];
+    return { ...table, rows };
+}

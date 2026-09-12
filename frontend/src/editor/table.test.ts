@@ -110,3 +110,44 @@ describe('locateCursor', () => {
         expect(locateCursor(t, TABLE, TABLE.indexOf('Grace'))).toEqual({ rowIndex: 1, colIndex: 0 });
     });
 });
+
+import { insertRow, deleteRow, moveRow } from './table';
+
+describe('row operations', () => {
+    const base = () => findTableAt(TABLE, 0)!;
+
+    it('inserts a blank row above the given index', () => {
+        const t = insertRow(base(), 1, 'above');
+        expect(t.rows).toEqual([['Ada', 'Eng'], ['', ''], ['Grace', 'Eng']]);
+    });
+
+    it('inserts a blank row below the given index', () => {
+        const t = insertRow(base(), 0, 'below');
+        expect(t.rows).toEqual([['Ada', 'Eng'], ['', ''], ['Grace', 'Eng']]);
+    });
+
+    it('deletes the given row', () => {
+        const t = deleteRow(base(), 0)!;
+        expect(t.rows).toEqual([['Grace', 'Eng']]);
+    });
+
+    it('returns null when the last body row is deleted', () => {
+        const t = deleteRow(base(), 0)!;
+        expect(deleteRow(t, 0)).toBeNull();
+    });
+
+    it('moves a row down', () => {
+        const t = moveRow(base(), 0, 'down');
+        expect(t.rows).toEqual([['Grace', 'Eng'], ['Ada', 'Eng']]);
+    });
+
+    it('moving the first row up is a no-op', () => {
+        const t = moveRow(base(), 0, 'up');
+        expect(t.rows).toEqual([['Ada', 'Eng'], ['Grace', 'Eng']]);
+    });
+
+    it('moving the last row down is a no-op', () => {
+        const t = moveRow(base(), 1, 'down');
+        expect(t.rows).toEqual([['Ada', 'Eng'], ['Grace', 'Eng']]);
+    });
+});
