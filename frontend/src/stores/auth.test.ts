@@ -509,4 +509,64 @@ describe('useAuthStore', () => {
             expect(apiGetHealth).toHaveBeenCalledTimes(1);
         });
     });
+    describe('clearLocalSession vs logout', () => {
+        // A spurious 401 must not destroy the desktop's long-lived credential.
+        // `logout` revokes the session server-side and wipes the durable
+        // on-disk token; on desktop that token is a 10-year credential
+        // (LIB-080), so an involuntary path must use `clearLocalSession`.
+
+        async function signIn() {
+            vi.mocked(apiLogin).mockResolvedValueOnce({
+                access_token: 'access-1',
+                refresh_token: 'refresh-1',
+                expires_in: 3600,
+                totp_required: false,
+            });
+            vi.mocked(apiMe).mockResolvedValueOnce(mockProfile);
+            const store = useAuthStore();
+            await store.login('alice', 'correct-horse-battery-staple');
+            return store;
+        }
+
+        it('clearLocalSession wipes local state', async () => {
+            const store = await signIn();
+            expect(store.accessToken).toBe('access-1');
+
+            store.clearLocalSession();
+
+            expect(store.accessToken).toBeNull();
+            expect(store.refreshToken).toBeNull();
+            expect(store.expiresAt).toBe(0);
+            expect(store.profile).toBeNull();
+            expect(localStorage.getItem('obsidian_access_token')).toBeNull();
+            expect(localStorage.getItem('obsidian_token_expires_at')).toBeNull();
+        });
+
+        it('clearLocalSession does NOT revoke the server session', async () => {
+            const store = await signIn();
+
+            store.clearLocalSession();
+
+            expect(apiLogout).not.toHaveBeenCalled();
+        });
+
+        it('clearLocalSession does NOT clear the durable on-disk token', async () => {
+            const store = await signIn();
+
+            store.clearLocalSession();
+
+            expect(authTokenClear).not.toHaveBeenCalled();
+        });
+
+        it('logout still revokes the server session and clears the durable token', async () => {
+            const store = await signIn();
+
+            await store.logout();
+
+            expect(apiLogout).toHaveBeenCalled();
+            expect(authTokenClear).toHaveBeenCalled();
+            expect(store.accessToken).toBeNull();
+            expect(store.profile).toBeNull();
+        });
+    });
 });

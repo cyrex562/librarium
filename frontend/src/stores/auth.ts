@@ -173,6 +173,32 @@ export const useAuthStore = defineStore('auth', () => {
         throw lastErr;
     }
 
+    /**
+     * Clear local session state WITHOUT revoking the server-side session or
+     * deleting the durable on-disk refresh token.
+     *
+     * This is the *involuntary* path — a 401 we could not recover from, or a
+     * WebSocket auth failure. Those are frequently transient (wake-from-sleep,
+     * a loopback hiccup, a server restart), and on desktop the refresh token is
+     * a 10-year credential (LIB-080) backed by a disk copy. Destroying it on a
+     * transient failure is what caused desktop sessions to die after days or
+     * weeks of use: one spurious 401 was enough.
+     *
+     * Worst case here is one extra login. Worst case for `logout()` is a
+     * permanently destroyed credential — so involuntary callers must use this.
+     */
+    function clearLocalSession() {
+        accessToken.value = null;
+        refreshToken.value = null;
+        expiresAt.value = 0;
+        pendingTotp.value = false;
+        profile.value = null;
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+        localStorage.removeItem(EXPIRES_AT_KEY);
+        localStorage.removeItem(PENDING_TOTP_KEY);
+    }
+
     async function logout() {
         // Pass the persisted token so the server revokes THIS session only.
         // Omitting it would trigger the "logout everywhere" contract.
@@ -194,15 +220,7 @@ export const useAuthStore = defineStore('auth', () => {
                 message: (err as Error)?.message ?? String(err),
             });
         }
-        accessToken.value = null;
-        refreshToken.value = null;
-        expiresAt.value = 0;
-        pendingTotp.value = false;
-        profile.value = null;
-        localStorage.removeItem(ACCESS_TOKEN_KEY);
-        localStorage.removeItem(REFRESH_TOKEN_KEY);
-        localStorage.removeItem(EXPIRES_AT_KEY);
-        localStorage.removeItem(PENDING_TOTP_KEY);
+        clearLocalSession();
         // Wipe the disk-backed copy in the same call so a subsequent boot
         // can't restore the just-revoked token from the durable fallback.
         void authTokenClear();
@@ -323,6 +341,7 @@ export const useAuthStore = defineStore('auth', () => {
         completeTotpLogin,
         refresh,
         logout,
+        clearLocalSession,
         ensureFresh,
         loadProfile,
         changePassword,
