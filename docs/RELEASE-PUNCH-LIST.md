@@ -49,6 +49,29 @@ with `gh release create`. Do a throwaway `v0.102.4-rc1` first: the point is to
 find out what breaks in packaging before anyone is watching. Until a release
 exists, either publish one or soften the README's download instructions.
 
+### 2b. The Playwright E2E suite is broadly red
+
+`cargo xtask ci --full` runs it; it fails widely — 17+ specs and still counting
+when the run was stopped, spanning canvas editing, conflict resolution,
+connection status, context menus, core plugins, drag and drop, and the editor
+toolbar.
+
+The failure mode is the same everywhere: the page snapshot shows
+`Select vault…` with every sidebar action disabled, i.e. the tests never get
+past "no vault selected." The `tests/ui/` specs mock the API
+(`tests/ui/helpers/appMocks.ts`) and seed an active vault into `localStorage`,
+so this is one shared fixture/bootstrap problem, not many separate bugs.
+
+**Not caused by recent work.** Running `tests/ui/editor_toolbar.spec.ts` at
+`5a7cd98` — the commit before the table and password epics — produces the
+*identical* 6 failures. The last recorded green run
+(`frontend/test-results/.last-run.json`, since untracked) was **April 2026**,
+and hosted CI never re-ran the suite because it was failing at the lint gate
+long before it reached E2E. So this has been quietly broken for months.
+
+Worth its own debugging session: fix the shared fixture and a large amount of
+coverage comes back at once.
+
 ---
 
 ## P1 — your two stated goals
@@ -203,13 +226,15 @@ docs work, not feature work.
    is the smallest thing that works.
 2. **Cut `v0.102.4-rc1`** (item 2) — packaging always breaks the first time;
    better to find out on a throwaway tag.
-3. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
-4. **Rewrite the Quick Start around downloading a binary** (item 3), once step 2
+3. **Fix the E2E fixture** (item 2b) — one shared bootstrap problem gates a
+   large amount of regression coverage you currently are not getting.
+4. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
+5. **Rewrite the Quick Start around downloading a binary** (item 3), once step 2
    proves artifacts actually build.
-5. **Docs triage** (item 4) — promote what survives verification out of
+6. **Docs triage** (item 4) — promote what survives verification out of
    `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
-6. **The 0.0.0.0 warning** (item 6) — small, prevents the worst mistake.
+7. **The 0.0.0.0 warning** (item 6) — small, prevents the worst mistake.
 7. Everything in P3, as it suits you.
 
-Items 1–4 are the realistic definition of "ready to hand to a friend." Items 5–6
+Items 1–5 are the realistic definition of "ready to hand to a friend." Items 5–6
 are "ready to post publicly."
