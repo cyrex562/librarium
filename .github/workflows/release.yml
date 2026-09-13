@@ -183,10 +183,34 @@ jobs:
   # Skips entirely when the signing secrets aren't set (a fork, or before a
   # real keystore has been generated — see AGENTS.md's "Android release
   # signing" section) rather than failing the whole release pipeline.
+  # GitHub Actions does NOT expose the `secrets` context to a job-level `if:`
+  # (only github/needs/vars/inputs). Referencing it there makes the whole
+  # workflow file invalid, so every push failed in ~0s with "workflow file
+  # issue" and no release could ever be built. This gate reads the secret in a
+  # step — where `secrets` IS available — and publishes the answer as an
+  # output, which the `android` job can legally consult via `needs`.
+  signing-check:
+    name: Check Android signing configuration
+    runs-on: ubuntu-latest
+    outputs:
+      android_signing: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANDROID_KEYSTORE_BASE64 is not set — skipping the Android APK. Desktop and server artifacts are unaffected."
+          fi
+
   android:
     name: Mobile – Android (signed release APK)
     runs-on: ubuntu-latest
-    if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    needs: signing-check
+    if: needs.signing-check.outputs.android_signing == 'true'
     steps:
       - uses: actions/checkout@v4
 
