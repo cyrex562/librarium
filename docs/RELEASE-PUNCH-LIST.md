@@ -36,46 +36,56 @@ with `gh release create`. Do a throwaway `v0.102.4-rc1` first: the point is to
 find out what breaks in packaging before anyone is watching. Until a release
 exists, either publish one or soften the README's download instructions.
 
-### 2. The Playwright E2E suite: one fixture bug fixed, isolation problems remain
+### 2. The Playwright E2E suite
 
-**Fixed:** `/api/vaults/:id/favorites` was never mocked in the shared UI
-fixture, so it fell through to the real dev server, answered 401, and that 401
-tore the session down and redirected to `/login` — leaving every spec asserting
-against a blank "Select vault…" page. `MainLayout` requests favorites on mount,
-so it broke specs that never touch a favorite.
-`tests/ui/editor_toolbar.spec.ts` went from 6 failed to 6 passed.
+**Two separate problems, both now understood.**
 
-**Remaining: 144 passed, 47 failed** in a full `--project=chromium` run
-(28 minutes, single worker).
+**a) Cross-suite contamination — 35 of the original 47 failures.** The `e2e/`
+specs drive the *real* server (creating users, vaults, files) and run before the
+alphabetically-later `ui/` specs, which mock most routes but fall through to
+that now-dirty server for anything unmocked. Measured:
 
-These are almost certainly *not* 47 separate defects. Two spec files that fail
-in the full run pass completely on their own:
-
-| Spec | Standalone | In the full run |
+| Run | Passed | Failed |
 | --- | --- | --- |
-| `worldbuilding_plugin_flow.spec.ts` | 21/21 pass | fails |
-| `editor_toolbar.spec.ts` | 6/6 pass | passes (the fixture fix held) |
+| `ui/` + `e2e/` together | 144 | 47 |
+| `ui/` alone | 165 | 12 |
 
-So the failures are order- or state-dependent. The leading hypothesis is
-cross-contamination from the `e2e/` specs, which drive the **real** server
-(creating users, vaults and files) and run before the alphabetically-later
-`ui/` specs, which mock most routes but fall through to that now-dirty server
-for anything unmocked. `e2e-01-authentication`, `e2e-02-vault-management` and
-`e2e-03-file-operations` are themselves in the failure list.
+**Still open.** The fix is to isolate the two — separate Playwright projects, or
+a server reset between them — not to chase individual specs.
 
-Worth confirming by running `tests/ui` alone as a batch: if it is green, the
-fix is to isolate the two suites (separate Playwright projects, or a per-spec
-server reset) rather than to chase individual specs.
+**b) Stale tests — the residual 12, of which 9 are now fixed.** Every one was
+test-vs-code drift: the app was behaving correctly and the test had not kept up.
+That is what you would expect from a suite that last ran green in April 2026.
 
-**None of this is recent regression.** The same failures reproduce at
-`5a7cd98`, before the table and password epics. The last green run recorded in
-`.last-run.json` was April 2026, and hosted CI never re-ran the suite because
-it failed at the lint gate long before reaching E2E.
+| Spec | Why it failed |
+| --- | --- |
+| `editor_toolbar` (6) | `/api/vaults/:id/favorites` unmocked → 401 → session cleared → blank page |
+| `ml_insights` (3) | `POST /ml/analyze` unmocked → the same 401 cascade; plus the helper clicked the panel header unconditionally, which *collapsed* it (the panel defaults to expanded) |
+| `file_tree` (2) | Assumed folders start expanded; they start collapsed, so "collapse all" ran against a tree that was never expanded |
+| `canvas_editor` | Asserted the "Binary file" fallback; `.canvas` renders in `CanvasView` now |
+| `context_menu` | Drove rename through an inline input; rename is a dialog now |
+| `theme_mode`, `interface_elements_smoke` | Both matched `button[title="Theme"]`; that title is dynamic ("Switch to light theme") and never existed |
 
-**A trap worth recording:** `npx playwright test | tail -30` reports exit code
-0 even when the run fails, because a shell pipeline returns the *last*
-command's status. Redirect to a file instead, or check
-`frontend/test-results/.last-run.json`, which records the real verdict.
+`ui/` is now **172 passed / 5 failed**, up from 165/12.
+
+**Remaining 3–5**, each its own small investigation: `import_upload` (a
+"Subfolder" tree node never appears), `vault_management` (two — one times out
+creating groups), and `structural_editor`, which passes standalone and so is
+order-dependent within `ui/` — likely the same class as (a).
+
+**Two traps worth remembering:**
+
+- `npx playwright test | tail -30` exits 0 even when the run fails, because a
+  shell pipeline returns the *last* command's status. Redirect to a file, or
+  read `frontend/test-results/.last-run.json`.
+- Playwright consults route handlers in **reverse** registration order. A
+  catch-all mock added to `installCommonAppMocks` was tried and reverted: it
+  shadowed every route that specs register *before* calling the helper, fixing
+  nothing and breaking three specs. There is no registration order that is
+  reliably lowest-priority — add the specific mock instead.
+
+**None of this is recent regression:** the same failures reproduce at `5a7cd98`,
+before the table and password epics.
 
 ---
 
