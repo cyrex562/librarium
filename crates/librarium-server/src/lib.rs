@@ -734,6 +734,7 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
     let server_port = config.server.port;
     let cors_allowed_origins = config.cors.allowed_origins.clone();
     let tls_config = config.tls.clone();
+    let auth_enabled = config.auth.enabled;
 
     let http_server = HttpServer::new(move || {
         let mut cors = Cors::default()
@@ -815,6 +816,29 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
                 .run()
         }
         (None, None) => {
+            // Loopback-only plain HTTP is intentional and safe (browsers treat
+            // http://localhost as a secure context, and the traffic never
+            // reaches a network interface). Binding a routable address is a
+            // different matter: without auth it publishes a fully writable
+            // vault to anyone on the network, and without TLS every password
+            // and API key crosses it in cleartext. Warn loudly rather than
+            // refuse — the operator may be running behind a reverse proxy that
+            // terminates TLS, which is the recommended production setup.
+            let loopback = matches!(server_host.as_str(), "127.0.0.1" | "::1" | "localhost");
+            if !loopback {
+                if !auth_enabled {
+                    warn!(
+                        "SECURITY: listening on {server_host}:{server_port} with authentication \
+                         DISABLED. Anyone who can reach this address has full read/write access \
+                         to every vault. Set [auth] enabled = true, or bind 127.0.0.1."
+                    );
+                }
+                warn!(
+                    "Listening on {server_host}:{server_port} over plain HTTP. Passwords and API \
+                     keys will cross the network in cleartext. Put a TLS-terminating reverse \
+                     proxy in front, or set [tls] cert_file/key_file."
+                );
+            }
             info!("Starting HTTP server on {}:{}", server_host, server_port);
             http_server.bind((server_host.as_str(), server_port))?.run()
         }

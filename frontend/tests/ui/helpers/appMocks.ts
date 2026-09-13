@@ -17,6 +17,8 @@ type MockOptions = {
     fileFrontmatterByVaultId?: Record<string, Record<string, Record<string, unknown>>>;
     plugins?: Array<{ id: string; name: string; description: string; enabled: boolean }>;
     searchResults?: Array<{ path: string; title: string; matches: Array<{ line_number: number; line_text: string; match_start: number; match_end: number }>; score: number }>;
+    /** Favorites keyed by vault id */
+    favoritesByVaultId?: Record<string, Array<{ id: string; path: string; title: string }>>;
     /** Bookmarks keyed by vault id */
     bookmarksByVaultId?: Record<string, Array<{ id: string; path: string; title: string }>>;
     /** Tags keyed by vault id */
@@ -100,6 +102,10 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
     const bookmarksByVaultId: Record<string, Array<{ id: string; path: string; title: string }>> = {};
     for (const [vid, bms] of Object.entries(options.bookmarksByVaultId ?? {})) {
         bookmarksByVaultId[vid] = [...bms];
+    }
+    const favoritesByVaultId: Record<string, Array<{ id: string; path: string; title: string }>> = {};
+    for (const [vid, favs] of Object.entries(options.favoritesByVaultId ?? {})) {
+        favoritesByVaultId[vid] = [...favs];
     }
     const tagsByVaultId = options.tagsByVaultId ?? {};
     const backlinksByVaultId = options.backlinksByVaultId ?? {};
@@ -602,6 +608,35 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
     });
 
     // ── Bookmarks ──────────────────────────────────────────────────────────────
+    // Favorites. Unmocked, these fall through to the real dev server, which
+    // answers 401 for the fake token — and a 401 tears the session down and
+    // redirects to /login, blanking the page for every spec in the suite.
+    // MainLayout requests favorites on mount, so every `ui/` test depends on
+    // this being mocked even when it never touches a favorite.
+    await page.route(/.*\/api\/vaults\/([^/]+)\/favorites(\?.*)?$/, async (route) => {
+        const url = route.request().url();
+        const vaultId = url.match(/\/vaults\/([^/]+)\/favorites/)![1];
+        const method = route.request().method();
+        if (method === 'GET') {
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(favoritesByVaultId[vaultId] ?? []) });
+            return;
+        }
+        if (method === 'POST') {
+            const payload = route.request().postDataJSON() as { path: string };
+            const created = { id: `fav-${Date.now()}`, path: payload.path, title: payload.path.split('/').pop() ?? payload.path };
+            (favoritesByVaultId[vaultId] ??= []).push(created);
+            await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) });
+            return;
+        }
+        if (method === 'DELETE') {
+            const path = new URL(url).searchParams.get('path');
+            favoritesByVaultId[vaultId] = (favoritesByVaultId[vaultId] ?? []).filter((f) => f.path !== path);
+            await route.fulfill({ status: 204, body: '' });
+            return;
+        }
+        await route.fallback();
+    });
+
     await page.route(/.*\/api\/vaults\/([^/]+)\/bookmarks$/, async (route) => {
         const vaultId = route.request().url().match(/\/vaults\/([^/]+)\/bookmarks/)![1];
         const method = route.request().method();

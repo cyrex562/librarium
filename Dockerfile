@@ -8,7 +8,10 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Build Backend
-FROM rust:1.88-slim-bookworm AS backend-builder
+# 1.90+: `blob_to_vector` uses `slice::as_chunks`, stabilised in 1.88 — this
+# leaves headroom rather than sitting exactly on the boundary, and narrows the
+# gap to the toolchain the project is actually developed against.
+FROM rust:1.90-slim-bookworm AS backend-builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y \
         pkg-config libssl-dev gcc clang mold \
