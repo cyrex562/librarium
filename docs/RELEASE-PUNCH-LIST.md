@@ -18,27 +18,14 @@ the gate; run it before every push.
 | ✅ | **Hosted CI removed entirely.** GitHub Actions was judged not to work well for this project, so `.github/workflows/` is gone and `cargo xtask ci` is now the verification gate. It runs every check, prints one summary, exits non-zero on failure, and reports a missing tool as SKIPPED rather than PASSED. | `cargo xtask ci` → 5 passed, 0 failed. The deleted workflows remain in git history at `83626fc` if a build recipe is ever needed. |
 | ✅ | **`release.yml` was an invalid workflow file** — the `android` job used `if: ${{ secrets.… }}` at *job* level, which GitHub Actions rejects, so the file never ran and **tagging would have produced no binaries**. Fixed in `6f2617c`, then removed with the rest of CI. | Retained here because it explains why no release ever built, and because the same recipe is the starting point for a local release script. |
 | ✅ | **`cargo fmt --check` failed**, blocking every other job. Four files, two pre-existing. | Fixed in `2fe5494`; `cargo xtask ci` now covers it. |
+| ✅ | **The two Rust 1.98 clippy lints** (item 1) are fixed: `ClientError::WebSocket` is boxed, and `blob_to_vector` uses `as_chunks::<4>()`. The Dockerfile moved 1.88 → 1.90, since `as_chunks` stabilised in exactly 1.88 and sitting on that boundary was too tight. **The Docker image was not rebuilt to confirm.** | `cargo clippy --all-targets --all-features -- -D warnings` clean. |
+| ✅ | **The exposure warning** (item 6): binding a routable address now warns when auth is disabled, and always warns about cleartext HTTP. Loopback stays silent. | Verified both ways against a running server. |
 
 ---
 
 ## P0 — blocks any release at all
 
-### 1. Two clippy lints will bite on the next Rust upgrade
-
-No longer a CI problem — there is no CI — but still a real one. `cargo xtask ci`
-runs `clippy -D warnings` against **your local toolchain**, currently
-`rustc 1.96.0`, and passes. Rust 1.98 adds two lints this codebase trips:
-
-| Lint | Where | Fix |
-| --- | --- | --- |
-| `result_large_err` (55 sites) | `librarium-client` — one root cause: `ClientError::WebSocket` holds ≥136 bytes | Box that one variant |
-| `chunks_exact_to_as_chunks` (1 site) | `crates/librarium-server/src/services/embedding_service.rs:133` | `as_chunks::<4>().0.iter()` |
-
-Nothing breaks today. The day you `rustup update`, `cargo xtask ci` goes red
-with 56 errors from two root causes. Worth fixing on your own schedule rather
-than discovering mid-task.
-
-### 2. Nothing has ever been released, and the README already points at the empty page
+### 1. Nothing has ever been released, and the README already points at the empty page
 
 `git tag` → 0. `gh release list` → empty. Meanwhile `README.md:170` tells Android
 users to *"download the latest `Librarium-*-android-universal.apk` from the
@@ -49,28 +36,56 @@ with `gh release create`. Do a throwaway `v0.102.4-rc1` first: the point is to
 find out what breaks in packaging before anyone is watching. Until a release
 exists, either publish one or soften the README's download instructions.
 
-### 2b. The Playwright E2E suite is broadly red
+### 2. The Playwright E2E suite
 
-`cargo xtask ci --full` runs it; it fails widely — 17+ specs and still counting
-when the run was stopped, spanning canvas editing, conflict resolution,
-connection status, context menus, core plugins, drag and drop, and the editor
-toolbar.
+**Two separate problems, both now understood.**
 
-The failure mode is the same everywhere: the page snapshot shows
-`Select vault…` with every sidebar action disabled, i.e. the tests never get
-past "no vault selected." The `tests/ui/` specs mock the API
-(`tests/ui/helpers/appMocks.ts`) and seed an active vault into `localStorage`,
-so this is one shared fixture/bootstrap problem, not many separate bugs.
+**a) Cross-suite contamination — 35 of the original 47 failures.** The `e2e/`
+specs drive the *real* server (creating users, vaults, files) and run before the
+alphabetically-later `ui/` specs, which mock most routes but fall through to
+that now-dirty server for anything unmocked. Measured:
 
-**Not caused by recent work.** Running `tests/ui/editor_toolbar.spec.ts` at
-`5a7cd98` — the commit before the table and password epics — produces the
-*identical* 6 failures. The last recorded green run
-(`frontend/test-results/.last-run.json`, since untracked) was **April 2026**,
-and hosted CI never re-ran the suite because it was failing at the lint gate
-long before it reached E2E. So this has been quietly broken for months.
+| Run | Passed | Failed |
+| --- | --- | --- |
+| `ui/` + `e2e/` together | 144 | 47 |
+| `ui/` alone | 165 | 12 |
 
-Worth its own debugging session: fix the shared fixture and a large amount of
-coverage comes back at once.
+**Still open.** The fix is to isolate the two — separate Playwright projects, or
+a server reset between them — not to chase individual specs.
+
+**b) Stale tests — the residual 12, of which 9 are now fixed.** Every one was
+test-vs-code drift: the app was behaving correctly and the test had not kept up.
+That is what you would expect from a suite that last ran green in April 2026.
+
+| Spec | Why it failed |
+| --- | --- |
+| `editor_toolbar` (6) | `/api/vaults/:id/favorites` unmocked → 401 → session cleared → blank page |
+| `ml_insights` (3) | `POST /ml/analyze` unmocked → the same 401 cascade; plus the helper clicked the panel header unconditionally, which *collapsed* it (the panel defaults to expanded) |
+| `file_tree` (2) | Assumed folders start expanded; they start collapsed, so "collapse all" ran against a tree that was never expanded |
+| `canvas_editor` | Asserted the "Binary file" fallback; `.canvas` renders in `CanvasView` now |
+| `context_menu` | Drove rename through an inline input; rename is a dialog now |
+| `theme_mode`, `interface_elements_smoke` | Both matched `button[title="Theme"]`; that title is dynamic ("Switch to light theme") and never existed |
+
+`ui/` is now **172 passed / 5 failed**, up from 165/12.
+
+**Remaining 3–5**, each its own small investigation: `import_upload` (a
+"Subfolder" tree node never appears), `vault_management` (two — one times out
+creating groups), and `structural_editor`, which passes standalone and so is
+order-dependent within `ui/` — likely the same class as (a).
+
+**Two traps worth remembering:**
+
+- `npx playwright test | tail -30` exits 0 even when the run fails, because a
+  shell pipeline returns the *last* command's status. Redirect to a file, or
+  read `frontend/test-results/.last-run.json`.
+- Playwright consults route handlers in **reverse** registration order. A
+  catch-all mock added to `installCommonAppMocks` was tried and reverted: it
+  shadowed every route that specs register *before* calling the helper, fixing
+  nothing and breaking three specs. There is no registration order that is
+  reliably lowest-priority — add the specific mock instead.
+
+**None of this is recent regression:** the same failures reproduce at `5a7cd98`,
+before the table and password epics.
 
 ---
 
@@ -180,7 +195,7 @@ Every one reports **"fix available via `npm audit fix`"**, so this is likely an
 afternoon, not a project. Worth doing before the repo gets attention — and
 re-running as a release gate.
 
-### 6. Auth is off by default, with no warning when you expose the port
+### 6. Auth is off by default ✅ *(warning added — see the table at the top)*
 
 `default_auth_enabled()` returns `false` (`config/mod.rs:346`). The default bind
 is `127.0.0.1`, which makes that defensible locally. But nothing warns when
@@ -224,17 +239,19 @@ docs work, not feature work.
 1. **Decide how binaries get built** (item 4b) — everything else about
    distribution waits on this. A `cargo xtask release` covering Linux + Android
    is the smallest thing that works.
-2. **Cut `v0.102.4-rc1`** (item 2) — packaging always breaks the first time;
+2. **Cut `v0.102.4-rc1`** (item 1) — packaging always breaks the first time;
    better to find out on a throwaway tag.
-3. **Fix the E2E fixture** (item 2b) — one shared bootstrap problem gates a
-   large amount of regression coverage you currently are not getting.
+3. **Isolate the E2E suites** (item 2) — the fixture bug is fixed; what remains
+   is the real-server `e2e/` specs contaminating the mocked `ui/` ones.
 4. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
 5. **Rewrite the Quick Start around downloading a binary** (item 3), once step 2
    proves artifacts actually build.
 6. **Docs triage** (item 4) — promote what survives verification out of
    `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
-7. **The 0.0.0.0 warning** (item 6) — small, prevents the worst mistake.
 7. Everything in P3, as it suits you.
+
+Item 6 (the exposure warning) is done, as are the clippy lints from the old
+item 1 — see the table at the top.
 
 Items 1–5 are the realistic definition of "ready to hand to a friend." Items 5–6
 are "ready to post publicly."

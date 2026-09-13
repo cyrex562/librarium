@@ -32,10 +32,14 @@ test.describe('Theme mode', () => {
         });
 
         await page.goto('/');
-        await page.locator('button[title="Theme"]').click();
+        // The button's title flips with the current theme ("Switch to light
+        // theme" / "Switch to dark theme"), so match the stable test id the
+        // component exposes rather than the label.
+        const themeButton = page.getByTestId('topbar-theme-btn');
+        await themeButton.click();
 
         await expect.poll(() => lastTheme).toBe('light');
-        await page.locator('button[title="Theme"]').click();
+        await themeButton.click();
         await expect.poll(() => lastTheme).toBe('dark');
     });
 });

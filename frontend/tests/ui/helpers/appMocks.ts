@@ -17,6 +17,8 @@ type MockOptions = {
     fileFrontmatterByVaultId?: Record<string, Record<string, Record<string, unknown>>>;
     plugins?: Array<{ id: string; name: string; description: string; enabled: boolean }>;
     searchResults?: Array<{ path: string; title: string; matches: Array<{ line_number: number; line_text: string; match_start: number; match_end: number }>; score: number }>;
+    /** Favorites keyed by vault id */
+    favoritesByVaultId?: Record<string, Array<{ id: string; path: string; title: string }>>;
     /** Bookmarks keyed by vault id */
     bookmarksByVaultId?: Record<string, Array<{ id: string; path: string; title: string }>>;
     /** Tags keyed by vault id */
@@ -101,6 +103,10 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
     for (const [vid, bms] of Object.entries(options.bookmarksByVaultId ?? {})) {
         bookmarksByVaultId[vid] = [...bms];
     }
+    const favoritesByVaultId: Record<string, Array<{ id: string; path: string; title: string }>> = {};
+    for (const [vid, favs] of Object.entries(options.favoritesByVaultId ?? {})) {
+        favoritesByVaultId[vid] = [...favs];
+    }
     const tagsByVaultId = options.tagsByVaultId ?? {};
     const backlinksByVaultId = options.backlinksByVaultId ?? {};
     const uploadSessions = new Map<string, { filename: string; path: string; uploadedBytes: number; totalSize: number }>();
@@ -179,6 +185,29 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
         font_size: 14,
         window_layout: null,
     };
+
+    // The auth store calls this on boot (checkServerAuthEnabled) and the router
+    // guard depends on the answer, so it needs a real shape rather than the
+    // catch-all's empty array.
+    // NOTE: every endpoint the app touches must be mocked here. An unmocked
+    // call falls through to the real dev server, which answers 401 for this
+    // fixture's fake token — and a 401 makes the app clear the session and
+    // redirect to /login, blanking the page and failing the spec for a reason
+    // unrelated to what it was testing. An unmocked favorites endpoint took out
+    // most of this suite that way.
+    //
+    // A blanket catch-all was tried and reverted: Playwright consults route
+    // handlers in REVERSE registration order, so a catch-all registered here
+    // shadows any route a spec registered *before* calling this helper (several
+    // do). There is no registration order that is always lowest-priority, so the
+    // rule is simply: add the specific mock.
+    await page.route('**/api/health', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'healthy', database: 'connected', auth_enabled: true }),
+        });
+    });
 
     await page.route('**/api/auth/refresh', async (route) => {
         await route.fulfill({
@@ -602,6 +631,35 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
     });
 
     // ── Bookmarks ──────────────────────────────────────────────────────────────
+    // Favorites. Unmocked, these fall through to the real dev server, which
+    // answers 401 for the fake token — and a 401 tears the session down and
+    // redirects to /login, blanking the page for every spec in the suite.
+    // MainLayout requests favorites on mount, so every `ui/` test depends on
+    // this being mocked even when it never touches a favorite.
+    await page.route(/.*\/api\/vaults\/([^/]+)\/favorites(\?.*)?$/, async (route) => {
+        const url = route.request().url();
+        const vaultId = url.match(/\/vaults\/([^/]+)\/favorites/)![1];
+        const method = route.request().method();
+        if (method === 'GET') {
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(favoritesByVaultId[vaultId] ?? []) });
+            return;
+        }
+        if (method === 'POST') {
+            const payload = route.request().postDataJSON() as { path: string };
+            const created = { id: `fav-${Date.now()}`, path: payload.path, title: payload.path.split('/').pop() ?? payload.path };
+            (favoritesByVaultId[vaultId] ??= []).push(created);
+            await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) });
+            return;
+        }
+        if (method === 'DELETE') {
+            const path = new URL(url).searchParams.get('path');
+            favoritesByVaultId[vaultId] = (favoritesByVaultId[vaultId] ?? []).filter((f) => f.path !== path);
+            await route.fulfill({ status: 204, body: '' });
+            return;
+        }
+        await route.fallback();
+    });
+
     await page.route(/.*\/api\/vaults\/([^/]+)\/bookmarks$/, async (route) => {
         const vaultId = route.request().url().match(/\/vaults\/([^/]+)\/bookmarks/)![1];
         const method = route.request().method();
@@ -661,6 +719,32 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
             generated_at: outlineResult.generated_at ?? new Date().toISOString(),
         }) });
     });
+    // The panel calls analyze alongside suggestions. Unmocked it fell through to
+    // the real server, answered 401, and the 401 tore the session down — so the
+    // whole panel vanished and the suggestion assertions failed for a reason
+    // that had nothing to do with suggestions.
+    await page.route(/.*\/api\/vaults\/[^/]+\/ml\/analyze$/, async (route) => {
+        const payload = (route.request().postDataJSON() ?? {}) as { file_path?: string };
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                file_path: payload.file_path ?? '',
+                title: 'Test note',
+                summary: 'Test analysis summary',
+                sections: [],
+                word_count: 42,
+                inline_tags: [],
+                frontmatter_tags: [],
+                wiki_links: [],
+                tasks: [],
+                keyphrases: [],
+                tier: 'classical',
+                generated_at: new Date().toISOString(),
+            }),
+        });
+    });
+
     await page.route(/.*\/api\/vaults\/[^/]+\/ml\/suggestions$/, async (route) => {
         const payload = route.request().postDataJSON() as { file_path?: string };
         const suggestionsResult = options.suggestionsResult ?? {
@@ -736,4 +820,6 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
     await page.route('**/api/admin/entity-index-stats', async (route) => {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entityIndexStats) });
     });
+
+
 }

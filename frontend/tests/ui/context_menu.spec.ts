@@ -23,7 +23,10 @@ test.describe('File tree context menu actions', () => {
         await noteNode.click({ button: 'right' });
         await page.getByText('Rename').last().click();
 
-        const renameInput = page.locator('.file-tree-node input').first();
+        // Rename is a dialog now (FileTreeNode.vue's `renameDialog`), not the
+        // inline tree input this test was written against.
+        const renameDialog = page.locator('.v-dialog').filter({ hasText: 'Rename' });
+        const renameInput = renameDialog.locator('input').first();
         await renameInput.fill('renamed.md');
         await renameInput.press('Enter');
         await expect(page.locator('.file-tree-node', { hasText: 'renamed.md' })).toBeVisible();

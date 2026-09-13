@@ -130,8 +130,12 @@ pub fn vector_to_blob(v: &[f32]) -> Vec<u8> {
 /// Deserialize a little-endian f32 BLOB back into a vector. Trailing bytes that
 /// do not form a full f32 are ignored.
 pub fn blob_to_vector(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+    // `as_chunks` over `chunks_exact` for a constant size: it yields fixed-size
+    // arrays, so `from_le_bytes` needs no indexing (clippy::chunks_exact_to_as_chunks).
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 

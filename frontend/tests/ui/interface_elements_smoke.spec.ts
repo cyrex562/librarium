@@ -71,7 +71,7 @@ test.describe('Core interface elements smoke coverage', () => {
 
         await expect(page.locator('button[title="Search (Ctrl+Shift+F)"]')).toBeVisible();
         await expect(page.locator('button[title="Plugins"]')).toBeVisible();
-        await expect(page.locator('button[title="Theme"]')).toBeVisible();
+        await expect(page.getByTestId('topbar-theme-btn')).toBeVisible();
 
         await expect(page.locator('button[title="New note"]')).toBeVisible();
         await expect(page.locator('button[title="New folder"]')).toBeVisible();

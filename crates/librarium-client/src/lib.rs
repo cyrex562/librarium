@@ -31,8 +31,11 @@ pub enum ClientError {
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
 
+    // Boxed: this variant is ~136 bytes, several times larger than any other,
+    // and it would otherwise set the size of every `Result<_, ClientError>` in
+    // the crate (clippy::result_large_err).
     #[error("websocket error: {0}")]
-    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
+    WebSocket(#[from] Box<tokio_tungstenite::tungstenite::Error>),
 
     #[error("server error: {0}")]
     Server(String),
@@ -45,6 +48,15 @@ pub enum ClientError {
 
     #[error("invalid header value for auth token")]
     InvalidAuthHeader,
+}
+
+// `#[from] Box<...>` only generates `From<Box<Error>>`, but the `?` sites call
+// tungstenite APIs that yield a bare `Error`. This bridges the two so those
+// call sites keep working unchanged.
+impl From<tokio_tungstenite::tungstenite::Error> for ClientError {
+    fn from(e: tokio_tungstenite::tungstenite::Error) -> Self {
+        ClientError::WebSocket(Box::new(e))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

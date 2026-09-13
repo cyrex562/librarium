@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, seedAuthTokens } from './helpers/appMocks';
 
 test.describe('Canvas files', () => {
-    test('shows canvas files in tree and opens them as non-editable content', async ({ page }) => {
+    test('shows canvas files in tree and opens them in the canvas view', async ({ page }) => {
         await seedAuthTokens(page);
         await seedActiveVault(page, defaultVault.id);
         await installCommonAppMocks(page, {
@@ -25,6 +25,9 @@ test.describe('Canvas files', () => {
 
         await page.getByText('Project_Flow.canvas').click();
         await expect(page.locator('.tab-item')).toContainText('Project_Flow.canvas');
-        await expect(page.getByText('Binary file — cannot be edited here.')).toBeVisible();
+        // Canvas files render in CanvasView (EditorPane.vue's `isCanvas` branch),
+        // not the generic "Binary file" fallback this test used to assert on —
+        // that fallback is now only for genuinely unviewable types.
+        await expect(page.locator('.canvas-view')).toBeVisible();
     });
 });
