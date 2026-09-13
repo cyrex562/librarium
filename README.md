@@ -1,6 +1,6 @@
 # Librarium
 
-**Version 0.102.2** · A self-hosted knowledge base and vault manager for
+**Version 0.102.3** · A self-hosted knowledge base and vault manager for
 Obsidian-compatible Markdown vaults.
 
 Librarium keeps your notes as plain Markdown files on disk — they stay portable
@@ -71,6 +71,28 @@ cargo run -p librarium-server
 On first run with auth enabled, Librarium bootstraps an admin account and writes
 the generated credentials next to the database, then forces a password change at
 first login. See the [Deployment guide](docs/archive/DEPLOYMENT.md).
+
+### Forgot your password?
+
+No email or network is involved — recovery is local, and works even when the
+server will not start.
+
+- **Desktop app:** choose **Forgot password?** on the sign-in screen. Anyone who
+  can use the computer can already open the vault files directly, so no old
+  password is needed.
+- **Server:** run this on the machine hosting Librarium:
+
+  ```bash
+  librarium admin set-password <username>
+  ```
+
+  It prompts for the new password (no echo), works with the server stopped, and
+  revokes every existing session. `librarium admin list-users` and
+  `librarium admin create-user <username> [--admin]` are also available.
+
+Changing a password signs out that user's other sessions. It does **not** revoke
+API keys — those are separate credentials with their own list in
+**Settings → API Keys**; revoke them there if a key may have been exposed.
 
 **Running the server on its own box (a VM, a home server)?** Clone the repo
 there and install with `cargo xtask local-install` (or the equivalent

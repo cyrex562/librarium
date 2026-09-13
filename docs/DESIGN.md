@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.2
+**Version:** 0.102.3
 
 ---
 
@@ -476,13 +476,60 @@ and an `example-plugin` template. Plugin development is documented in
   (`authStore.bootstrapPersistence()`) whenever `localStorage` is empty.
 - **Session-clear contract:** every call site that can throw while checking or
   refreshing a session (`App.vue`'s mount hook, the router guard,
-  `useWebSocket`'s connect, `MainLayout`'s mount hook) only calls
-  `authStore.logout()` when the server positively said the session is invalid
-  (`isSessionInvalid()` in `api/client.ts` — an `ApiError` with `status === 401`).
-  Any other failure (a loopback hiccup on wake-from-sleep, a brief WebSocket
-  reconnect race) is treated as transient and left alone rather than wiping
-  tokens; `authStore.refresh()` itself retries transient failures 3× with a
-  short backoff before giving up.
+  `useWebSocket`'s connect, `MainLayout`'s mount hook) acts only when the server
+  positively said the session is invalid (`isSessionInvalid()` in
+  `api/client.ts` — an `ApiError` with `status === 401`). Any other failure (a
+  loopback hiccup on wake-from-sleep, a brief WebSocket reconnect race) is
+  treated as transient and left alone rather than wiping tokens;
+  `authStore.refresh()` itself retries transient failures 3× with a short
+  backoff before giving up.
+- **Voluntary vs. involuntary session end:** `authStore.logout()` is the
+  *voluntary* path — it revokes the session server-side and deletes the
+  disk-backed token. `authStore.clearLocalSession()` is the *involuntary* path
+  and clears only in-memory + `localStorage` state. Involuntary callers (the
+  401 handler, `useWebSocket`) must use the latter. The distinction is load
+  bearing: `ensureFreshForRequest` deliberately lets a request proceed when its
+  refresh failed, so a transient blip surfaces as a 401 carrying a stale token.
+  Treating that single 401 as fatal — and taking the destructive path — is what
+  ended desktop sessions after days or weeks despite the 10-year TTL: one
+  unlucky moment in weeks of hourly refreshes destroyed the credential
+  permanently. `handleUnauthorized` now forces one refresh and replays the
+  request once, clearing only local state if that also 401s.
+- **Credential mutation** funnels through one service,
+  `services/credentials.rs`'s `CredentialService`: validate policy → Argon2 hash
+  → update the row → **revoke every session the user holds** → audit. The
+  revocation matters — before this existed, resetting a compromised account's
+  password left the attacker's session alive, and on desktop with a 10-year
+  non-rotating refresh token that meant indefinitely. It takes `&Database`
+  rather than `AppState` so callers without a running server can use it. Note
+  that a password change does **not** revoke API keys: those are independently
+  managed credentials with their own revocation UI, and breaking every
+  automation on a password change would be wrong.
+- **Password recovery** has three transports onto that one service, chosen
+  deliberately:
+  - **CLI** (`cli.rs`, `librarium admin set-password|create-user|list-users`)
+    opens SQLite directly. Recovery tooling must not depend on the thing that is
+    broken — an HTTP-based tool is useless when you cannot authenticate or the
+    server will not start. Passwords are prompted with no echo, never taken from
+    `argv` (visible in `ps`, kept in shell history). Filesystem access to the
+    database *is* the authorization model, which is the right boundary for
+    self-hosting: anyone who can read that file can already read every vault
+    file it indexes.
+  - **Desktop reset** (`auth_reset_local_password`, `#[cfg(desktop)]`) is a
+    Tauri command, **not** an HTTP route: the embedded server is loopback, where
+    any local process and the browser build could reach an endpoint, whereas a
+    Tauri command is callable only from this app's own WebView. It needs no
+    further gate because the server is single-user and loopback-only and the
+    vault files are already readable by that OS account.
+  - **HTTP** (`/api/auth/change-password`, admin reset) for authenticated
+    in-app changes.
+  There is deliberately no email/SMTP reset: it would require outbound network
+  and conflict with the offline-first stance.
+- **Desktop password setup:** `SecurityPanel.vue` (Settings → Security, desktop
+  only) turns password protection on or off and changes the password, writing
+  `auth.enabled` plus the account through the same `write_to_file` path that
+  persists the JWT secret. `AppConfig` is read once at startup, so enabling or
+  disabling takes effect on the next launch and the panel says so.
 - **Authorization:** per-vault roles — **Owner / Editor / Viewer** — plus groups,
   sharing, and invitations, enforced in `middleware/auth.rs`.
 - **Filesystem safety:** every path is canonicalized and checked for containment

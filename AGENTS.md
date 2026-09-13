@@ -28,6 +28,17 @@ This repository is a Rust workspace for a self-hosted Obsidian-compatible knowle
 
 - Rust workspace check: `cargo check --workspace`
 - Backend tests: `cargo test -p librarium-server`
+- **Offline account admin** (works with the server stopped — this is the
+  password-recovery backstop, so it deliberately opens SQLite directly instead
+  of calling the HTTP API):
+  ```bash
+  librarium admin set-password <username>   # prompts twice, no echo
+  librarium admin create-user <username> [--admin]
+  librarium admin list-users
+  ```
+  Resolves `config.toml` the same way the server does, so it targets the same
+  database. Every password change revokes that user's sessions (but not their
+  API keys — separate credentials, revoked in Settings → API Keys).
 - Workspace tests: `cargo test --workspace`
 - Frontend install: `npm --prefix frontend install`
 - Frontend unit tests: `npm --prefix frontend test`

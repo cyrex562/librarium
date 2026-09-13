@@ -37,12 +37,25 @@ access_token_ttl  = 3600    # 1 hour
 refresh_token_ttl = 604800  # 7 days
 
 # ── Bootstrap (first-run only) ──────────────────────────────────────────────
-# These fields create the first admin account when the database has no users.
-# Once any user exists they are ignored.
-# REMOVE bootstrap_admin_password from your config after the first login.
+# With `enabled = true` and NO bootstrap password set below, Librarium creates
+# the first admin on first run with a randomly generated password, writes the
+# credentials to a file beside the database, and requires you to change it at
+# first login. That is the recommended path: no plaintext credential ever lives
+# in this file. Just set `enabled = true` and start the server — the log line
+# tells you where the credentials were written.
 #
+# Optionally name that account (defaults to "admin"):
 # bootstrap_admin_username = "admin"
-# bootstrap_admin_password = ""   # set to a strong password before first run
+#
+# DISCOURAGED alternative — setting a password here puts a plaintext credential
+# in a config file that is easy to commit by accident. If you use it anyway,
+# remove the line after the first login. Both fields are ignored once any user
+# exists.
+# bootstrap_admin_password = ""
+#
+# Forgot the password? Run this on the machine hosting Librarium:
+#   librarium admin set-password <username>
+# It works with the server stopped, and revokes every existing session.
 
 # ── Password policy (all relaxed for local dev — tighten for production) ───
 min_password_length = 8
