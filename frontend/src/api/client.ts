@@ -187,24 +187,52 @@ async function ensureFreshForRequest(url: string) {
     }
 }
 
-async function handleUnauthorized(url: string) {
-    if (isAuthLifecyclePath(requestPath(url))) return;
+async function handleUnauthorized(url: string): Promise<boolean> {
+    if (isAuthLifecyclePath(requestPath(url))) return false;
+
     // Import at call-time so the client module doesn't hard-require the
     // logger during the tiny build step (Vitest mocks the tauri isTauri).
+    let log: Awaited<ReturnType<typeof import('@/utils/logger')['getLogger']>> | null = null;
     try {
         const { getLogger } = await import('@/utils/logger');
-        getLogger('apiClient').warn('handleUnauthorized (401) → forcing logout + /login', {
-            url: requestPath(url),
-        });
+        log = getLogger('apiClient');
     } catch { /* logging must never break the 401 flow */ }
+
     try {
         const auth = useAuthStore();
-        await auth.logout();
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-            window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+        try {
+            await auth.refresh();
+            log?.info('401 → refresh succeeded, retrying the request once', {
+                url: requestPath(url),
+            });
+            return true;
+        } catch (err) {
+            log?.warn('401 → refresh failed, clearing local session', {
+                url: requestPath(url),
+                message: (err as Error)?.message ?? String(err),
+            });
+            endSession(auth);
+            return false;
         }
     } catch {
-        // Ignore errors during logout/redirect
+        // Pinia not initialized — nothing to recover.
+        return false;
+    }
+}
+
+/**
+ * Clear local session state and send the user to /login.
+ *
+ * Deliberately `clearLocalSession`, never `logout`: this path is reached
+ * involuntarily, and `logout` revokes the session server-side and deletes the
+ * durable on-disk refresh token. On desktop that token is a 10-year credential
+ * (LIB-080), so destroying it over a transient failure ended sessions that were
+ * supposed to last indefinitely.
+ */
+function endSession(auth: ReturnType<typeof useAuthStore>) {
+    auth.clearLocalSession();
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
     }
 }
 
@@ -254,14 +282,42 @@ async function request<T>(
         // Pinia not initialized yet (SSR guard or early boot) — skip auth header.
     }
 
-    const response = await activeTransport(url, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...authHeader,
-            ...(options.headers ?? {}),
-        },
+    const buildHeaders = (auth?: Record<string, string>) => ({
+        'Content-Type': 'application/json',
+        ...(auth ?? authHeader),
+        ...(options.headers ?? {}),
     });
+
+    let response = await activeTransport(url, {
+        ...options,
+        headers: buildHeaders(),
+    });
+
+    // One 401 is not proof the session is dead — see handleUnauthorized.
+    // Give the token a chance to be renewed, then replay the request once.
+    if (response.status === 401) {
+        const shouldRetry = await handleUnauthorized(url);
+        if (shouldRetry) {
+            let retryHeader: Record<string, string> = {};
+            try {
+                const auth = useAuthStore();
+                if (auth.accessToken) {
+                    retryHeader = { Authorization: `Bearer ${auth.accessToken}` };
+                }
+            } catch { /* Pinia not ready — replay without the header */ }
+
+            response = await activeTransport(url, {
+                ...options,
+                headers: buildHeaders(retryHeader),
+            });
+
+            if (response.status === 401) {
+                try {
+                    endSession(useAuthStore());
+                } catch { /* Pinia not ready */ }
+            }
+        }
+    }
 
     if (!response.ok) {
         let body: unknown;
@@ -269,9 +325,7 @@ async function request<T>(
         const message = (body as { message?: string })?.message ?? `HTTP ${response.status}`;
         const errorCode = (body as { error?: string })?.error;
 
-        if (response.status === 401) {
-            await handleUnauthorized(url);
-        } else if (response.status === 403) {
+        if (response.status === 403) {
             handleForbidden(errorCode);
         }
 
