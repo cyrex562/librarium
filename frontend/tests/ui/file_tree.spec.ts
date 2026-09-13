@@ -42,14 +42,17 @@ test.describe('File tree navigation', () => {
 
         await page.goto('/');
         await expect(page.getByText('root_note.md')).toBeVisible();
-        await expect(page.getByText('nested_note.md')).toBeVisible();
+        // Folders start collapsed (FileTreeNode.vue: `const expanded = ref(false)`),
+        // so the nested child is hidden until the folder is opened. This test used
+        // to assume the opposite and asserted the child was visible on load.
+        await expect(page.getByText('nested_note.md')).not.toBeVisible();
 
         const folderRow = page.locator('.file-tree-node', { hasText: 'folder_b' }).first();
         await folderRow.click();
-        await expect(page.getByText('nested_note.md')).not.toBeVisible();
+        await expect(page.getByText('nested_note.md')).toBeVisible();
 
         await folderRow.click();
-        await expect(page.getByText('nested_note.md')).toBeVisible();
+        await expect(page.getByText('nested_note.md')).not.toBeVisible();
     });
 
     test('collapses all open folders from the sidebar action', async ({ page }) => {
@@ -80,6 +83,10 @@ test.describe('File tree navigation', () => {
         });
 
         await page.goto('/');
+        // Folders start collapsed, so open one first — otherwise "collapse all"
+        // is asserting against a tree that was never expanded.
+        await expect(page.getByText('Projects')).toBeVisible();
+        await page.locator('.file-tree-node', { hasText: 'Projects' }).first().click();
         await expect(page.getByText('Roadmap.md')).toBeVisible();
 
         await page.locator('button[title="Collapse all folders"]').click();
