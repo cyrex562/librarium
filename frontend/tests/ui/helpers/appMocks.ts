@@ -186,34 +186,21 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
         window_layout: null,
     };
 
-    // Catch-all, registered FIRST on purpose: Playwright matches route handlers
-    // in REVERSE registration order, so the earliest-registered handler is
-    // consulted last. Every specific route below therefore takes priority, and
-    // this only runs for genuinely unmocked calls.
-    //
-    // Without it those calls fall through to the real dev server, which answers
-    // 401 for this fixture's fake token — and a 401 makes the app clear the
-    // session and redirect to /login, blanking the page and failing the spec for
-    // a reason unrelated to what it was testing. That is exactly how the
-    // unmocked favorites endpoint took out most of this suite. Serving an empty
-    // success keeps the app on its feet; the console warning makes the gap
-    // visible so the right mock gets added rather than the failure being
-    // mysterious.
-    await page.route(/.*\/api\/.*/, async (route) => {
-        const method = route.request().method();
-        const path = new URL(route.request().url()).pathname;
-        // eslint-disable-next-line no-console
-        console.warn(`[appMocks] unmocked ${method} ${path} — serving an empty response`);
-        if (method === 'GET') {
-            await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-            return;
-        }
-        await route.fulfill({ status: 204, body: '' });
-    });
-
     // The auth store calls this on boot (checkServerAuthEnabled) and the router
     // guard depends on the answer, so it needs a real shape rather than the
     // catch-all's empty array.
+    // NOTE: every endpoint the app touches must be mocked here. An unmocked
+    // call falls through to the real dev server, which answers 401 for this
+    // fixture's fake token — and a 401 makes the app clear the session and
+    // redirect to /login, blanking the page and failing the spec for a reason
+    // unrelated to what it was testing. An unmocked favorites endpoint took out
+    // most of this suite that way.
+    //
+    // A blanket catch-all was tried and reverted: Playwright consults route
+    // handlers in REVERSE registration order, so a catch-all registered here
+    // shadows any route a spec registered *before* calling this helper (several
+    // do). There is no registration order that is always lowest-priority, so the
+    // rule is simply: add the specific mock.
     await page.route('**/api/health', async (route) => {
         await route.fulfill({
             status: 200,
