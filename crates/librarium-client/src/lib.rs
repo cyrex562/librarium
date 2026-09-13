@@ -59,7 +59,6 @@ impl From<tokio_tungstenite::tungstenite::Error> for ClientError {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginResponse {
     pub access_token: String,
