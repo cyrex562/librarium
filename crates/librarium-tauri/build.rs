@@ -11,6 +11,8 @@ const COMMANDS: &[&str] = &[
     "auth_token_get",
     "auth_token_set",
     "auth_token_clear",
+    "auth_reset_local_password",
+    "auth_set_local_enabled",
     // Shared generic commands (desktop + mobile)
     "notify",
     "open_external_url",

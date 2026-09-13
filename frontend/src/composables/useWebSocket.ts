@@ -152,7 +152,12 @@ async function connect() {
             message: (err as Error)?.message ?? String(err),
         });
         if (isSessionInvalid(err)) {
-            await authStore.logout();
+            // Clear local state so the UI re-authenticates, but never revoke
+            // the server session or delete the durable refresh token: a
+            // WebSocket auth failure is frequently transient (server restart,
+            // wake-from-sleep), and on desktop that token is a 10-year
+            // credential (LIB-080).
+            authStore.clearLocalSession();
         }
         connected.value = false;
         return;

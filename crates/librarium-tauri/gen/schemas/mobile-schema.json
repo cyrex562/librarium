@@ -177,6 +177,18 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the auth_reset_local_password command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-auth-reset-local-password",
+          "markdownDescription": "Enables the auth_reset_local_password command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the auth_set_local_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-auth-set-local-enabled",
+          "markdownDescription": "Enables the auth_set_local_enabled command without any pre-configured scope."
+        },
+        {
           "description": "Enables the auth_token_clear command without any pre-configured scope.",
           "type": "string",
           "const": "allow-auth-token-clear",
@@ -523,6 +535,18 @@
           "type": "string",
           "const": "allow-write-binary-file",
           "markdownDescription": "Enables the write_binary_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the auth_reset_local_password command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-auth-reset-local-password",
+          "markdownDescription": "Denies the auth_reset_local_password command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the auth_set_local_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-auth-set-local-enabled",
+          "markdownDescription": "Denies the auth_set_local_enabled command without any pre-configured scope."
         },
         {
           "description": "Denies the auth_token_clear command without any pre-configured scope.",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-auth-set-local-enabled"
+description = "Enables the auth_set_local_enabled command without any pre-configured scope."
+commands.allow = ["auth_set_local_enabled"]
+
+[[permission]]
+identifier = "deny-auth-set-local-enabled"
+description = "Denies the auth_set_local_enabled command without any pre-configured scope."
+commands.deny = ["auth_set_local_enabled"]

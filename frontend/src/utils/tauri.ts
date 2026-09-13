@@ -203,6 +203,41 @@ export const authTokenGet = async (): Promise<string | null> => {
  * Called after every successful login/refresh so the disk copy stays in
  * lockstep with WebView localStorage. Silent no-op in a browser context.
  */
+/**
+ * Reset the local desktop admin's password without knowing the old one.
+ *
+ * Desktop only — the underlying command exists only in the Tauri shell, and
+ * deliberately is not an HTTP route: the embedded server is loopback, where any
+ * local process (or the browser build) could reach an endpoint.
+ *
+ * Unlike the other wrappers here this one does NOT swallow errors: the caller
+ * is a user-facing recovery form and must show what went wrong.
+ */
+export const resetLocalPassword = async (
+  username: string,
+  newPassword: string,
+): Promise<void> => {
+  if (!isTauri()) throw new Error('Password reset is only available in the desktop app');
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('auth_reset_local_password', { username, newPassword });
+};
+
+/**
+ * Turn password protection on or off for this desktop instance.
+ *
+ * Takes effect on the next launch: the server reads `AppConfig` once at
+ * startup. Desktop only; errors propagate so the caller can show them.
+ */
+export const setLocalAuthEnabled = async (
+  enabled: boolean,
+  username?: string,
+  newPassword?: string,
+): Promise<void> => {
+  if (!isTauri()) throw new Error('Password protection is managed by your server administrator');
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('auth_set_local_enabled', { enabled, username, newPassword });
+};
+
 export const authTokenSet = async (token: string): Promise<void> => {
   if (!isTauri()) return;
   try {

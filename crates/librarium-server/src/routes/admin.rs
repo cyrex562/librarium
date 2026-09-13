@@ -2,11 +2,8 @@ use crate::error::{AppError, AppResult};
 use crate::middleware::AuthenticatedUser;
 use crate::models::{CreateUserRequest, CreateUserResponse};
 use crate::routes::vaults::AppState;
+use crate::services::hash_password;
 use actix_web::{delete, get, post, web, HttpMessage, HttpRequest, HttpResponse};
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-    Argon2,
-};
 use rand::{distr::Alphanumeric, Rng};
 
 fn require_authenticated_user(req: &HttpRequest) -> AppResult<AuthenticatedUser> {
@@ -36,14 +33,6 @@ fn generate_temporary_password() -> String {
         .take(20)
         .map(char::from)
         .collect::<String>()
-}
-
-fn hash_password(password: &str) -> AppResult<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))
-        .map(|h| h.to_string())
 }
 
 #[get("/api/admin/users")]
@@ -229,13 +218,18 @@ async fn edit_user(
             .await?;
     }
 
-    // Reset password.
+    // Reset password. Delegated to CredentialService so policy, Argon2
+    // parameters, and session revocation live in one place — an admin resetting
+    // a compromised account must not leave the attacker's session alive.
     if let Some(ref new_password) = body.reset_password {
-        crate::services::validate_password_policy(new_password, &config.auth)?;
-        let password_hash = hash_password(new_password)?;
-        state
+        let (_, target_username, _) = state
             .db
-            .set_user_password(&user_id, &password_hash, true)
+            .get_user_auth_by_id(&user_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("User '{user_id}' not found")))?;
+
+        crate::services::CredentialService::new(&state.db, &config.auth)
+            .set_password(&target_username, new_password)
             .await?;
         state
             .db

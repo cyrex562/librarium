@@ -1,6 +1,6 @@
 [package]
 name = "librarium-server"
-version = "0.102.2"
+version = "0.102.3"
 edition = "2021"
 
 [lib]
@@ -109,6 +109,7 @@ librarium-core = { path = "../librarium-core", features = ["actix", "sqlx"] }
 bytes = "1"
 jsonschema = { version = "0.28", default-features = false }
 tempfile = "3.14"
+rpassword = "7"
 
 # Local keyphrase extraction (Tier 1 of the organization feature). Pure-Rust
 # YAKE! implementation, no model download. MIT-licensed (matches this project).

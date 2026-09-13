@@ -4,14 +4,10 @@ use crate::middleware::{AuthenticatedUser, AuthenticatedUserClaims};
 use crate::models::AuthenticatedUserProfile;
 use crate::models::ChangePasswordRequest;
 use crate::routes::vaults::AppState;
-use crate::services::{authenticate_username_password, validate_password_policy};
+use crate::services::authenticate_username_password;
 use actix_web::cookie::time::Duration as CookieDuration;
 use actix_web::cookie::{Cookie, SameSite};
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse};
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString},
-    Argon2, PasswordVerifier,
-};
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -316,42 +312,11 @@ async fn change_password(
         ));
     }
 
-    validate_password_policy(new_password, &config.auth)?;
-
-    let auth_row = state
-        .db
-        .get_user_auth_by_id(&user.user_id)
-        .await?
-        .ok_or_else(|| AppError::Unauthorized("User not found".to_string()))?;
-
-    let parsed_hash = PasswordHash::new(&auth_row.2)
-        .map_err(|_| AppError::Unauthorized("Invalid credentials".to_string()))?;
-    Argon2::default()
-        .verify_password(current_password.as_bytes(), &parsed_hash)
-        .map_err(|_| AppError::Unauthorized("Invalid current password".to_string()))?;
-
-    let salt = SaltString::generate(&mut OsRng);
-    let new_hash = Argon2::default()
-        .hash_password(new_password.as_bytes(), &salt)
-        .map_err(|e| AppError::InternalError(format!("Failed to hash password: {e}")))?
-        .to_string();
-
-    state
-        .db
-        .set_user_password(&user.user_id, &new_hash, false)
+    // Delegated so Argon2 parameters, the password policy, and — critically —
+    // session revocation live in exactly one place (see services::credentials).
+    crate::services::CredentialService::new(&state.db, &config.auth)
+        .change_password(&user.user_id, current_password, new_password)
         .await?;
-
-    let _ = state
-        .db
-        .write_audit_log(
-            Some(&user.user_id),
-            Some(&user.username),
-            "password_changed",
-            None,
-            None,
-            true,
-        )
-        .await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
 }

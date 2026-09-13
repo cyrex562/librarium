@@ -201,3 +201,75 @@ describe('mobile transport detection (#63)', () => {
         expect(mod.isLocalTransportActive()).toBe(false);
     });
 });
+
+describe('401 handling: refresh and retry before giving up', () => {
+    // A single 401 is NOT proof the session is over. `ensureFreshForRequest`
+    // deliberately lets a request through when its refresh failed, so a
+    // transient blip surfaces here as a 401 carrying a stale token. Treating
+    // that as fatal — and calling the destructive logout — is what killed
+    // long-lived desktop sessions after days or weeks of use.
+    beforeEach(() => {
+        localStorage.clear();
+        setActivePinia(createPinia());
+        vi.restoreAllMocks();
+        localStorage.setItem('obsidian_access_token', 'stale-access');
+        localStorage.setItem('obsidian_refresh_token', 'refresh-token');
+        // Far future, so ensureFreshForRequest does not pre-emptively refresh
+        // and the 401 path is what we actually exercise.
+        localStorage.setItem('obsidian_token_expires_at', String(Date.now() + 3_600_000));
+    });
+
+    it('refreshes once, retries once, and does not clear the session on success', async () => {
+        const { useAuthStore } = await import('@/stores/auth');
+        const auth = useAuthStore();
+        const refresh = vi.spyOn(auth, 'refresh').mockResolvedValue(undefined);
+        const clearLocalSession = vi.spyOn(auth, 'clearLocalSession');
+        const logout = vi.spyOn(auth, 'logout');
+
+        const transport = vi
+            .fn()
+            .mockResolvedValueOnce(jsonResponse({ message: 'expired' }, 401))
+            .mockResolvedValueOnce(jsonResponse([{ id: 'v1', name: 'vault' }]));
+        setTransport(transport);
+
+        const result = await apiListVaults();
+
+        expect(transport).toHaveBeenCalledTimes(2);
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(clearLocalSession).not.toHaveBeenCalled();
+        expect(logout).not.toHaveBeenCalled();
+        expect(result).toEqual([{ id: 'v1', name: 'vault' }]);
+    });
+
+    it('clears local session when the retry also 401s', async () => {
+        const { useAuthStore } = await import('@/stores/auth');
+        const auth = useAuthStore();
+        vi.spyOn(auth, 'refresh').mockResolvedValue(undefined);
+        const clearLocalSession = vi.spyOn(auth, 'clearLocalSession');
+        const logout = vi.spyOn(auth, 'logout');
+
+        setTransport(vi.fn(async () => jsonResponse({ message: 'expired' }, 401)));
+
+        await expect(apiListVaults()).rejects.toBeInstanceOf(ApiError);
+
+        expect(clearLocalSession).toHaveBeenCalled();
+        // Never the destructive path: that would revoke the server session and
+        // delete the durable 10-year refresh token.
+        expect(logout).not.toHaveBeenCalled();
+    });
+
+    it('clears local session when the forced refresh itself fails', async () => {
+        const { useAuthStore } = await import('@/stores/auth');
+        const auth = useAuthStore();
+        vi.spyOn(auth, 'refresh').mockRejectedValue(new Error('refresh failed'));
+        const clearLocalSession = vi.spyOn(auth, 'clearLocalSession');
+        const logout = vi.spyOn(auth, 'logout');
+
+        setTransport(vi.fn(async () => jsonResponse({ message: 'expired' }, 401)));
+
+        await expect(apiListVaults()).rejects.toBeInstanceOf(ApiError);
+
+        expect(clearLocalSession).toHaveBeenCalled();
+        expect(logout).not.toHaveBeenCalled();
+    });
+});

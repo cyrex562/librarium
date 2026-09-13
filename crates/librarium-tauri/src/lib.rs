@@ -216,6 +216,102 @@ fn auth_token_clear(store: tauri::State<'_, SessionStore>) -> Result<(), String>
     store.clear().map_err(|e| e.to_string())
 }
 
+/// The loaded desktop config, so commands can reach the database path and the
+/// password policy without going through the HTTP server.
+#[cfg(desktop)]
+struct DesktopConfig {
+    config: librarium::config::AppConfig,
+    config_file: std::path::PathBuf,
+}
+
+/// Reset the local admin's password without knowing the old one.
+///
+/// Desktop only, and deliberately a Tauri command rather than an HTTP route:
+/// the embedded server listens on loopback, where any local process — and the
+/// browser build — could reach an HTTP endpoint. A Tauri command is callable
+/// only from this app's own WebView.
+///
+/// No further gate is required. The server is single-user and loopback-only,
+/// and the vault files plus the SQLite database are already readable by this
+/// OS account, so the password guards against a casual glance, not against
+/// someone holding the unlocked machine.
+#[cfg(desktop)]
+#[tauri::command]
+async fn auth_reset_local_password(
+    config: tauri::State<'_, DesktopConfig>,
+    username: String,
+    new_password: String,
+) -> Result<(), String> {
+    let cfg = config.config.clone();
+    let url = if cfg.database.path.starts_with("sqlite:") {
+        cfg.database.path.clone()
+    } else {
+        format!("sqlite:{}?mode=rwc", cfg.database.path)
+    };
+    let db = librarium::db::Database::new(&url)
+        .await
+        .map_err(|e| format!("Could not open the database: {e}"))?;
+    librarium::services::CredentialService::new(&db, &cfg.auth)
+        .set_password(&username, &new_password)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Turn password protection on or off for this desktop instance.
+///
+/// Writes `auth.enabled` to config.toml through the same `write_to_file` path
+/// that already persists the JWT secret, and creates the account when enabling.
+///
+/// `AppConfig` is read once at startup, so this takes effect on the next
+/// launch — the UI says so rather than implying an immediate change.
+#[cfg(desktop)]
+#[tauri::command]
+async fn auth_set_local_enabled(
+    config: tauri::State<'_, DesktopConfig>,
+    enabled: bool,
+    username: Option<String>,
+    new_password: Option<String>,
+) -> Result<(), String> {
+    let mut cfg = config.config.clone();
+
+    if enabled {
+        let username = username.unwrap_or_else(|| "admin".to_string());
+        let password = new_password
+            .ok_or_else(|| "A password is required to enable password protection".to_string())?;
+
+        let url = if cfg.database.path.starts_with("sqlite:") {
+            cfg.database.path.clone()
+        } else {
+            format!("sqlite:{}?mode=rwc", cfg.database.path)
+        };
+        let db = librarium::db::Database::new(&url)
+            .await
+            .map_err(|e| format!("Could not open the database: {e}"))?;
+
+        // Reuse the account if it already exists (auth was previously on);
+        // otherwise create it. Either way CredentialService enforces policy.
+        let svc = librarium::services::CredentialService::new(&db, &cfg.auth);
+        let exists = db
+            .get_user_auth_by_username(&username)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if exists {
+            svc.set_password(&username, &password)
+                .await
+                .map_err(|e| e.to_string())?;
+        } else {
+            svc.create_user(&username, &password, true)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    cfg.auth.enabled = enabled;
+    cfg.write_to_file(&config.config_file)
+        .map_err(|e| format!("Could not save the configuration: {e}"))
+}
+
 // ── Sync commands (desktop-only: librarium.db-resolved vault paths) ─────────
 
 /// Register a remote server to sync with. Returns the generated remote id.
@@ -354,6 +450,8 @@ fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool {
         auth_token_get,
         auth_token_set,
         auth_token_clear,
+        auth_reset_local_password,
+        auth_set_local_enabled,
         sync_add_remote,
         sync_map_vault,
         sync_list_remotes,
@@ -527,6 +625,13 @@ fn run_setup(app: &mut tauri::App) -> anyhow::Result<()> {
     // so the long-lived credential can't be exfiltrated by XSS.
     const DESKTOP_REFRESH_TTL_SECS: u64 = 10 * 365 * 24 * 60 * 60;
     config.auth.refresh_token_ttl = config.auth.refresh_token_ttl.max(DESKTOP_REFRESH_TTL_SECS);
+
+    // Managed after every mutation above, so `auth_reset_local_password` sees
+    // the same database path and password policy the server itself is using.
+    app.manage(DesktopConfig {
+        config: config.clone(),
+        config_file: config_file.clone(),
+    });
 
     // 3. Set up the system tray (yellow = starting).
     setup_tray(app)?;
