@@ -26,6 +26,7 @@
     "allow-auth-token-get",
     "allow-auth-token-set",
     "allow-auth-token-clear",
+    "allow-auth-reset-local-password",
     "allow-sync-add-remote",
     "allow-sync-map-vault",
     "allow-sync-list-remotes",
