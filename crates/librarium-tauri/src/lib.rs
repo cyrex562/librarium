@@ -1078,7 +1078,10 @@ mod tests {
             "librarium-write-binary-file-invalid-{}",
             uuid::Uuid::new_v4()
         ));
-        let result = write_binary_file(path.to_string_lossy().to_string(), "not-base64!!".to_string());
+        let result = write_binary_file(
+            path.to_string_lossy().to_string(),
+            "not-base64!!".to_string(),
+        );
         assert!(result.is_err());
         assert!(!path.exists());
     }

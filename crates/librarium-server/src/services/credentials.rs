@@ -168,7 +168,10 @@ mod tests {
             .2;
 
         assert!(matches!(err, AppError::InvalidInput(_)));
-        assert_eq!(before, after, "hash must be untouched after a policy failure");
+        assert_eq!(
+            before, after,
+            "hash must be untouched after a policy failure"
+        );
     }
 
     #[actix_web::test]

@@ -57,7 +57,10 @@ async fn set_password_updates_the_stored_hash() {
         .unwrap()
         .unwrap()
         .2;
-    assert_ne!(before, after, "the CLI must actually change the stored hash");
+    assert_ne!(
+        before, after,
+        "the CLI must actually change the stored hash"
+    );
 }
 
 #[actix_web::test]

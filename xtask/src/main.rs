@@ -308,7 +308,10 @@ fn bump_version(args: &[String]) {
         touched.push((*rel).to_string());
     }
 
-    for rel in ["frontend/package.json", "crates/librarium-tauri/tauri.conf.json"] {
+    for rel in [
+        "frontend/package.json",
+        "crates/librarium-tauri/tauri.conf.json",
+    ] {
         let path = root.join(rel);
         replace_first(
             &path,
