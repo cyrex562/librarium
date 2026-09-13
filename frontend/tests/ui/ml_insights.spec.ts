@@ -29,7 +29,16 @@ async function setup(page: Parameters<typeof installCommonAppMocks>[0]) {
 async function openAiInsights(page: Parameters<typeof installCommonAppMocks>[0]) {
     const header = page.locator('.ml-insights-panel .ml-header');
     await expect(header).toBeVisible();
-    await header.click();
+    // The panel defaults to expanded (MlInsightsPanel.vue: `const expanded =
+    // ref(true)`), and the header is a toggle — so clicking unconditionally
+    // COLLAPSES it and hides the buttons these tests then assert on. Only click
+    // when it is actually closed, which keeps this helper correct whichever way
+    // the default goes later.
+    const chevron = page.locator('.ml-insights-panel .ml-header .mdi-chevron-right');
+    if (await chevron.isVisible().catch(() => false)) {
+        await header.click();
+    }
+    await expect(page.locator('.ml-insights-panel .mdi-chevron-down')).toBeVisible();
 }
 
 test.describe('AI Insights panel', () => {

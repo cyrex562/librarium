@@ -719,6 +719,32 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
             generated_at: outlineResult.generated_at ?? new Date().toISOString(),
         }) });
     });
+    // The panel calls analyze alongside suggestions. Unmocked it fell through to
+    // the real server, answered 401, and the 401 tore the session down — so the
+    // whole panel vanished and the suggestion assertions failed for a reason
+    // that had nothing to do with suggestions.
+    await page.route(/.*\/api\/vaults\/[^/]+\/ml\/analyze$/, async (route) => {
+        const payload = (route.request().postDataJSON() ?? {}) as { file_path?: string };
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                file_path: payload.file_path ?? '',
+                title: 'Test note',
+                summary: 'Test analysis summary',
+                sections: [],
+                word_count: 42,
+                inline_tags: [],
+                frontmatter_tags: [],
+                wiki_links: [],
+                tasks: [],
+                keyphrases: [],
+                tier: 'classical',
+                generated_at: new Date().toISOString(),
+            }),
+        });
+    });
+
     await page.route(/.*\/api\/vaults\/[^/]+\/ml\/suggestions$/, async (route) => {
         const payload = route.request().postDataJSON() as { file_path?: string };
         const suggestionsResult = options.suggestionsResult ?? {
