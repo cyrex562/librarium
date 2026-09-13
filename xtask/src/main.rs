@@ -13,6 +13,7 @@
 //!   cargo xtask doctor [TARGET]         # preflight a target
 //!   cargo xtask update [...]            # idempotently update a *local* checkout in place
 //!   cargo xtask bump-version [kind]      # bump the app version everywhere it's recorded
+//!   cargo xtask ci [--full]              # run the full verification suite locally
 //!
 //! The build commands are self-contained. The deploy/status/logs/doctor/update
 //! commands are thin pass-throughs to `scripts/librarium.py`, so this crate is
@@ -61,6 +62,7 @@ fn main() {
             build_installer();
         }
         "bump-version" => bump_version(&args),
+        "ci" => ci(&args),
         // Ops commands: forward verbatim (including the command name and any
         // target/flags) to the deployment CLI.
         "deploy" | "status" | "logs" | "doctor" | "targets" | "update" | "local-install" => {
@@ -93,6 +95,13 @@ fn help() {
          \n                                          it's how the version shown in the app's\
          \n                                          Settings -> About panel increments. Does not\
          \n                                          commit; review `git diff` and commit yourself.\
+         \n  Verify:\
+         \n    cargo xtask ci [--full] [--quick]     Run the whole verification suite locally.\
+         \n                                          This repo has no hosted CI — this command IS\
+         \n                                          the gate. Runs every check, reports a summary,\
+         \n                                          and exits non-zero if anything failed.\
+         \n                                          --quick skips the frontend build+tests.\
+         \n                                          --full adds Android cross-compile and E2E.\
          \n  Deploy / observe (via scripts/librarium.py; needs: pip install -r scripts/requirements.txt):\
          \n    cargo xtask deploy [TARGET] [flags]   Deploy the server to a remote target over SSH\
          \n    cargo xtask status [TARGET]           Show a target's running version/health\
@@ -453,5 +462,257 @@ fn run(cmd: &mut Command, label: &str) {
             eprintln!("✗ could not launch {label}: {e}");
             exit(1);
         }
+    }
+}
+
+// ── Local verification suite ────────────────────────────────────────────────
+//
+// This repo has no hosted CI. `cargo xtask ci` is the gate: it runs every
+// check that matters and prints one summary at the end.
+//
+// Two deliberate differences from a typical CI pipeline:
+//
+//   * It does NOT stop at the first failure. A hosted runner fails fast to save
+//     minutes; locally you want the whole picture in one pass, so every gate
+//     runs and the summary lists all of them.
+//
+//   * A gate whose tooling is missing reports SKIPPED, never PASSED, and the
+//     final line says how many were skipped. A skipped check is an absence of
+//     evidence, and reporting it as success is how a suite starts lying.
+
+#[derive(PartialEq)]
+enum GateResult {
+    Passed,
+    Failed,
+    Skipped(String),
+}
+
+struct Gate {
+    name: &'static str,
+    result: GateResult,
+}
+
+/// Run a command, returning whether it succeeded. Unlike `run`, this never
+/// exits the process — the caller records the result and carries on.
+fn try_run(cmd: &mut Command, label: &str) -> bool {
+    println!("\n──── {label} ────");
+    match cmd.status() {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            eprintln!("✗ {label} failed with {status}");
+            false
+        }
+        Err(e) => {
+            eprintln!("✗ could not launch {label}: {e}");
+            false
+        }
+    }
+}
+
+/// Is an executable resolvable on PATH?
+fn have_tool(name: &str) -> bool {
+    let probe = if cfg!(windows) { "where" } else { "which" };
+    Command::new(probe)
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn ci(args: &[String]) {
+    let full = args.iter().any(|a| a == "--full");
+    let quick = args.iter().any(|a| a == "--quick");
+    let root = repo_root();
+    let frontend = root.join("frontend");
+    let mut gates: Vec<Gate> = Vec::new();
+
+    macro_rules! gate {
+        ($name:expr, $ok:expr) => {
+            gates.push(Gate {
+                name: $name,
+                result: if $ok {
+                    GateResult::Passed
+                } else {
+                    GateResult::Failed
+                },
+            })
+        };
+    }
+    macro_rules! skip {
+        ($name:expr, $why:expr) => {
+            gates.push(Gate {
+                name: $name,
+                result: GateResult::Skipped($why.to_string()),
+            })
+        };
+    }
+
+    println!("Librarium verification suite");
+    println!("(no hosted CI — this is the gate)");
+
+    // ── Rust ────────────────────────────────────────────────────────────────
+    gate!(
+        "rustfmt",
+        try_run(
+            Command::new("cargo")
+                .args(["fmt", "--all", "--check"])
+                .current_dir(&root),
+            "cargo fmt --all --check",
+        )
+    );
+
+    gate!(
+        "clippy",
+        try_run(
+            Command::new("cargo")
+                .args([
+                    "clippy",
+                    "--all-targets",
+                    "--all-features",
+                    "--",
+                    "-D",
+                    "warnings",
+                ])
+                .current_dir(&root),
+            "cargo clippy -D warnings",
+        )
+    );
+
+    // Covers the unit tests plus every integration suite: api_integration,
+    // entity_api_tests, import_archive_tests, auth_group_sharing,
+    // ws_authorization_tests, oidc_state_tests, and librarium-mobile's
+    // contract_test (server routes vs. the local dispatcher).
+    gate!(
+        "cargo test --workspace",
+        try_run(
+            Command::new("cargo")
+                .args(["test", "--workspace"])
+                .current_dir(&root),
+            "cargo test --workspace",
+        )
+    );
+
+    // ── Frontend ────────────────────────────────────────────────────────────
+    if quick {
+        skip!("vitest", "--quick");
+        skip!("frontend build (vue-tsc)", "--quick");
+    } else if !frontend.join("node_modules").is_dir() {
+        skip!(
+            "vitest",
+            "frontend/node_modules missing — run npm --prefix frontend install"
+        );
+        skip!(
+            "frontend build (vue-tsc)",
+            "frontend/node_modules missing — run npm --prefix frontend install"
+        );
+    } else {
+        gate!(
+            "vitest",
+            try_run(
+                npm_command(&["test", "--", "--run"], &frontend).as_mut(),
+                "npm test",
+            )
+        );
+        // `npm run build` runs vue-tsc first, so this is the typecheck gate too.
+        gate!(
+            "frontend build (vue-tsc)",
+            try_run(
+                npm_command(&["run", "build"], &frontend).as_mut(),
+                "npm run build"
+            )
+        );
+    }
+
+    // ── Optional deeper gates ───────────────────────────────────────────────
+    if full {
+        if have_tool("cargo-ndk") {
+            let mut ok = true;
+            for target in ["aarch64-linux-android", "x86_64-linux-android"] {
+                ok &= try_run(
+                    Command::new("cargo")
+                        .args([
+                            "ndk",
+                            "-t",
+                            target,
+                            "-P",
+                            "21",
+                            "build",
+                            "-p",
+                            "librarium-core",
+                            "-p",
+                            "librarium-sync",
+                            "-p",
+                            "librarium-mobile",
+                        ])
+                        .current_dir(&root),
+                    &format!("cargo ndk build ({target})"),
+                );
+            }
+            gate!("android cross-compile", ok);
+        } else {
+            skip!(
+                "android cross-compile",
+                "cargo-ndk not on PATH — cargo install cargo-ndk --locked"
+            );
+        }
+
+        if frontend.join("node_modules").is_dir() {
+            gate!(
+                "playwright e2e",
+                try_run(
+                    npm_command(&["run", "test:e2e"], &frontend).as_mut(),
+                    "npx playwright test",
+                )
+            );
+        } else {
+            skip!("playwright e2e", "frontend/node_modules missing");
+        }
+    } else {
+        skip!("android cross-compile", "not requested — pass --full");
+        skip!("playwright e2e", "not requested — pass --full");
+    }
+
+    // ── Summary ─────────────────────────────────────────────────────────────
+    println!("\n════ summary ════");
+    let mut failed = 0;
+    let mut skipped = 0;
+    for g in &gates {
+        match &g.result {
+            GateResult::Passed => println!("  PASS     {}", g.name),
+            GateResult::Failed => {
+                failed += 1;
+                println!("  FAIL     {}", g.name);
+            }
+            GateResult::Skipped(why) => {
+                skipped += 1;
+                println!("  SKIPPED  {}  ({why})", g.name);
+            }
+        }
+    }
+
+    let passed = gates.len() - failed - skipped;
+    println!("\n{passed} passed, {failed} failed, {skipped} skipped");
+    if skipped > 0 {
+        println!("A skipped gate is not a passing gate — it means nothing was checked.");
+    }
+    if failed > 0 {
+        exit(1);
+    }
+}
+
+/// Build an npm invocation, routed through `cmd /C` on Windows where npm is a
+/// shell script rather than an executable.
+fn npm_command(args: &[&str], dir: &Path) -> Box<Command> {
+    if cfg!(windows) {
+        let line = format!("npm {}", args.join(" "));
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(line).current_dir(dir);
+        Box::new(c)
+    } else {
+        let mut c = Command::new("npm");
+        c.args(args).current_dir(dir);
+        Box::new(c)
     }
 }

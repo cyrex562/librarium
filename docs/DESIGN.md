@@ -303,8 +303,8 @@ prevents them from drifting apart as either side changes independently.
     `librarium-mobile`'s (single-user by construction, #52) — an absence, not
     a differing value.
 
-  Runs as its own CI gate (`contract-test`), separate from the general
-  `cargo test --workspace` run. See AGENTS.md's Build And Test section for the
+  Covered by `cargo xtask ci`, and worth running alone — separate from the
+  general `cargo test --workspace` run. See AGENTS.md's Build And Test section for the
   local command, and the test file's module doc for the full design
   rationale (including two non-obvious traps it works around: the fire-and-
   forget `/reindex` route, and `SearchIndex::update_file`'s silent no-op for
@@ -381,10 +381,10 @@ apps" for the desktop build's package-manager-free installers. Sideloading
 avoids the Play Store's review/policy surface and data-safety declaration
 process entirely. Release APKs are signed (`gen/android/app/build.gradle.kts`'s
 `signingConfigs["release"]`, keyed off a gitignored `keystore.properties` —
-see `AGENTS.md`'s "Android release signing" section) and published on tagged
-GitHub releases (`.github/workflows/release.yml`'s `android` job) alongside
-the existing desktop/server artifacts; the job is a no-op until a real
-signing keystore's secrets are added to the repo. Revisit Play Store
+see `AGENTS.md`'s "Android release signing" section) and attached to GitHub
+releases alongside the desktop/server artifacts. Release artifacts are built
+locally — this repo deliberately has no hosted CI, so `cargo xtask ci` is the
+verification gate and release builds are run by hand. Revisit Play Store
 distribution only if sideload friction turns out to matter in practice —
 `--aab` (Play Store's required bundle format) is a one-flag addition to the
 same `cargo tauri android build` invocation whenever that's decided.

@@ -3,8 +3,11 @@
 **Date:** 2026-09-13 · **Version at audit:** 0.102.3 · **Repo:** already public, MIT, 0 stars, 0 releases
 
 What stands between today and handing Librarium to friends or a GitHub audience.
-Every item below is evidence-backed — file and line references, CI run IDs, or
-commands you can re-run.
+Every item below is evidence-backed — file and line references, or commands you
+can re-run.
+
+**Verification note:** this repo has no hosted CI by choice. `cargo xtask ci` is
+the gate; run it before every push.
 
 ---
 
@@ -12,38 +15,28 @@ commands you can re-run.
 
 | # | Item | Evidence |
 | --- | --- | --- |
-| ✅ | **`release.yml` was an invalid workflow file.** The `android` job used `if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}` at *job* level; GitHub Actions does not expose `secrets` to a job-level `if` (only `github`/`needs`/`vars`/`inputs`). The whole file was rejected, so **tagging a release would have produced no binaries at all**. | Every push showed a ~0 s "workflow file issue" failure. Fixed in `6f2617c` with a `signing-check` gate job whose output `android` reads via `needs`. |
-| ✅ | **`cargo fmt --check` failed, blocking every other CI job.** Four files, two pre-existing (`librarium-tauri`, `xtask`) and two mine. | Fixed in `2fe5494`. Formatting now passes on CI. |
+| ✅ | **Hosted CI removed entirely.** GitHub Actions was judged not to work well for this project, so `.github/workflows/` is gone and `cargo xtask ci` is now the verification gate. It runs every check, prints one summary, exits non-zero on failure, and reports a missing tool as SKIPPED rather than PASSED. | `cargo xtask ci` → 5 passed, 0 failed. The deleted workflows remain in git history at `83626fc` if a build recipe is ever needed. |
+| ✅ | **`release.yml` was an invalid workflow file** — the `android` job used `if: ${{ secrets.… }}` at *job* level, which GitHub Actions rejects, so the file never ran and **tagging would have produced no binaries**. Fixed in `6f2617c`, then removed with the rest of CI. | Retained here because it explains why no release ever built, and because the same recipe is the starting point for a local release script. |
+| ✅ | **`cargo fmt --check` failed**, blocking every other job. Four files, two pre-existing. | Fixed in `2fe5494`; `cargo xtask ci` now covers it. |
 
 ---
 
 ## P0 — blocks any release at all
 
-### 1. CI has been red on every run for months, and still is
+### 1. Two clippy lints will bite on the next Rust upgrade
 
-Not flaky — structurally broken. `cargo clippy --all-targets --all-features -- -D warnings`
-runs against `dtolnay/rust-toolchain@stable`, which **floats**. There is no
-`rust-toolchain.toml`. Every Rust release that adds a lint turns CI red, and a
-local check cannot reproduce it:
-
-- Local: `rustc 1.96.0`
-- CI: `1.98.0`
-
-Only **two distinct lints** are failing, so this is much smaller than the
-"56 errors" the log implies:
+No longer a CI problem — there is no CI — but still a real one. `cargo xtask ci`
+runs `clippy -D warnings` against **your local toolchain**, currently
+`rustc 1.96.0`, and passes. Rust 1.98 adds two lints this codebase trips:
 
 | Lint | Where | Fix |
 | --- | --- | --- |
 | `result_large_err` (55 sites) | `librarium-client` — one root cause: `ClientError::WebSocket` holds ≥136 bytes | Box that one variant |
 | `chunks_exact_to_as_chunks` (1 site) | `crates/librarium-server/src/services/embedding_service.rs:133` | `as_chunks::<4>().0.iter()` |
 
-**Also decide the durable fix**, or this recurs on every Rust release:
-pin a `rust-toolchain.toml`, or keep `stable` floating and stop using
-`-D warnings` for newly-added lints. Pinning is the usual answer for a project
-that wants reproducible CI; floating plus `-D warnings` is the combination that
-guarantees surprise breakage.
-
-Until CI is green you have no signal that a release build will work.
+Nothing breaks today. The day you `rustup update`, `cargo xtask ci` goes red
+with 56 errors from two root causes. Worth fixing on your own schedule rather
+than discovering mid-task.
 
 ### 2. Nothing has ever been released, and the README already points at the empty page
 
@@ -51,10 +44,10 @@ Until CI is green you have no signal that a release build will work.
 users to *"download the latest `Librarium-*-android-universal.apk` from the
 Releases page."* **Anyone who reads the README today follows a dead link.**
 
-The `v*` tag will run an 8-job matrix that has never executed once (Linux and
-Windows server binaries, Linux AppImage + deb, Windows NSIS, two portable zips,
-Android APK). Expect the first tag to surface real breakage — treat it as a
-dry run, not a launch. Tag something like `v0.102.4-rc1` first.
+Fixing this now means building artifacts by hand (see 4b) and attaching them
+with `gh release create`. Do a throwaway `v0.102.4-rc1` first: the point is to
+find out what breaks in packaging before anyone is watching. Until a release
+exists, either publish one or soften the README's download instructions.
 
 ---
 
@@ -62,8 +55,15 @@ dry run, not a launch. Tag something like `v0.102.4-rc1` first.
 
 ### 3. Easy-to-run binaries
 
-The *infrastructure* is good — `release.yml` covers 8 artifacts across Linux,
-Windows, and Android. The gaps are around it:
+**The cross-platform build pipeline is gone.** `release.yml` built 8 artifacts
+(Linux and Windows server binaries, Linux AppImage + deb, Windows NSIS, two
+portable zips, Android APK); removing hosted CI removed that with it. From a
+Linux laptop you can build Linux artifacts and the Android APK locally; Windows
+and macOS need either those machines or a cross-build toolchain. **This is now
+the largest open question for shipping binaries** — see "Replacing the release
+pipeline" below.
+
+The remaining gaps:
 
 - **The Quick Start requires building from source.** `README.md:57` opens with
   `npm install` → `npm run build` → `cargo run`. That asks a friend to install
@@ -75,11 +75,12 @@ Windows, and Android. The gaps are around it:
   — there is no published image, so `docker compose up` compiles Rust rather
   than pulling a container. Publishing to GHCR would be the single cheapest
   "works everywhere" distribution channel.
-- **Android APK will silently not ship.** Four repo secrets are unset
-  (`gh secret list` is empty): `ANDROID_KEYSTORE_BASE64`,
-  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
-  The job now skips cleanly rather than breaking the release — but no APK is
-  produced, which contradicts the README.
+- **No release keystore exists yet.** A release APK must be signed to be
+  installable. `crates/librarium-tauri/gen/android/keystore.properties` is
+  gitignored and absent, so `cargo tauri android build --apk` currently
+  produces an *unsigned* release APK, which Android will refuse to install.
+  Generating a keystore once (AGENTS.md's "Android release signing") is a
+  prerequisite for shipping the APK the README promises.
 - **Windows install/upgrade is an open question** — issue #27.
 
 ### 4. Documentation people can read
@@ -116,6 +117,24 @@ delete or clearly date-stamp the rest.
 | Backup/restore guidance | Nothing in the README says what to back up. The vault is Markdown on disk, but `librarium.db` holds users, API keys, and sync state |
 
 ---
+
+### 4b. Replacing the release pipeline
+
+Options, roughly in increasing order of effort:
+
+1. **`cargo xtask release` building Linux + Android locally**, published as a
+   GitHub Release by hand or via `gh release create`. Covers you, most Linux
+   testers, and Android. Windows and macOS users build from source.
+2. **Add cross-compilation** — `cargo-xwin` (already a dependency you have
+   installed) can produce Windows binaries from Linux; `cargo-zigbuild`
+   (likewise installed) helps for glibc targets. Neither produces a macOS
+   `.app` without a Mac.
+3. **A borrowed machine per platform** — build on a Windows box and a Mac when
+   you cut a release. Reliable, manual, and fine at this cadence.
+
+The build commands themselves are all recoverable from
+`git show 83626fc:.github/workflows/release.yml`, so whichever route you pick,
+the recipes are not lost.
 
 ## P2 — before strangers run this
 
@@ -179,10 +198,11 @@ docs work, not feature work.
 
 ## Suggested order
 
-1. **Get CI green** (item 1) — two lint fixes plus a toolchain decision. Nothing
-   else is trustworthy until the pipeline reports honestly.
-2. **Cut `v0.102.4-rc1`** (item 2) — first real exercise of the release matrix.
-   Expect breakage; that is the point of an rc.
+1. **Decide how binaries get built** (item 4b) — everything else about
+   distribution waits on this. A `cargo xtask release` covering Linux + Android
+   is the smallest thing that works.
+2. **Cut `v0.102.4-rc1`** (item 2) — packaging always breaks the first time;
+   better to find out on a throwaway tag.
 3. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
 4. **Rewrite the Quick Start around downloading a binary** (item 3), once step 2
    proves artifacts actually build.

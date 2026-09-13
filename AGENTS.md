@@ -26,6 +26,23 @@ This repository is a Rust workspace for a self-hosted Obsidian-compatible knowle
 
 ## Build And Test
 
+**This repo has no hosted CI.** `cargo xtask ci` is the verification gate —
+run it before every push, and treat a red run the way you would a red build
+badge.
+
+```bash
+cargo xtask ci            # fmt, clippy, cargo test --workspace, vitest, vue-tsc
+cargo xtask ci --quick    # Rust only (skips the frontend gates)
+cargo xtask ci --full     # adds Android cross-compile and the Playwright E2E suite
+```
+
+It runs every gate rather than stopping at the first failure, then prints one
+summary. A gate whose tooling is missing reports **SKIPPED**, never PASSED —
+a skipped check is an absence of evidence, so read the summary's skip count
+before concluding the tree is clean.
+
+The individual commands, if you want to run one directly:
+
 - Rust workspace check: `cargo check --workspace`
 - Backend tests: `cargo test -p librarium-server`
 - **Offline account admin** (works with the server stopped — this is the
@@ -44,8 +61,8 @@ This repository is a Rust workspace for a self-hosted Obsidian-compatible knowle
 - Frontend unit tests: `npm --prefix frontend test`
 - Frontend build: `npm --prefix frontend run build`
 - Frontend E2E: `npm --prefix frontend run test:e2e`
-- Android cross-compile check (mirrors the `android-cross-compile` CI job;
-  needs an installed Android NDK, e.g. via Android Studio's SDK Manager —
+- Android cross-compile check (also run by `cargo xtask ci --full`; needs an
+  installed Android NDK, e.g. via Android Studio's SDK Manager —
   `cargo-ndk` auto-detects it from `$ANDROID_HOME`/`$ANDROID_NDK_HOME`):
   ```bash
   rustup target add aarch64-linux-android x86_64-linux-android
@@ -150,18 +167,16 @@ This repository is a Rust workspace for a self-hosted Obsidian-compatible knowle
   Verify it's actually signed (not just built) with
   `apksigner verify --print-certs <apk>` (part of the Android SDK
   build-tools) or `jarsigner -verify -verbose -certs <apk>`.
-  CI (`.github/workflows/release.yml`'s `android` job) reconstructs
-  `keystore.properties` from four repo secrets on a tag push —
-  `ANDROID_KEYSTORE_BASE64` (the `.jks` file, base64-encoded),
-  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
-  — and skips entirely if they're unset, so the release pipeline doesn't
-  break before a real keystore exists.
+  Release APKs are built locally (this repo has no hosted CI — see
+  "Verification" above); keep the `.jks` and `keystore.properties` outside
+  the repo and point at them from `gen/android/keystore.properties`.
 - Mobile contract test (#59): asserts every route in #56/#57's scope
   (vault/file/render/resolve-link/backlinks, search, tags, preferences,
   recent files, favorites, bookmarks, random/daily notes) produces
   structurally equivalent output from the real `librarium-server` HTTP routes
-  and the `librarium-mobile` functions `localDispatcher.ts` calls into. Runs
-  as its own CI gate (`contract-test`), separate from `cargo test --workspace`:
+  and the `librarium-mobile` functions `localDispatcher.ts` calls into. Also
+  covered by `cargo test --workspace`, but worth running alone when you are
+  specifically chasing route drift:
   ```bash
   cargo test -p librarium-mobile --test contract_test
   ```

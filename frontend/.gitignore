@@ -28,3 +28,8 @@ config.toml
 
 # Development
 .env
+
+# Playwright output (traces, screenshots, .last-run.json) — regenerated on
+# every `npm run test:e2e` run and never worth committing.
+test-results/
+playwright-report/

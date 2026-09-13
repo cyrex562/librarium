@@ -59,6 +59,18 @@ commit as the change being pushed).
 
 ## Build & test (see AGENTS.md for the full list)
 
+**There is no hosted CI.** `cargo xtask ci` is the gate — run it before every
+push. It runs every check, prints one summary, and exits non-zero on failure.
+A missing tool reports SKIPPED, never PASSED, so check the skip count before
+calling a tree clean.
+
+```bash
+cargo xtask ci            # the gate: fmt, clippy, workspace tests, vitest, vue-tsc
+cargo xtask ci --full     # adds Android cross-compile + Playwright E2E
+```
+
+Individual commands, when you want just one:
+
 ```bash
 cargo check --workspace
 cargo test -p librarium-server

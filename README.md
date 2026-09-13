@@ -145,8 +145,7 @@ without installing anything.
 
 For a distributable, re-runnable installer (NSIS `.exe` setup on Windows),
 use `cargo xtask build-installer` instead (needs `cargo install tauri-cli
---version '^2' --locked` first — same CLI `.github/workflows/release.yml`
-uses to build tagged releases). The resulting installer lands under
+--version '^2' --locked` first). The resulting installer lands under
 `target\release\bundle\nsis\`. Tauri's NSIS installer is idempotent by
 design: re-running it over an existing install detects it and upgrades in
 place (replaces the binary, keeps your vaults/config untouched) — so the
