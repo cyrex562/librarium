@@ -222,6 +222,22 @@ export const resetLocalPassword = async (
   await invoke('auth_reset_local_password', { username, newPassword });
 };
 
+/**
+ * Turn password protection on or off for this desktop instance.
+ *
+ * Takes effect on the next launch: the server reads `AppConfig` once at
+ * startup. Desktop only; errors propagate so the caller can show them.
+ */
+export const setLocalAuthEnabled = async (
+  enabled: boolean,
+  username?: string,
+  newPassword?: string,
+): Promise<void> => {
+  if (!isTauri()) throw new Error('Password protection is managed by your server administrator');
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('auth_set_local_enabled', { enabled, username, newPassword });
+};
+
 export const authTokenSet = async (token: string): Promise<void> => {
   if (!isTauri()) return;
   try {
