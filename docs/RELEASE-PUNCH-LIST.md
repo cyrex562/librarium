@@ -22,21 +22,50 @@ the gate; run it before every push.
 | ✅ | **The exposure warning** (item 6): binding a routable address now warns when auth is disabled, and always warns about cleartext HTTP. Loopback stays silent. | Verified both ways against a running server. |
 | ✅ | **The E2E fixture and stale specs** (item 2, partial): 9 stale `ui/` specs fixed via PR #124 — an unmocked-endpoint 401 cascade, two default-state assumptions, and three assertions on UI that changed underneath them. | `ui/` alone: 165/12 → 173/4. Cross-suite contamination (`e2e/` polluting `ui/`) is the remaining, larger piece — still open. |
 | ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
+| ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts, Windows to follow. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
 
 ---
 
 ## P0 — blocks any release at all
 
-### 1. Nothing has ever been released, and the README already points at the empty page
+### 1. Nothing has ever been released ✅ *(first rc published 2026-09-14)*
 
-`git tag` → 0. `gh release list` → empty. Meanwhile `README.md:170` tells Android
-users to *"download the latest `Librarium-*-android-universal.apk` from the
-Releases page."* **Anyone who reads the README today follows a dead link.**
+[`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1)
+is up: server binary, server `.deb`, desktop AppImage, desktop `.deb`, and an
+Android debug APK, all built locally per the 4b decision. Verified for real,
+not just "the build exited 0":
 
-Fixing this now means building artifacts by hand (see 4b) and attaching them
-with `gh release create`. Do a throwaway `v0.102.4-rc1` first: the point is to
-find out what breaks in packaging before anyone is watching. Until a release
-exists, either publish one or soften the README's download instructions.
+- Server binary: ran `--version`, got `librarium 0.102.4`.
+- Android APK: installed and launched on the local emulator (from a cold
+  `adb install`), reached the pairing screen — the same screen verified
+  working earlier this session when built from source.
+- Desktop AppImage/deb: package structurally correct (`dpkg -c`), but **not
+  launch-tested** — this box has no X/Wayland session, so GTK cannot
+  initialize here. Needs a real display to confirm.
+- `cargo xtask ci` green before tagging.
+
+**Nothing broke in packaging** — the predicted "first tag surfaces real
+breakage" didn't happen this time, likely because `cargo xtask build-installer`
+/ `build-desktop` were already being exercised manually earlier in this
+session's Android work.
+
+**Known gaps in this rc**, documented in the release notes: no Windows
+artifact yet (next per 4b), Android is an unsigned debug build (no release
+keystore exists — a real gap, not a workaround) and is correspondingly huge
+(~700 MB, unstripped native debug symbols for both ABIs), no macOS.
+
+**Still true:** `README.md:170`'s Android download link now resolves to a real
+(prerelease) asset instead of an empty page, but the README doesn't yet say
+"prerelease" or point at this rc specifically — worth a follow-up once a
+non-rc release exists.
+
+**Unrelated discovery made while staging artifacts:** `dist/` is tracked in
+git and already holds ~36 MB of stale binaries from an old pre-rename
+"codex" deploy (`dist/deploy/codex-*.tar.gz`, `dist/server/codex`, dated
+April). Not touched — release artifacts were staged in a separate untracked
+`release-out/` instead. Worth its own cleanup pass; flagging rather than
+fixing since it's unrelated to this task and someone should confirm nothing
+depends on it first.
 
 ### 2. The Playwright E2E suite
 
@@ -241,21 +270,23 @@ docs work, not feature work.
 
 ## Suggested order
 
-1. **Cut `v0.102.4-rc1`** (item 1) — the build-locally-per-platform decision
-   (item 4b) is made, so this is unblocked: build Linux + Android here,
-   ping a Windows host for that artifact, publish by hand. Packaging always
-   breaks the first time; better to find out on a throwaway tag.
+1. **Build and attach the Windows artifact to `v0.102.4-rc1`** (item 4b
+   follow-through) — from a Windows host: `cargo xtask build-installer` for
+   the NSIS installer, `cargo xtask build-desktop --debug` if a debug build is
+   also wanted, then `gh release upload v0.102.4-rc1 <files>`.
 2. **Isolate the E2E suites** (item 2) — the stale-spec half is fixed; what
    remains is the real-server `e2e/` specs contaminating the mocked `ui/` ones.
 3. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
-4. **Rewrite the Quick Start around downloading a binary** (item 3), once step 1
-   proves artifacts actually build and get published.
+4. **Rewrite the Quick Start around downloading a binary** (item 3) — v0.102.4-rc1
+   proves the artifacts work; update the README to point at it (and say
+   "prerelease") once Windows lands.
 5. **Docs triage** (item 4) — promote what survives verification out of
    `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
-6. Everything in P3, as it suits you.
+6. Everything in P3, as it suits you. The stray `dist/` cruft noted under
+   item 1 is worth a look here too.
 
-Items 4b and 6 (the exposure warning) are done, as are the clippy lints from the
-old item 1 — see the table at the top.
+Items 1, 4b, and 6 (the exposure warning) are done, as are the clippy lints
+from the old item 1 — see the table at the top.
 
 Items 1–4 are the realistic definition of "ready to hand to a friend." Adding
 item 5 gets you to "ready to post publicly."
