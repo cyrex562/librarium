@@ -35,3 +35,7 @@ target
 /crates/librarium-server/data/
 # Runtime search indices written by a locally-run server (default ./data/indices)
 /data/indices/
+
+# Local build/deploy staging (cargo xtask deploy / scripts/librarium.py) —
+# wiped and regenerated on every run; never meant to be committed.
+dist/
