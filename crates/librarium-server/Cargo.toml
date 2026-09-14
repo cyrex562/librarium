@@ -1,6 +1,6 @@
 [package]
 name = "librarium-server"
-version = "0.102.3"
+version = "0.102.4"
 edition = "2021"
 
 [lib]

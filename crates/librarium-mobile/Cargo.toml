@@ -1,6 +1,6 @@
 [package]
 name = "librarium-mobile"
-version = "0.102.3"
+version = "0.102.4"
 edition = "2021"
 description = "Local (no embedded-server) command layer for the Librarium Tauri mobile shell"
 
