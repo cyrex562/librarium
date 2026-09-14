@@ -20,6 +20,8 @@ the gate; run it before every push.
 | ✅ | **`cargo fmt --check` failed**, blocking every other job. Four files, two pre-existing. | Fixed in `2fe5494`; `cargo xtask ci` now covers it. |
 | ✅ | **The two Rust 1.98 clippy lints** (item 1) are fixed: `ClientError::WebSocket` is boxed, and `blob_to_vector` uses `as_chunks::<4>()`. The Dockerfile moved 1.88 → 1.90, since `as_chunks` stabilised in exactly 1.88 and sitting on that boundary was too tight. **The Docker image was not rebuilt to confirm.** | `cargo clippy --all-targets --all-features -- -D warnings` clean. |
 | ✅ | **The exposure warning** (item 6): binding a routable address now warns when auth is disabled, and always warns about cleartext HTTP. Loopback stays silent. | Verified both ways against a running server. |
+| ✅ | **The E2E fixture and stale specs** (item 2, partial): 9 stale `ui/` specs fixed via PR #124 — an unmocked-endpoint 401 cascade, two default-state assumptions, and three assertions on UI that changed underneath them. | `ui/` alone: 165/12 → 173/4. Cross-suite contamination (`e2e/` polluting `ui/`) is the remaining, larger piece — still open. |
+| ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
 
 ---
 
@@ -156,23 +158,26 @@ delete or clearly date-stamp the rest.
 
 ---
 
-### 4b. Replacing the release pipeline
+### 4b. Replacing the release pipeline ✅ *(decided 2026-09-14)*
 
-Options, roughly in increasing order of effort:
+**Decision: build locally per platform, publish by hand.**
 
-1. **`cargo xtask release` building Linux + Android locally**, published as a
-   GitHub Release by hand or via `gh release create`. Covers you, most Linux
-   testers, and Android. Windows and macOS users build from source.
-2. **Add cross-compilation** — `cargo-xwin` (already a dependency you have
-   installed) can produce Windows binaries from Linux; `cargo-zigbuild`
-   (likewise installed) helps for glibc targets. Neither produces a macOS
-   `.app` without a Mac.
-3. **A borrowed machine per platform** — build on a Windows box and a Mac when
-   you cut a release. Reliable, manual, and fine at this cadence.
+- **Linux + Android**: built on this machine.
+  `cargo xtask build-desktop` / `build-frontend` for the server+desktop bundle;
+  the Android APK via `cargo tauri android build` (see AGENTS.md's "Android
+  build" section) or `scripts/android-deploy.sh` for a device-installed build.
+- **Windows**: built by hand on a Windows host.
+  `cargo xtask build-installer` for a distributable NSIS `.exe` (release-only,
+  idempotent — re-running it upgrades an existing install in place);
+  `cargo xtask build-desktop [--debug]` for an unpackaged debug or release
+  binary. No cross-compilation setup needed on this machine.
+- **macOS**: not yet decided — no Mac available. Revisit if a tester asks.
 
-The build commands themselves are all recoverable from
-`git show 83626fc:.github/workflows/release.yml`, so whichever route you pick,
-the recipes are not lost.
+Publish artifacts to a GitHub Release by hand (`gh release create` or the web
+UI) once built on each platform. The old automated matrix's build commands are
+recoverable from `git show 83626fc:.github/workflows/release.yml` if this ever
+needs automating again, but for the current cadence a person building on each
+platform and uploading the result is the whole pipeline.
 
 ## P2 — before strangers run this
 
@@ -236,22 +241,21 @@ docs work, not feature work.
 
 ## Suggested order
 
-1. **Decide how binaries get built** (item 4b) — everything else about
-   distribution waits on this. A `cargo xtask release` covering Linux + Android
-   is the smallest thing that works.
-2. **Cut `v0.102.4-rc1`** (item 1) — packaging always breaks the first time;
-   better to find out on a throwaway tag.
-3. **Isolate the E2E suites** (item 2) — the fixture bug is fixed; what remains
-   is the real-server `e2e/` specs contaminating the mocked `ui/` ones.
-4. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
-5. **Rewrite the Quick Start around downloading a binary** (item 3), once step 2
-   proves artifacts actually build.
-6. **Docs triage** (item 4) — promote what survives verification out of
+1. **Cut `v0.102.4-rc1`** (item 1) — the build-locally-per-platform decision
+   (item 4b) is made, so this is unblocked: build Linux + Android here,
+   ping a Windows host for that artifact, publish by hand. Packaging always
+   breaks the first time; better to find out on a throwaway tag.
+2. **Isolate the E2E suites** (item 2) — the stale-spec half is fixed; what
+   remains is the real-server `e2e/` specs contaminating the mocked `ui/` ones.
+3. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
+4. **Rewrite the Quick Start around downloading a binary** (item 3), once step 1
+   proves artifacts actually build and get published.
+5. **Docs triage** (item 4) — promote what survives verification out of
    `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
-7. Everything in P3, as it suits you.
+6. Everything in P3, as it suits you.
 
-Item 6 (the exposure warning) is done, as are the clippy lints from the old
-item 1 — see the table at the top.
+Items 4b and 6 (the exposure warning) are done, as are the clippy lints from the
+old item 1 — see the table at the top.
 
-Items 1–5 are the realistic definition of "ready to hand to a friend." Items 5–6
-are "ready to post publicly."
+Items 1–4 are the realistic definition of "ready to hand to a friend." Adding
+item 5 gets you to "ready to post publicly."
