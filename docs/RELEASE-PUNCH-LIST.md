@@ -22,6 +22,7 @@ the gate; run it before every push.
 | ✅ | **The exposure warning** (item 6): binding a routable address now warns when auth is disabled, and always warns about cleartext HTTP. Loopback stays silent. | Verified both ways against a running server. |
 | ✅ | **The E2E fixture and stale specs** (item 2, partial): 9 stale `ui/` specs fixed via PR #124 — an unmocked-endpoint 401 cascade, two default-state assumptions, and three assertions on UI that changed underneath them. | `ui/` alone: 165/12 → 173/4. Cross-suite contamination (`e2e/` polluting `ui/`) is the remaining, larger piece — still open. |
 | ✅ | **E2E suite isolation** (item 2, the rest): `e2e/` and `ui/` now run against separate servers (PR #125), eliminating the 35-failure cross-contamination. | Verified running both back to back: `ui/` 174/3 (matches its 173/4 standalone baseline), `e2e/` 8/6 (unchanged). Remaining failures in each are real, independent, individually diagnosable. |
+| ✅ | **Dependency vulnerabilities** (item 5): `npm audit fix` plus removing the dead `@tiptap/*` dependency (PR #126). | `npm audit`: 0 vulnerabilities, down from 24 (18 in prod). Build and vitest unchanged. |
 | ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
 | ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts, Windows to follow. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
 
@@ -223,24 +224,20 @@ platform and uploading the result is the whole pipeline.
 
 ## P2 — before strangers run this
 
-### 5. 18 vulnerable production dependencies
+### 5. Vulnerable production dependencies ✅ *(fixed 2026-09-16, PR #126)*
 
-`npm --prefix frontend audit --omit=dev` → **5 moderate, 13 high** (24 including
-dev). Two are directly reachable from untrusted note content:
+Was 18 (5 moderate, 13 high; 24 including dev), two directly reachable from
+untrusted note content: `dompurify` (the XSS sanitizer guarding rendered
+Markdown) and `yaml` (parses frontmatter on any note a user opens). `npm audit
+fix` alone resolved all but one — a high-severity `@tiptap/core` advisory with
+no fixed release published yet. `@tiptap/core` only backed `TiptapEditor.vue`,
+which nothing imports (confirmed with a fresh repo-wide grep); removed it and
+all five `@tiptap/*` packages rather than wait on upstream.
 
-- **`dompurify`** — this is the XSS sanitizer guarding rendered Markdown
-  (`MarkdownPreview.vue:56`). A weakness here is a weakness in the control that
-  exists to stop XSS.
-- **`yaml`** — stack overflow on deeply nested collections; used to parse
-  frontmatter in three places (`FrontmatterPanel.vue`, `structural-utils.ts`,
-  `NewEntityDialog.vue`), i.e. on content from any note a user opens.
-
-Also `lodash-es` (prototype pollution, code injection), `linkify-it` (quadratic
-DoS on attacker text), `@tiptap/core`, `markdown-it`.
-
-Every one reports **"fix available via `npm audit fix`"**, so this is likely an
-afternoon, not a project. Worth doing before the repo gets attention — and
-re-running as a release gate.
+**Now: 0 vulnerabilities.** Verified `npm --prefix frontend run build`
+(vue-tsc clean) and `npm --prefix frontend test` (494/494) both pass
+unchanged. Worth re-running `npm audit` occasionally as new advisories land —
+it isn't a one-time fix, just a now-clean baseline.
 
 ### 6. Auth is off by default ✅ *(warning added — see the table at the top)*
 
@@ -275,9 +272,6 @@ docs work, not feature work.
 - **Issue #122 (tables)** can probably be closed: symptoms 1 and 3 are fixed,
   and symptom 2 turned out to be by-design. **#123** (rendered tables use `<th>`
   for body cells and drop column alignment) is filed and open.
-- **Unused Tiptap dependency.** `TiptapEditor.vue` is imported by nothing; five
-  `@tiptap/*` packages ship in `package.json`. Removing them cuts bundle size
-  and one of the high-severity advisories above.
 
 ---
 
@@ -287,21 +281,21 @@ docs work, not feature work.
    follow-through) — from a Windows host: `cargo xtask build-installer` for
    the NSIS installer, `cargo xtask build-desktop --debug` if a debug build is
    also wanted, then `gh release upload v0.102.4-rc1 <files>`.
-2. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
-3. **Rewrite the Quick Start around downloading a binary** (item 3) — v0.102.4-rc1
+2. **Rewrite the Quick Start around downloading a binary** (item 3) — v0.102.4-rc1
    proves the artifacts work; update the README to point at it (and say
    "prerelease") once Windows lands.
-4. **Docs triage** (item 4) — promote what survives verification out of
+3. **Docs triage** (item 4) — promote what survives verification out of
    `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
-5. **The 9 individually-diagnosable E2E failures** (item 2's remainder) — no
+4. **The 9 individually-diagnosable E2E failures** (item 2's remainder) — no
    longer urgent now that they're not masking each other or a bigger problem,
    but worth clearing before relying on the suite as a real regression gate.
-6. Everything in P3, as it suits you. The stray `dist/` cruft noted under
+5. Everything in P3, as it suits you. The stray `dist/` cruft noted under
    item 1 is worth a look here too — since fixed: it is gone, tracked cruft was
    removed and `dist/` is gitignored.
 
-Items 1, 2, 4b, and 6 (the exposure warning) are done, as are the clippy lints
-from the old item 1 — see the table at the top.
+Punch-list items 1, 2, 4b, 5, and 6 (the exposure warning) are done, as are the
+clippy lints from the old item 1 — see the table at the top.
 
-Items 1–4 are the realistic definition of "ready to hand to a friend." Adding
-item 5 (docs) gets you to "ready to post publicly."
+Steps 1–2 above (Windows artifact, Quick Start rewrite) are the realistic
+definition of "ready to hand to a friend." Adding step 3 (docs triage) gets
+you to "ready to post publicly."
