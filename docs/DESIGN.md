@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.4
+**Version:** 0.102.5
 
 ---
 
@@ -444,15 +444,30 @@ plugins/<plugin-id>/
 └── main.js         # ES module entry point
 ```
 
-- **Capabilities** gate what a plugin may do (read files, vault metadata,
-  editor access, modify UI, storage, HTTP).
-- **Hooks** include `on_load`, `on_file_open`, `on_file_save`, `on_editor_change`.
+- **Capabilities** and **hooks** (`on_load`, `on_file_open`, `on_file_save`,
+  `on_editor_change`) are declared per plugin in `manifest.json`.
 - **Config schema** (JSON Schema) auto-generates a settings UI.
 
-Bundled examples: `backlinks`, `daily-notes`, `word-count`, `worldbuilding`,
-and an `example-plugin` template. Plugin development is documented in
-[`docs/archive/PLUGIN_API.md`](archive/PLUGIN_API.md) and
-[`docs/archive/PLUGIN_ARCHITECTURE.md`](archive/PLUGIN_ARCHITECTURE.md).
+**Known gap, found during documentation triage (2026-09-16):** the frontend
+plugin loader (`frontend/src/composables/usePlugins.ts`) only actually invokes
+`onLoad` — `onFileOpen`, `onEditorChange`, and `onFileSave` are declared in
+manifests and implemented by bundled plugins (e.g. `word-count`) but never
+called, so those plugins only run their load-time logic and never react to
+file switches or edits. Capabilities are not enforced (declarative only).
+Separately, `crates/librarium-server/src/services/plugin_api.rs`'s `PluginApi`
+struct — a different, more structured host-API surface with file/storage/HTTP/
+event methods — is never constructed anywhere; the live plugin API is the
+small ad-hoc object built inline in `usePlugins.ts` (`addRibbonIcon`,
+`addStatusBarItem`, `storage_get/set`, `read_file`/`write_file`, `show_notice`,
+`getContext`, `register_command`), several of whose methods are stubs
+(`show_notice` is a bare `alert()`, `register_command` only logs). The
+previous plugin-authoring docs (`docs/archive/PLUGIN_API.md`,
+`PLUGIN_ARCHITECTURE.md`) described neither of these accurately — they predate
+this implementation and describe a `window.app`-based model that was never
+built. Left archived rather than corrected in this pass: an accurate plugin-
+authoring guide needs its own verification pass once the hook-dispatch and
+dead-code questions above are resolved one way or the other, not a rewrite
+that documents known-broken behavior as if it works.
 
 ---
 
@@ -553,7 +568,7 @@ development-oriented and **not** a production baseline; `config.example.toml` is
 the annotated reference.
 
 Configurable sections: server, database, vault paths, auth (JWT/LDAP/OIDC), sync,
-CORS, TLS, and ML tiers. Full reference: [`docs/archive/CONFIGURATION.md`](archive/CONFIGURATION.md).
+CORS, TLS, and ML tiers. Full reference: [`docs/CONFIGURATION.md`](CONFIGURATION.md).
 
 ---
 
@@ -589,8 +604,8 @@ cargo bench --bench markdown_benchmarks # benchmarks
 
 Release profiles in the root `Cargo.toml`: `release` (size-optimized: `opt-level=z`,
 LTO, strip, panic=abort) and `release-fast` (3–5× faster builds for iteration).
-Docker and packaging are covered in `docs/archive/DOCKER.md`,
-`docs/archive/DEPLOYMENT.md`, and `docs/archive/BUILD.md`.
+Docker and packaging are covered in `docs/DEPLOYMENT.md` and
+`docs/BUILD.md`.
 
 ---
 

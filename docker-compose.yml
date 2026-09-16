@@ -17,9 +17,12 @@ services:
       - LIBRARIUM__DATABASE__PATH=/data/librarium.db
       - LIBRARIUM__VAULT__BASE_DIR=/data/vaults
       - LIBRARIUM__AUTH__ENABLED=true
-      # Bootstrap: only used when the database has no users yet.
-      # Set both variables, start the server once, then log in and remove them.
-      # If unset and the database is empty you will be unable to log in.
+      # Bootstrap (first run only, skipped once any user exists):
+      # leave BOOTSTRAP_ADMIN_PASSWORD unset (the default here) and Librarium
+      # generates one, writes it to a file beside the database, and forces a
+      # change at first login — check `docker compose logs` for the path.
+      # Uncommenting BOOTSTRAP_ADMIN_PASSWORD below uses that value instead;
+      # remove it again after the first login if you do.
       - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_USERNAME=admin
       # - LIBRARIUM__AUTH__BOOTSTRAP_ADMIN_PASSWORD=<set-before-first-run>
       # Generate a stable signing secret: openssl rand -hex 32
