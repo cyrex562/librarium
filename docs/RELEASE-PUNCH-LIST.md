@@ -24,6 +24,7 @@ the gate; run it before every push.
 | ✅ | **E2E suite isolation** (item 2, the rest): `e2e/` and `ui/` now run against separate servers (PR #125), eliminating the 35-failure cross-contamination. | Verified running both back to back: `ui/` 174/3 (matches its 173/4 standalone baseline), `e2e/` 8/6 (unchanged). Remaining failures in each are real, independent, individually diagnosable. |
 | ✅ | **Dependency vulnerabilities** (item 5): `npm audit fix` plus removing the dead `@tiptap/*` dependency (PR #126). | `npm audit`: 0 vulnerabilities, down from 24 (18 in prod). Build and vitest unchanged. |
 | ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
+| ✅ | **Documentation triage** (item 4): verified 8 archived docs against current code; 5 rewritten and promoted to `docs/`, `API.md` rewritten as a structural overview instead of a rotting exhaustive list, `PLUGIN_API.md`/`PLUGIN_ARCHITECTURE.md` left archived with the real gaps they'd have hidden documented in `docs/DESIGN.md` instead. Added `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, issue templates. Two incidental bugs fixed (a false docker-compose.yml comment, stale archive cross-references). | `cargo xtask ci`: 5 passed, 0 failed. See item 4 below for detail. |
 | ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts, Windows to follow. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
 
 ---
@@ -166,7 +167,41 @@ The remaining gaps:
   prerequisite for shipping the APK the README promises.
 - **Windows install/upgrade is an open question** — issue #27.
 
-### 4. Documentation people can read
+### 4. Documentation people can read ✅ *(triaged 2026-09-16)*
+
+**Result:** verified every claim in the 8 candidate archive docs against
+current code, then either rewrote+promoted or left archived:
+
+- Promoted to `docs/`, rewritten against current code:
+  `CONFIGURATION.md`, `DEPLOYMENT.md` (absorbs `DOCKER.md`'s content),
+  `BUILD.md`, `WEBKITGTK_COMPAT.md`, `USER_GUIDE.md`.
+- `API.md`: rewritten as a structural overview, not an exhaustive endpoint
+  list — a route audit found ~100 endpoints across 21 files (one module uses
+  a registration style a grep-based doc would miss), so exhaustive hand-
+  maintained docs are exactly how the old version rotted (it also claimed "no
+  authentication required," which is false, and had several wrong paths).
+- `docs/archive/PLUGIN_API.md` / `PLUGIN_ARCHITECTURE.md`: **left archived.**
+  Verification surfaced real, undocumented gaps instead — described in
+  `docs/DESIGN.md` section 7 rather than published as a guessed-at guide:
+  the Rust `PluginApi` struct (`plugin_api.rs`) is never constructed anywhere
+  (dead code), and the live frontend plugin loader only ever dispatches
+  `onLoad` — `onFileOpen`/`onEditorChange`/`onFileSave` are declared in
+  manifests and implemented by bundled plugins but never called.
+- Missing-entirely items, now added: root `CONTRIBUTING.md`, `SECURITY.md`
+  (GitHub private vulnerability reporting, no personal email hardcoded),
+  `CHANGELOG.md` (Keep a Changelog, starts fresh at 0.102.2),
+  `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.md`. Backup/restore
+  guidance (what's in `librarium.db`) folded into `docs/DEPLOYMENT.md`.
+- Two incidental bugs fixed while fact-checking: `docker-compose.yml` had a
+  comment falsely claiming you could be locked out with auth enabled and no
+  password set (contradicts the generated-credentials bootstrap flow); and
+  stale `docs/archive/*` cross-references remained in `README.md` and
+  `docs/DESIGN.md` after promotion — repointed at the new locations.
+- Remaining `docs/archive/` files (LIBRARIUM_OVERVIEW.md, superseded plans,
+  etc.) are untouched — out of scope for this pass, `docs/DESIGN.md`'s
+  "background, not current" caveat still applies to them.
+
+Original assessment (superseded by the above, kept for context):
 
 Better than it first appears, and worse in a specific way.
 

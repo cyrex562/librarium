@@ -1,6 +1,6 @@
 # Librarium
 
-**Version 0.102.4** · A self-hosted knowledge base and vault manager for
+**Version 0.102.5** · A self-hosted knowledge base and vault manager for
 Obsidian-compatible Markdown vaults.
 
 Librarium keeps your notes as plain Markdown files on disk — they stay portable
@@ -70,7 +70,7 @@ cargo run -p librarium-server
 
 On first run with auth enabled, Librarium bootstraps an admin account and writes
 the generated credentials next to the database, then forces a password change at
-first login. See the [Deployment guide](docs/archive/DEPLOYMENT.md).
+first login. See the [Deployment guide](docs/DEPLOYMENT.md).
 
 ### Forgot your password?
 
@@ -218,16 +218,16 @@ Contributor conventions live in [AGENTS.md](AGENTS.md) and
 
 - **[Design & Architecture](docs/DESIGN.md)** — the canonical, current system
   overview. Kept up to date alongside this README.
-- **[docs/archive/](docs/archive/)** — historical design notes, feature plans,
-  and reference specs. Useful for context, but may describe superseded behavior.
-  Notable references:
-  [Build](docs/archive/BUILD.md) ·
-  [Deployment](docs/archive/DEPLOYMENT.md) ·
-  [Docker](docs/archive/DOCKER.md) ·
-  [Configuration](docs/archive/CONFIGURATION.md) ·
-  [API](docs/archive/API.md) ·
-  [User Guide](docs/archive/USER_GUIDE.md) ·
-  [Plugin API](docs/archive/PLUGIN_API.md)
+- [Build](docs/BUILD.md) ·
+  [Deployment](docs/DEPLOYMENT.md) ·
+  [Configuration](docs/CONFIGURATION.md) ·
+  [API](docs/API.md) ·
+  [User Guide](docs/USER_GUIDE.md) ·
+  [WebKitGTK compatibility](docs/WEBKITGTK_COMPAT.md)
+- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) ·
+  [Changelog](CHANGELOG.md)
+- **[docs/archive/](docs/archive/)** — historical design notes and feature
+  plans. May describe superseded behavior; not kept up to date.
 
 ---
 
