@@ -21,6 +21,7 @@ the gate; run it before every push.
 | ✅ | **The two Rust 1.98 clippy lints** (item 1) are fixed: `ClientError::WebSocket` is boxed, and `blob_to_vector` uses `as_chunks::<4>()`. The Dockerfile moved 1.88 → 1.90, since `as_chunks` stabilised in exactly 1.88 and sitting on that boundary was too tight. **The Docker image was not rebuilt to confirm.** | `cargo clippy --all-targets --all-features -- -D warnings` clean. |
 | ✅ | **The exposure warning** (item 6): binding a routable address now warns when auth is disabled, and always warns about cleartext HTTP. Loopback stays silent. | Verified both ways against a running server. |
 | ✅ | **The E2E fixture and stale specs** (item 2, partial): 9 stale `ui/` specs fixed via PR #124 — an unmocked-endpoint 401 cascade, two default-state assumptions, and three assertions on UI that changed underneath them. | `ui/` alone: 165/12 → 173/4. Cross-suite contamination (`e2e/` polluting `ui/`) is the remaining, larger piece — still open. |
+| ✅ | **E2E suite isolation** (item 2, the rest): `e2e/` and `ui/` now run against separate servers (PR #125), eliminating the 35-failure cross-contamination. | Verified running both back to back: `ui/` 174/3 (matches its 173/4 standalone baseline), `e2e/` 8/6 (unchanged). Remaining failures in each are real, independent, individually diagnosable. |
 | ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
 | ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts, Windows to follow. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
 
@@ -67,24 +68,29 @@ April). Not touched — release artifacts were staged in a separate untracked
 fixing since it's unrelated to this task and someone should confirm nothing
 depends on it first.
 
-### 2. The Playwright E2E suite
+### 2. The Playwright E2E suite ✅ *(contamination fixed 2026-09-16, PR #125)*
 
-**Two separate problems, both now understood.**
+**Two separate problems. Both now understood; the bigger one is fixed.**
 
-**a) Cross-suite contamination — 35 of the original 47 failures.** The `e2e/`
-specs drive the *real* server (creating users, vaults, files) and run before the
-alphabetically-later `ui/` specs, which mock most routes but fall through to
-that now-dirty server for anything unmocked. Measured:
+**a) Cross-suite contamination — 35 of the original 47 failures. FIXED.** The
+`e2e/` specs drive the *real* server (creating users, vaults, files) and used to
+share one server process with the `ui/` specs, which mock most routes but fall
+through to that now-dirty server for anything unmocked. Fixed by giving each
+suite its own server, port, and SQLite state dir
+(`frontend/playwright.shared.ts`) — structural isolation, not a chase for the
+specific leak. Verified by running both back to back in one invocation:
 
-| Run | Passed | Failed |
+| Run | `ui/` | `e2e/` |
 | --- | --- | --- |
-| `ui/` + `e2e/` together | 144 | 47 |
-| `ui/` alone | 165 | 12 |
+| Shared server (before) | 144 passed / 47 failed | — |
+| Isolated servers (after) | 174 passed / 3 failed | 8 passed / 6 failed |
 
-**Still open.** The fix is to isolate the two — separate Playwright projects, or
-a server reset between them — not to chase individual specs.
+`ui/`'s isolated number matches its own standalone baseline (173/4, the ±1 is
+ordinary retry noise) and `e2e/` is unchanged from its own standalone baseline
+(8/6) — proving the contamination, not the suites themselves, was the 35-failure
+cost.
 
-**b) Stale tests — the residual 12, of which 9 are now fixed.** Every one was
+**b) Stale tests — the residual dozen, of which 9 are fixed.** Every one was
 test-vs-code drift: the app was behaving correctly and the test had not kept up.
 That is what you would expect from a suite that last ran green in April 2026.
 
@@ -97,12 +103,19 @@ That is what you would expect from a suite that last ran green in April 2026.
 | `context_menu` | Drove rename through an inline input; rename is a dialog now |
 | `theme_mode`, `interface_elements_smoke` | Both matched `button[title="Theme"]`; that title is dynamic ("Switch to light theme") and never existed |
 
-`ui/` is now **172 passed / 5 failed**, up from 165/12.
+**Still failing, each a separate small investigation** — now cleanly
+attributable since isolation removed the noise:
 
-**Remaining 3–5**, each its own small investigation: `import_upload` (a
-"Subfolder" tree node never appears), `vault_management` (two — one times out
-creating groups), and `structural_editor`, which passes standalone and so is
-order-dependent within `ui/` — likely the same class as (a).
+- `ui/` (3): `import_upload` (a "Subfolder" tree node never appears),
+  `vault_management` (times out creating groups), `structural_editor` (passes
+  standalone in isolation but flakes in a full `ui/` run — order-dependent
+  *within* `ui/` itself, unrelated to `e2e/`; `import_export_advanced` is
+  intermittently in this list too).
+- `e2e/` (6), never diagnosed individually before because they were buried in
+  the combined 47: `01-authentication` "short password shows validation
+  error", `02-vault-management` "absolute path" and "invalid path" (×2),
+  `03-file-operations` "opens in editor tab", "New File option", "closes its
+  tab" (×3).
 
 **Two traps worth remembering:**
 
@@ -274,19 +287,21 @@ docs work, not feature work.
    follow-through) — from a Windows host: `cargo xtask build-installer` for
    the NSIS installer, `cargo xtask build-desktop --debug` if a debug build is
    also wanted, then `gh release upload v0.102.4-rc1 <files>`.
-2. **Isolate the E2E suites** (item 2) — the stale-spec half is fixed; what
-   remains is the real-server `e2e/` specs contaminating the mocked `ui/` ones.
-3. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
-4. **Rewrite the Quick Start around downloading a binary** (item 3) — v0.102.4-rc1
+2. **`npm audit fix`** (item 5) — cheap, and best done before attention arrives.
+3. **Rewrite the Quick Start around downloading a binary** (item 3) — v0.102.4-rc1
    proves the artifacts work; update the README to point at it (and say
    "prerelease") once Windows lands.
-5. **Docs triage** (item 4) — promote what survives verification out of
+4. **Docs triage** (item 4) — promote what survives verification out of
    `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
+5. **The 9 individually-diagnosable E2E failures** (item 2's remainder) — no
+   longer urgent now that they're not masking each other or a bigger problem,
+   but worth clearing before relying on the suite as a real regression gate.
 6. Everything in P3, as it suits you. The stray `dist/` cruft noted under
-   item 1 is worth a look here too.
+   item 1 is worth a look here too — since fixed: it is gone, tracked cruft was
+   removed and `dist/` is gitignored.
 
-Items 1, 4b, and 6 (the exposure warning) are done, as are the clippy lints
+Items 1, 2, 4b, and 6 (the exposure warning) are done, as are the clippy lints
 from the old item 1 — see the table at the top.
 
 Items 1–4 are the realistic definition of "ready to hand to a friend." Adding
-item 5 gets you to "ready to post publicly."
+item 5 (docs) gets you to "ready to post publicly."
