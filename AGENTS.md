@@ -60,7 +60,16 @@ The individual commands, if you want to run one directly:
 - Frontend install: `npm --prefix frontend install`
 - Frontend unit tests: `npm --prefix frontend test`
 - Frontend build: `npm --prefix frontend run build`
-- Frontend E2E: `npm --prefix frontend run test:e2e`
+- Frontend E2E: `npm --prefix frontend run test:e2e` — runs two isolated
+  Playwright suites back to back, each against its own dedicated server
+  process/port/SQLite state dir (`frontend/playwright.shared.ts`):
+  `test:e2e:ui` (`tests/ui/`, mocked API) then `test:e2e:integration`
+  (`tests/e2e/`, drives the real server). They used to share one server;
+  the real-server e2e/ specs left state that the mocked ui/ specs fell
+  through to for any endpoint their fixture hadn't mocked, which cost the
+  ui/ suite 35 spurious failures. Run either suite alone with
+  `npm --prefix frontend run test:e2e:ui` /
+  `npm --prefix frontend run test:e2e:integration` while debugging.
 - Android cross-compile check (also run by `cargo xtask ci --full`; needs an
   installed Android NDK, e.g. via Android Studio's SDK Manager —
   `cargo-ndk` auto-detects it from `$ANDROID_HOME`/`$ANDROID_NDK_HOME`):
