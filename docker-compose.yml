@@ -1,7 +1,10 @@
-version: '3.8'
-
 services:
   librarium:
+    # Builds from source by default — always works, no published image
+    # required. Once an image has been pushed (`cargo xtask docker-publish` —
+    # see docs/DEPLOYMENT.md's Docker section), switch to pulling it instead:
+    # comment out `build: .` and change the image below to
+    # ghcr.io/cyrex562/librarium:latest.
     build: .
     image: librarium:latest
     container_name: librarium

@@ -63,6 +63,8 @@ fn main() {
         }
         "bump-version" => bump_version(&args),
         "ci" => ci(&args),
+        "docker-build" => docker_build(),
+        "docker-publish" => docker_publish(&args),
         // Ops commands: forward verbatim (including the command name and any
         // target/flags) to the deployment CLI.
         "deploy" | "status" | "logs" | "doctor" | "targets" | "update" | "local-install" => {
@@ -95,6 +97,13 @@ fn help() {
          \n                                          it's how the version shown in the app's\
          \n                                          Settings -> About panel increments. Does not\
          \n                                          commit; review `git diff` and commit yourself.\
+         \n    cargo xtask docker-build              Build the server Docker image, tagged\
+         \n                                          librarium:<version> and librarium:latest.\
+         \n    cargo xtask docker-publish [registry]  Build, then tag and push to a registry\
+         \n                                          (default: ghcr.io/cyrex562/librarium). Requires\
+         \n                                          `docker login` to that registry beforehand — this\
+         \n                                          repo has no hosted CI, so publishing is a manual,\
+         \n                                          deliberate step, same as the release binaries.\
          \n  Verify:\
          \n    cargo xtask ci [--full] [--quick]     Run the whole verification suite locally.\
          \n                                          This repo has no hosted CI — this command IS\
@@ -211,6 +220,73 @@ fn build_installer() {
              \x20 upgrade an existing install in place — no need to uninstall first."
         );
     }
+}
+
+/// Default GHCR path this project's images are published under. Overridable
+/// via `cargo xtask docker-publish <registry>` for a fork.
+const DEFAULT_DOCKER_REGISTRY: &str = "ghcr.io/cyrex562/librarium";
+
+/// Build the server Docker image, tagged `librarium:<version>` and
+/// `librarium:latest`. Requires `docker` (with the `buildx` plugin — the
+/// Dockerfile uses BuildKit cache mounts) on PATH.
+fn docker_build() {
+    if !have_tool("docker") {
+        eprintln!("✗ docker not found on PATH.");
+        exit(1);
+    }
+
+    let root = repo_root();
+    let version = read_cargo_toml_version(&root.join(VERSIONED_CARGO_TOMLS[0]));
+    let version_tag = format!("librarium:{version}");
+
+    eprintln!("→ docker build -t {version_tag} -t librarium:latest .");
+    run(
+        Command::new("docker")
+            .args(["build", "-t", &version_tag, "-t", "librarium:latest", "."])
+            .current_dir(&root)
+            .env("DOCKER_BUILDKIT", "1"),
+        "docker build",
+    );
+
+    println!("\n✓ Built {version_tag} (also tagged librarium:latest)");
+}
+
+/// Build, then tag and push to a registry (default: GHCR under this repo's
+/// owner). Does not run `docker login` — publishing is a deliberate, manual
+/// step (this repo has no hosted CI), and credentials are the caller's to
+/// manage.
+fn docker_publish(args: &[String]) {
+    docker_build();
+
+    let registry = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_DOCKER_REGISTRY.to_string());
+
+    let root = repo_root();
+    let version = read_cargo_toml_version(&root.join(VERSIONED_CARGO_TOMLS[0]));
+    let version_tag = format!("librarium:{version}");
+    let remote_version = format!("{registry}:{version}");
+    let remote_latest = format!("{registry}:latest");
+
+    for (local, remote) in [
+        (version_tag.as_str(), remote_version.as_str()),
+        ("librarium:latest", remote_latest.as_str()),
+    ] {
+        eprintln!("→ docker tag {local} {remote}");
+        run(
+            Command::new("docker").args(["tag", local, remote]),
+            "docker tag",
+        );
+    }
+
+    for remote in [remote_version.as_str(), remote_latest.as_str()] {
+        eprintln!("→ docker push {remote}");
+        run(Command::new("docker").args(["push", remote]), "docker push");
+    }
+
+    println!("\n✓ Published {remote_version} and {remote_latest}");
+    println!("  If push failed with auth errors: docker login {registry}");
 }
 
 /// Whether `cargo tauri` (the Tauri CLI subcommand) is available.

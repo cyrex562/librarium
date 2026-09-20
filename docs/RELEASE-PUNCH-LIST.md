@@ -233,10 +233,19 @@ The remaining gaps:
   "download this file and run it" path anywhere in the README.
 - **No macOS build at all.** The release matrix is Linux + Windows + Android.
   If any of your testers use a Mac, they must build from source.
-- **`docker-compose.yml` builds from source** (`build: .`, `image: librarium:latest`)
-  — there is no published image, so `docker compose up` compiles Rust rather
-  than pulling a container. Publishing to GHCR would be the single cheapest
-  "works everywhere" distribution channel.
+- **Docker image, verified + GHCR tooling added ✅ *(2026-09-20)*.** Verified
+  the Dockerfile actually builds and runs (needed `docker-buildx` installed
+  first — missing by default on this machine's Docker install; the
+  multi-stage build, health check, and startup warnings all work correctly).
+  Added `cargo xtask docker-build` / `docker-publish` (tags + pushes to
+  `ghcr.io/cyrex562/librarium` by default, no hosted CI so this is a manual
+  step like the release binaries — verified the push path fails cleanly
+  without `docker login` rather than silently). **Not done: nothing has
+  actually been pushed to GHCR yet** — that's a real, visible action under
+  the repo owner's account, left for a deliberate `docker login && cargo
+  xtask docker-publish` rather than done unprompted. `docker-compose.yml`
+  still defaults to `build: .` (always works, no published image required)
+  with a comment showing how to switch to pulling once an image exists.
 - **No release keystore exists yet.** A release APK must be signed to be
   installable. `crates/librarium-tauri/gen/android/keystore.properties` is
   gitignored and absent, so `cargo tauri android build --apk` currently
