@@ -39,11 +39,16 @@ test.describe('File Operations', () => {
       await newNoteBtn.click();
       
       // Fill in file name in dialog
-      await page.fill('input', 'test-note.md');
+      await page.getByLabel('File name').fill('test-note.md');
       await page.locator('button:has-text("Create")').click();
       
       // Tab should open with file name
-      await expect(page.locator('.v-tab:has-text("test-note")').or(page.locator('text=test-note.md'))).toBeVisible({ timeout: 5000 });
+      // .tab-item is the real tab class (TabBar.vue) — .v-tab is Vuetify's
+      // own tab component, used only by the Settings modal, never by file
+      // tabs. Also scoped, not a bare text match: "test-note.md" appears in
+      // the tree node, doc header, and status bar too, so an unscoped
+      // getByText/text= locator resolves to multiple elements at once.
+      await expect(page.locator('.tab-item', { hasText: 'test-note' })).toBeVisible({ timeout: 5000 });
     } else {
       // Skip test if UI doesn't have new note button
       test.skip();
@@ -52,21 +57,21 @@ test.describe('File Operations', () => {
 
   test('4.1 - Right-click folder shows New File option', async ({ page }) => {
     const fileTree = new FileTree(page);
-    
-    // Check if file tree is visible
-    const fileTreeElement = page.locator('.file-tree').or(page.locator('[data-testid="file-tree"]'));
-    
-    if (await fileTreeElement.count() > 0) {
-      // Right-click on the file tree area
-      await fileTreeElement.first().click({ button: 'right', position: { x: 10, y: 10 } });
-      await page.waitForTimeout(500);
-      
-      // Should see "New file" option in context menu
-      const newFileOption = page.locator('[data-testid="ctx-new-file"]');
-      await expect(newFileOption).toBeVisible({ timeout: 2000 });
-    } else {
-      test.skip();
-    }
+
+    // "New file" is a per-folder context-menu item (FileTreeNode.vue), not a
+    // blank-tree-area menu — the vault starts empty, so a folder must exist
+    // before there's anything to right-click.
+    const folderName = `test-folder-${Date.now()}`;
+    await page.locator('button[title="New folder"]').click();
+    await page.getByLabel('Folder name').fill(folderName);
+    await page.locator('button:has-text("Create")').click();
+    await expect(page.locator('.file-tree-node', { hasText: folderName })).toBeVisible({ timeout: 5000 });
+
+    await fileTree.rightClickFile(folderName);
+
+    // Should see "New file" option in context menu
+    const newFileOption = page.locator('[data-testid="ctx-new-file"]');
+    await expect(newFileOption).toBeVisible({ timeout: 2000 });
   });
 
   test('4.4 - Deleting open file closes its tab', async ({ page }) => {
@@ -78,20 +83,21 @@ test.describe('File Operations', () => {
     if (await newNoteBtn.count() > 0) {
       // Create a file
       await newNoteBtn.click();
-      await page.fill('input', 'to-delete.md');
+      await page.getByLabel('File name').fill('to-delete.md');
       await page.locator('button:has-text("Create")').click();
-      await page.waitForTimeout(1000);
-      
+      // .tab-item is the real tab class (TabBar.vue) — .v-tab is Vuetify's
+      // own tab component, used only by the Settings modal, never by file
+      // tabs, so a .v-tab count is always 0 regardless of what happened here.
+      await expect(page.locator('.tab-item', { hasText: 'to-delete' })).toBeVisible({ timeout: 5000 });
+
       // Set up dialog handler before deleting
       page.on('dialog', dialog => dialog.accept());
-      
+
       // Find and delete the file via context menu
       await fileTree.deleteFile('to-delete');
-      await page.waitForTimeout(1000);
-      
+
       // Tab should be closed
-      const tabCount = await page.locator('.v-tab:has-text("to-delete")').count();
-      expect(tabCount).toBe(0);
+      await expect(page.locator('.tab-item', { hasText: 'to-delete' })).toHaveCount(0);
     } else {
       test.skip();
     }

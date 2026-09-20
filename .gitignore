@@ -39,3 +39,7 @@ target
 # Local build/deploy staging (cargo xtask deploy / scripts/librarium.py) —
 # wiped and regenerated on every run; never meant to be committed.
 dist/
+
+# Default dev vault base_dir (config.example.toml's [vault].base_dir) —
+# vaults created while running the server locally or via e2e tests.
+/vaults/

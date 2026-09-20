@@ -62,11 +62,15 @@ test.describe('Structural editor', () => {
         // Switch to structural mode via the toolbar toggle
         await page.locator('button[title="Structural entity editor"]').click();
 
-        // Structural editor should render the field labels from the schema
-        await expect(page.locator('.structural-editor')).toBeVisible();
-        await expect(page.getByText('Name')).toBeVisible();
-        await expect(page.getByText('Age')).toBeVisible();
-        await expect(page.getByText('Occupation')).toBeVisible();
+        // Structural editor should render the field labels from the schema.
+        // Scoped to .structural-editor — an unscoped getByText('Name') is a
+        // substring match that also hits a "Suggest rename" button elsewhere
+        // on the page when one happens to be showing (strict-mode violation).
+        const structuralEditor = page.locator('.structural-editor');
+        await expect(structuralEditor).toBeVisible();
+        await expect(structuralEditor.getByText('Name')).toBeVisible();
+        await expect(structuralEditor.getByText('Age')).toBeVisible();
+        await expect(structuralEditor.getByText('Occupation')).toBeVisible();
     });
 
     test('shows error state when file has no librarium_type', async ({ page }) => {

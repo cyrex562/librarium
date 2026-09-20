@@ -209,6 +209,24 @@ export async function installCommonAppMocks(page: Page, options: MockOptions = {
         });
     });
 
+    // VaultManager fetches these unconditionally as soon as it opens
+    // (loadSharingContext), regardless of whether a test cares about
+    // sharing/groups. Leaving them unmocked triggers the same 401 cascade
+    // documented above for favorites/ml — tests that DO care about sharing
+    // call installSharingMocks() afterward, which registers its own richer
+    // handlers for the same routes and wins (reverse registration order).
+    await page.route('**/api/groups', async (route) => {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+
+    await page.route(/.*\/api\/vaults\/[^/]+\/shares$/, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ owner_user_id: undefined, user_shares: [], group_shares: [] }),
+        });
+    });
+
     await page.route('**/api/auth/refresh', async (route) => {
         await route.fulfill({
             status: 200,

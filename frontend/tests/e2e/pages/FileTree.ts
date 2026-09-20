@@ -8,7 +8,11 @@ export class FileTree {
   }
 
   getFileNode(fileName: string): Locator {
-    return this.page.locator(`text=${fileName}`).first();
+    // Scoped to .file-tree-node, not a bare text= match — an open tab's
+    // title can contain the same substring (e.g. "to-delete.md") and sits
+    // earlier/later in the DOM depending on layout, so an unscoped match
+    // can silently right-click the tab instead of the tree row.
+    return this.page.locator('.file-tree-node', { hasText: fileName }).first();
   }
 
   async rightClickFile(fileName: string) {

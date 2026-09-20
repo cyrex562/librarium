@@ -221,9 +221,9 @@ test.describe('Vault management', () => {
         await installCommonAppMocks(page, { profile: defaultProfile, vaults: [vaultA] });
 
         await page.goto('/');
-        await page.locator('button:has(.mdi-cog)').first().click();
+        await page.getByTestId('vault-settings-btn').click();
         await expect(page.getByText('Vault Manager')).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Add' })).toBeVisible();
+        await expect(page.getByTestId('add-vault-btn')).toBeVisible();
     });
 
     test('manages sharing entries for users and groups', async ({ page }) => {
@@ -233,7 +233,7 @@ test.describe('Vault management', () => {
         await installSharingMocks(page);
 
         await page.goto('/');
-        await page.locator('button:has(.mdi-cog)').first().click();
+        await page.getByTestId('vault-settings-btn').click();
 
         await expect(page.getByText('Current access')).toBeVisible();
         await expect(page.getByText('Group: Editors')).toBeVisible();
@@ -249,7 +249,7 @@ test.describe('Vault management', () => {
         await installSharingMocks(page);
 
         await page.goto('/');
-        await page.locator('button:has(.mdi-cog)').first().click();
+        await page.getByTestId('vault-settings-btn').click();
 
         await page.getByLabel('Create group').fill('Reviewers');
         await page.getByRole('button', { name: 'Create' }).click();
@@ -257,7 +257,13 @@ test.describe('Vault management', () => {
         await expect(page.locator('.v-list-item-subtitle', { hasText: 'u2' })).toHaveCount(1);
 
         await page.getByLabel('Add member by username').fill('dana');
-        await page.getByRole('button', { name: 'Add' }).first().click();
+        // data-testid, not getByRole(name: 'Add') — the dialog's own disabled
+        // "Add" vault button (footer) and the sidebar's "Add current note to
+        // favorites" button both match "Add" (the latter only as a substring,
+        // but exact:true still leaves two, since the footer button's
+        // accessible name is exactly "Add" too), making the role query
+        // ambiguous no matter how it's scoped.
+        await page.getByTestId('group-member-add-btn').click();
         await expect(page.getByText('dana', { exact: true })).toBeVisible();
 
         await page

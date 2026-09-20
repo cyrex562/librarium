@@ -15,7 +15,7 @@ export class VaultManager {
     this.closeButton = page.locator('[data-testid="vault-manager-close-btn"]');
     this.vaultNameInput = page.locator('[data-testid="vault-name-input"] input');
     this.vaultPathInput = page.locator('[data-testid="vault-path-input"] input');
-    this.createButton = page.locator('button:has-text("Create Vault")');
+    this.createButton = page.locator('[data-testid="add-vault-btn"]');
     this.errorAlert = page.locator('[data-testid="vault-error-alert"]');
   }
 

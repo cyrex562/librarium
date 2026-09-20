@@ -70,7 +70,7 @@ April). Not touched — release artifacts were staged in a separate untracked
 fixing since it's unrelated to this task and someone should confirm nothing
 depends on it first.
 
-### 2. The Playwright E2E suite ✅ *(contamination fixed 2026-09-16, PR #125)*
+### 2. The Playwright E2E suite ✅ *(contamination fixed 2026-09-16, PR #125; remaining failures fixed 2026-09-20)*
 
 **Two separate problems. Both now understood; the bigger one is fixed.**
 
@@ -132,6 +132,84 @@ attributable since isolation removed the noise:
 
 **None of this is recent regression:** the same failures reproduce at `5a7cd98`,
 before the table and password epics.
+
+**2026-09-20 — the remaining 9 fixed. Both suites now green on chromium:
+`ui/` 177/177, `e2e/` 14/14.** Verified with multiple repeat-runs per fix
+(`--repeat-each=3` to `10`), not single passes, since several of these were
+timing/state-dependent. Each was a real bug, in the test or in shipped app
+code, not flakiness masking itself as a bug:
+
+- **`import_upload` "Subfolder" tree node**: two stacked issues. (1) The
+  import dialog never refreshed the file tree on its own — it relied entirely
+  on a WebSocket `FileChanged` broadcast, which never arrives in the mocked
+  `ui/` suite (no WS server) and is not guaranteed to arrive promptly even in
+  production (reconnect lag). Fixed in app code:
+  `ImportVaultDialog.vue`'s `startImport()` now calls `filesStore.loadTree()`
+  directly after a successful import. (2) The freshly-created parent folder
+  renders collapsed by default (same "folders start collapsed" fact as the
+  already-fixed `file_tree` spec) — test fixed to expand it, and to close the
+  still-open persistent import dialog first (its scrim blocks the click).
+- **`vault_management` "creates groups" / "opens vault manager"**: three
+  distinct locator/mock bugs, not one. (a) `button:has(.mdi-cog)` is ambiguous
+  between the sidebar's vault-settings cog and `TopBar.vue`'s own — replaced
+  with the `vault-settings-btn` testid that already existed on the right
+  button. (b) `getByRole('button', {name: 'Add'})` matches 2–3 elements at
+  once (a disabled sidebar "Add current note to favorites" button, and the
+  dialog's own footer "Add vault" button) — added `data-testid`s
+  (`group-member-add-btn`, `add-vault-btn`) rather than fight substring/exact
+  matching further. (c) `VaultManager.vue` fetches `/api/groups` and
+  `/api/vaults/:id/shares` unconditionally as soon as it opens, regardless of
+  whether a test cares about sharing — unmocked, these 401 against the real
+  dev server and trigger the same "unmocked-endpoint session cascade" already
+  documented above for favorites/ml, silently closing the dialog. Fixed by
+  adding baseline mocks for both to `installCommonAppMocks` (tests that need
+  richer sharing behavior still call `installSharingMocks()` after, which
+  overrides — Playwright matches in reverse registration order).
+- **`structural_editor` "renders entity fields"**: `getByText('Name')` is an
+  unscoped substring, case-insensitive match — it also hits a "Suggest
+  rename" button's text ("re**name**") when one happens to be showing.
+  Scoped the assertion to `.structural-editor`.
+- **`e2e/` "short password shows validation error"**: real app bug, not a
+  test bug — `AdminUsersPage.vue`'s temporary-password field had no
+  `type="password"`, so it rendered as plain text (visible while typing) and
+  the test's `input[type="password"]` locator never matched anything. Added
+  `type="password"`, matching every other password field in the app.
+- **`e2e/` "absolute path" / "invalid path"**: the `VaultManager` page object
+  (`tests/e2e/pages/VaultManager.ts`) was written against a UI that no longer
+  exists — `button:has-text("Create Vault")` (the real button just says
+  "Add") and a `vault-error-alert` testid that was never added to the
+  component. Fixed the button locator to use the real `add-vault-btn` testid,
+  and added the missing `data-testid="vault-error-alert"` to the component
+  (the test already expected it — completing what a previous author clearly
+  intended, not inventing new test infra).
+- **`e2e/` "opens in editor tab" / "New File option" / "closes its tab"**:
+  all three share a `beforeEach` that creates a vault via the same broken
+  `VaultManager` page object above, so all three were blocked before their
+  own logic ever ran. Once that was fixed, each had its own separate bug:
+  (a) `page.fill('input', ...)` is a bare, unscoped first-input match — it
+  was filling the vault selector, not the "New note" dialog's filename field;
+  switched to `getByLabel('File name')`. (b) `[data-testid="ctx-new-file"]`
+  is a per-folder context-menu item (`FileTreeNode.vue`) — the test right-
+  clicked blank tree space in a freshly-created, still-empty vault, where no
+  such menu can ever appear; fixed to create a folder first, then right-click
+  it via the `FileTree` page object. (c) Both `.v-tab` (Vuetify's own tab
+  component, used only by the Settings modal) and unscoped `text=`/`getByText`
+  matches (5 elements: tree node, tab title, doc header, status bar, all
+  containing the same filename) are wrong for file-editor tabs, which use a
+  plain `.tab-item` class (`TabBar.vue`) — fixed both the open- and
+  close-tab assertions to use `.tab-item`, which also made the close
+  assertion in "closes its tab" meaningful for the first time (it was
+  asserting a `.v-tab` count of 0, which is always true regardless of
+  whether the tab actually closed).
+
+**Environment limitation, not a code bug:** this machine's Playwright cannot
+install Firefox or WebKit (`ERROR: Playwright does not support {firefox,webkit}
+on ubuntu26.04-x64`) — only Chromium is installed. `playwright.shared.ts`
+still declares firefox/webkit projects, so a bare `npx playwright test` here
+reports hundreds of spurious `browserType.launch: Executable doesn't exist`
+failures that have nothing to do with app or test code. Always pass
+`--project=chromium` when running locally on this machine; treat any run
+without it as uninterpretable rather than as a regression signal.
 
 ---
 
