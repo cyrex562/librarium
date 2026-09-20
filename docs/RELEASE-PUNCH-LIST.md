@@ -252,7 +252,20 @@ The remaining gaps:
   produces an *unsigned* release APK, which Android will refuse to install.
   Generating a keystore once (AGENTS.md's "Android release signing") is a
   prerequisite for shipping the APK the README promises.
-- **Windows install/upgrade is an open question** — issue #27.
+- **Windows publish tooling added ✅ *(2026-09-20)*.** Added
+  `scripts/release-for-windows.ps1`: builds all three Windows deliverables
+  (NSIS installer via `cargo xtask build-installer`, plus both existing but
+  previously-undocumented `build-portable.ps1`/`build-portable-desktop.ps1`
+  packages, zipped) and publishes them to a tagged GitHub release, creating
+  the release if needed and merging into `SHA256SUMS.txt` rather than
+  clobbering other platforms' entries. Refuses to run with a dirty working
+  tree; requires `gh auth login` first. Verified the version-parsing regex,
+  the checksum-merge logic, and prerelease-tag detection against the real
+  repo and hand-built test cases (no Windows machine available here to run
+  the full script end-to-end — **that verification is the next step**, on
+  the user's Windows host). **Windows install/upgrade UX itself is still an
+  open question** — issue #27 — this only closes the "how do artifacts get
+  from a Windows checkout to a GitHub release" gap.
 
 ### 4. Documentation people can read ✅ *(triaged 2026-09-16)*
 

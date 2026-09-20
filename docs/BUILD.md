@@ -107,6 +107,28 @@ it with LTO off and `opt-level = 3` for a build that's ~3-5x quicker at the
 cost of a larger binary — use it while iterating on a release build; keep
 plain `release` for what you actually ship.
 
+## Windows portable packages & release publishing
+
+Three PowerShell scripts under `scripts/` (Windows-only; run with `pwsh`):
+
+- **`build-portable.ps1`** — stages a self-contained `Librarium.exe` (server
+  only) plus `config.toml`, a launcher, and a README under `dist/portable/`.
+  No install, no AppData/registry writes — the whole folder is copy-anywhere
+  portable.
+- **`build-portable-desktop.ps1`** — the same idea for the Tauri desktop app,
+  staged under `dist/portable-desktop/`.
+- **`release-for-windows.ps1`** — builds all three Windows deliverables (the
+  NSIS installer via `cargo xtask build-installer`, and both portable
+  packages above, zipped) and publishes them to a tagged GitHub release via
+  `gh release create`/`upload`, creating the release if it doesn't exist and
+  merging into its `SHA256SUMS.txt` rather than clobbering entries from other
+  platforms. This repo has no hosted CI (see [AGENTS.md](../AGENTS.md)), so
+  this is the manual publish step for the Windows side of a release — see
+  `pwsh scripts/release-for-windows.ps1 -?` for the full option list
+  (comment-based help covers every parameter and gives usage examples).
+  Requires `gh` authenticated (`gh auth login`) and refuses to run with a
+  dirty working tree, same safety pattern as `cargo xtask update`.
+
 ## Cross-compilation
 
 The project's own release process is to build natively per platform (see the
