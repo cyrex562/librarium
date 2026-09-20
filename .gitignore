@@ -43,3 +43,9 @@ dist/
 # Default dev vault base_dir (config.example.toml's [vault].base_dir) —
 # vaults created while running the server locally or via e2e tests.
 /vaults/
+
+# Claude Code: settings.json (shared, committed) vs. settings.local.json
+# (per-user overrides) and its own runtime lock file — neither ever meant to
+# be tracked, but nothing previously ignored them.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
