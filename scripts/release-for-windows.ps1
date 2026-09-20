@@ -3,13 +3,13 @@
     Build the Windows release artifacts and publish them to a GitHub release.
 
 .DESCRIPTION
-    This repo has no hosted CI (see AGENTS.md) — Windows artifacts are built
+    This repo has no hosted CI (see AGENTS.md) - Windows artifacts are built
     and published by hand from a Windows machine. This script is that manual
     step, made repeatable: it builds all three Windows deliverables and
     uploads them to a tagged GitHub release, creating the release if it
     doesn't exist yet.
 
-    Artifacts produced (via the existing build scripts/xtask commands — this
+    Artifacts produced (via the existing build scripts/xtask commands - this
     script doesn't duplicate their logic, just chains and publishes them):
       - Librarium-<tag>-windows-x86_64-setup.exe
           NSIS installer, via `cargo xtask build-installer`.
@@ -22,10 +22,10 @@
           existing SHA256SUMS.txt if one is already there (e.g. uploaded by
           a Linux-side run for the same tag) rather than clobbering it.
 
-    Requires: git, cargo (+ the Tauri CLI — see AGENTS.md's Windows section),
+    Requires: git, cargo (+ the Tauri CLI - see AGENTS.md's Windows section),
     node/npm, and the GitHub CLI (`gh`, already authenticated: `gh auth
     login`). Refuses to run with a dirty working tree, same as `cargo xtask
-    update` — commit or stash first.
+    update` - commit or stash first.
 
 .PARAMETER Tag
     The release tag to publish to, e.g. v0.102.7-rc1. Defaults to
@@ -34,7 +34,7 @@
     prerelease when the tag ends in -rc<N>, -beta<N>, or -alpha<N>).
 
 .PARAMETER SkipPull
-    Don't run `git pull --ff-only` first — use the working tree as-is.
+    Don't run `git pull --ff-only` first - use the working tree as-is.
 
 .PARAMETER SkipInstaller
 .PARAMETER SkipPortableServer
@@ -86,13 +86,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "gh is not authenticated. Run 'gh auth login' first."
 }
 
-# ── 0. Git safety ──────────────────────────────────────────────────────────
+# -- 0. Git safety ----------------------------------------------------------
 Push-Location $RepoRoot
 try {
     if (-not $SkipPull) {
         $dirty = git status --porcelain
         if ($dirty) {
-            throw "Working tree has uncommitted changes — commit or stash first:`n$dirty"
+            throw "Working tree has uncommitted changes - commit or stash first:`n$dirty"
         }
         Write-Step 'git pull --ff-only'
         git pull --ff-only
@@ -101,7 +101,7 @@ try {
         Write-Step 'Skipping git pull (-SkipPull)'
     }
 
-    # ── 1. Resolve version / tag ─────────────────────────────────────────────
+    # -- 1. Resolve version / tag ---------------------------------------------
     $cargoToml = Get-Content (Join-Path $RepoRoot 'crates/librarium-server/Cargo.toml') -Raw
     if ($cargoToml -match 'version = "([^"]+)"') {
         $version = $Matches[1]
@@ -111,7 +111,7 @@ try {
     if (-not $Tag) { $Tag = "v$version-rc1" }
     Write-Step "Version $version, publishing to tag $Tag"
 
-    # ── 2. Build ──────────────────────────────────────────────────────────────
+    # -- 2. Build --------------------------------------------------------------
     if ($SkipInstaller) {
         Write-Step 'Skipping installer build (-SkipInstaller)'
     } else {
@@ -134,7 +134,7 @@ try {
         & (Join-Path $PSScriptRoot 'build-portable-desktop.ps1') -OutDir $PortableDesktopDir
     }
 
-    # ── 3. Stage + package ───────────────────────────────────────────────────
+    # -- 3. Stage + package ---------------------------------------------------
     Write-Step "Staging release artifacts at $StageDir"
     if (Test-Path $StageDir) { Remove-Item $StageDir -Recurse -Force }
     New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
@@ -161,7 +161,7 @@ try {
 
     $artifacts = @($installerDest, $portableZip, $portableDesktopZip)
 
-    # ── 4. Checksums ──────────────────────────────────────────────────────────
+    # -- 4. Checksums ----------------------------------------------------------
     Write-Step 'Computing SHA256 checksums'
     $newLines = $artifacts | ForEach-Object {
         $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -179,7 +179,7 @@ try {
         return
     }
 
-    # ── 5. Create the release if it doesn't exist yet ───────────────────────
+    # -- 5. Create the release if it doesn't exist yet -----------------------
     gh release view $Tag *> $null
     $releaseExists = ($LASTEXITCODE -eq 0)
 
@@ -190,10 +190,10 @@ try {
         gh release create $Tag --title "Librarium $Tag" --generate-notes @prereleaseFlag
         if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
     } else {
-        Write-Step "Release $Tag already exists — uploading into it"
+        Write-Step "Release $Tag already exists - uploading into it"
     }
 
-    # ── 6. Merge SHA256SUMS.txt (don't clobber other platforms' entries) ────
+    # -- 6. Merge SHA256SUMS.txt (don't clobber other platforms' entries) ----
     $sumsFile = Join-Path $StageDir 'SHA256SUMS.txt'
     $existingSums = @()
     if ($releaseExists) {
@@ -210,7 +210,7 @@ try {
     }
     ($existingSums + $newLines) | Set-Content -Path $sumsFile -Encoding ASCII
 
-    # ── 7. Upload ─────────────────────────────────────────────────────────────
+    # -- 7. Upload -------------------------------------------------------------
     Write-Step "Uploading artifacts to $Tag"
     gh release upload $Tag $installerDest $portableZip $portableDesktopZip $sumsFile --clobber
     if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }

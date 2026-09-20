@@ -5,7 +5,7 @@
 .DESCRIPTION
     Produces a self-contained folder under dist/portable-desktop/ containing:
       - LibrariumDesktop.exe   the Tauri desktop app (no console window)
-      - config.toml            local configuration — its presence next to the exe
+      - config.toml            local configuration - its presence next to the exe
                                activates portable mode (all paths are exe-relative)
       - Start-LibrariumDesktop.cmd   convenience launcher
       - README.txt             first-run instructions
@@ -53,7 +53,7 @@ $DesktopExe   = Join-Path $RepoRoot 'target/release/librarium-tauri.exe'
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
-# ── 1. Frontend bundle ────────────────────────────────────────────────────────
+# -- 1. Frontend bundle --------------------------------------------------------
 if ($SkipFrontend) {
     Write-Step 'Skipping frontend build (-SkipFrontend)'
     if (-not (Test-Path (Join-Path $FrontendOut 'index.html'))) {
@@ -75,7 +75,7 @@ if ($SkipFrontend) {
     }
 }
 
-# ── 2. Desktop binary ─────────────────────────────────────────────────────────
+# -- 2. Desktop binary ---------------------------------------------------------
 if ($SkipDesktop) {
     Write-Step 'Skipping desktop build (-SkipDesktop)'
     if (-not (Test-Path $DesktopExe)) {
@@ -92,7 +92,7 @@ if ($SkipDesktop) {
     }
 }
 
-# ── 3. Stage the portable package ─────────────────────────────────────────────
+# -- 3. Stage the portable package ---------------------------------------------
 Write-Step "Staging portable desktop package at $OutDir"
 if (Test-Path $OutDir) { Remove-Item $OutDir -Recurse -Force }
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
@@ -107,7 +107,7 @@ $jwtSecret = -join ($jwtBytes | ForEach-Object { $_.ToString('x2') })
 # config.toml beside the exe is what activates portable mode in the app.
 # All paths here are relative to the exe's directory.
 $configToml = @"
-# Librarium Desktop — portable configuration.
+# Librarium Desktop - portable configuration.
 # The presence of this file beside LibrariumDesktop.exe activates portable mode:
 # all data stays in this folder; nothing is written to AppData or the registry.
 
@@ -143,7 +143,7 @@ start "" "LibrariumDesktop.exe"
 Set-Content -Path (Join-Path $OutDir 'Start-LibrariumDesktop.cmd') -Value $launcher -Encoding ASCII
 
 $readme = @"
-Librarium Desktop — portable edition
+Librarium Desktop - portable edition
 =====================================
 
 Quick start
@@ -163,7 +163,7 @@ Where your data lives (all inside this folder)
 ----------------------------------------------
   data\librarium.db     the SQLite database (backed up daily as .bak-YYYY-MM-DD)
   vaults\               your note vaults
-  cache\                search index cache (safe to delete — rebuilt on startup)
+  cache\                search index cache (safe to delete - rebuilt on startup)
   config.toml           configuration (port, paths, auth)
 
 Portable operation

@@ -55,7 +55,7 @@ $ServerExe   = Join-Path $RepoRoot 'target/release/librarium.exe'
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
-# ── 1. Frontend bundle (embedded into the exe by rust_embed at compile time) ──
+# -- 1. Frontend bundle (embedded into the exe by rust_embed at compile time) --
 if ($SkipFrontend) {
     Write-Step 'Skipping frontend build (-SkipFrontend)'
     if (-not (Test-Path (Join-Path $FrontendOut 'index.html'))) {
@@ -79,7 +79,7 @@ if ($SkipFrontend) {
     }
 }
 
-# ── 2. Server binary (release embeds the frontend; SQLite is statically linked) ──
+# -- 2. Server binary (release embeds the frontend; SQLite is statically linked) --
 if ($SkipServer) {
     Write-Step 'Skipping server build (-SkipServer)'
     if (-not (Test-Path $ServerExe)) {
@@ -96,7 +96,7 @@ if ($SkipServer) {
     }
 }
 
-# ── 3. Stage the portable package ─────────────────────────────────────────────
+# -- 3. Stage the portable package ---------------------------------------------
 Write-Step "Staging portable package at $OutDir"
 if (Test-Path $OutDir) { Remove-Item $OutDir -Recurse -Force }
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
@@ -110,7 +110,7 @@ $jwtBytes  = [byte[]]::new(48)
 $jwtSecret = -join ($jwtBytes | ForEach-Object { $_.ToString('x2') })
 
 $configToml = @"
-# Librarium — portable configuration.
+# Librarium - portable configuration.
 # All paths are relative to this folder, so the whole directory is portable.
 
 [server]
@@ -148,7 +148,7 @@ start "" "http://127.0.0.1:$Port"
 Set-Content -Path (Join-Path $OutDir 'Start-Librarium.cmd') -Value $launcher -Encoding ASCII
 
 $readme = @"
-Librarium — portable edition
+Librarium - portable edition
 ============================
 
 Quick start
@@ -176,7 +176,7 @@ Notes
 - The whole folder is portable: copy it to a USB stick or another PC and it
   keeps working. Keep config.toml next to Librarium.exe.
 - The server listens on 127.0.0.1 only (this machine). To share it on a
-  network, change host in config.toml — but note auth is the only protection.
+  network, change host in config.toml - but note auth is the only protection.
 - To reset everything, stop the app and delete the data\ folder; a fresh
   admin account is provisioned on the next launch.
 "@
