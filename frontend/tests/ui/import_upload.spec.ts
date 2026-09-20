@@ -331,6 +331,12 @@ test.describe('Vault import uploads', () => {
         await expect(page.getByText('Imported 1 file successfully.')).toBeVisible();
         expect(finishPayload).toEqual(expect.objectContaining({ filename: 'note.md', path: 'New Folder/Subfolder' }));
         await expect(page.locator('.file-tree-node', { hasText: 'New Folder' })).toBeVisible();
+        // Close the (still-open, persistent) dialog before interacting with the
+        // tree behind it — its scrim otherwise intercepts the click below.
+        await page.getByRole('button', { name: 'Close' }).click();
+        // Folders start collapsed, so "New Folder" must be expanded before its
+        // "Subfolder" child renders.
+        await page.locator('.file-tree-node', { hasText: 'New Folder' }).first().click();
         await expect(page.locator('.file-tree-node', { hasText: 'Subfolder' })).toBeVisible();
     });
 });

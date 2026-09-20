@@ -1,6 +1,6 @@
 # Librarium
 
-**Version 0.102.5** · A self-hosted knowledge base and vault manager for
+**Version 0.102.6** · A self-hosted knowledge base and vault manager for
 Obsidian-compatible Markdown vaults.
 
 Librarium keeps your notes as plain Markdown files on disk — they stay portable

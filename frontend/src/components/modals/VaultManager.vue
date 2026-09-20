@@ -66,7 +66,7 @@
           </template>
         </div>
 
-        <v-alert v-if="vaultError" type="error" density="compact" variant="tonal" class="mb-2" closable @click:close="vaultError = ''">
+        <v-alert v-if="vaultError" type="error" density="compact" variant="tonal" class="mb-2" closable data-testid="vault-error-alert" @click:close="vaultError = ''">
           {{ vaultError }}
         </v-alert>
 
@@ -237,7 +237,14 @@
                 />
               </v-col>
               <v-col cols="3">
-                <v-btn block color="primary" variant="tonal" :loading="sharingBusy" @click="addMember">
+                <v-btn
+                  block
+                  color="primary"
+                  variant="tonal"
+                  :loading="sharingBusy"
+                  data-testid="group-member-add-btn"
+                  @click="addMember"
+                >
                   Add
                 </v-btn>
               </v-col>
@@ -255,7 +262,7 @@
       <v-card-actions>
         <v-spacer />
         <v-btn @click="close">Close</v-btn>
-        <v-btn color="primary" :disabled="!newName" :loading="saving" @click="addVault">Add</v-btn>
+        <v-btn color="primary" :disabled="!newName" :loading="saving" data-testid="add-vault-btn" @click="addVault">Add</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

@@ -423,6 +423,12 @@ async function startImport() {
       success.value = `Imported ${importedLabel} successfully.`;
     }
     uiStore.clearImportEntries();
+    // Don't wait on the WebSocket FileChanged broadcast to reflect a
+    // just-completed import — refresh directly so the tree is right away
+    // even under WS lag/reconnect delay.
+    if (result.uploaded.length > 0) {
+      await filesStore.loadTree(vaultId);
+    }
   } catch (e: any) {
     if (e?.name === 'AbortError') {
       error.value = 'Import canceled.';

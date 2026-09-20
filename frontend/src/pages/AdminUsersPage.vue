@@ -28,6 +28,7 @@
             <v-text-field
               v-model="newTemporaryPassword"
               label="Temporary password (optional)"
+              type="password"
               density="comfortable"
               hint="Leave blank to auto-generate"
               persistent-hint
