@@ -41,8 +41,27 @@ docker build -t librarium .
 docker run -d --name librarium -p 8080:8080 -v librarium_data:/data librarium
 ```
 
-There is no published image yet — `image: librarium:latest` in the compose
-file builds locally rather than pulling.
+Needs Docker with the `buildx` plugin (the Dockerfile uses BuildKit cache
+mounts) — `docker buildx version` to check; on Debian/Ubuntu,
+`apt install docker-buildx` if it's missing.
+
+### Publishing to GHCR
+
+There is no hosted CI (see [AGENTS.md](../AGENTS.md)), so publishing is a
+manual, deliberate step — same as the release binaries:
+
+```bash
+docker login ghcr.io                # once, needs a GitHub PAT with write:packages
+cargo xtask docker-build            # builds librarium:<version> and :latest
+cargo xtask docker-publish          # tags + pushes both to ghcr.io/cyrex562/librarium
+```
+
+`docker-publish` takes an optional registry argument (`cargo xtask
+docker-publish ghcr.io/<owner>/librarium`) for a fork. Once an image has
+actually been pushed, switch `docker-compose.yml` from building locally to
+pulling it: comment out `build: .` and change `image: librarium:latest` to
+`ghcr.io/cyrex562/librarium:latest`. Until then, `docker compose up` builds
+from source, as it always has.
 
 ## Manual setup (no `cargo xtask`)
 
