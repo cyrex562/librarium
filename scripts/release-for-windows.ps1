@@ -77,12 +77,31 @@ function Require-Tool($name, $hint) {
     }
 }
 
+# Runs a native command and returns whether it succeeded ($LASTEXITCODE -eq 0),
+# without letting PowerShell's own error handling turn its stderr output into
+# a terminating exception first. Under $ErrorActionPreference = 'Stop' (set
+# below), a native command writing to stderr can be escalated into a
+# terminating error regardless of stream redirection (e.g. `*> $null`) - this
+# bit `gh release view` on an intentionally-probed, not-yet-existing release,
+# throwing before $LASTEXITCODE could even be checked. Used for every gh call
+# here since several are deliberately probes where a non-zero exit is a
+# normal, expected outcome, not a script-ending failure.
+function Invoke-Checked([string]$Exe, [string[]]$CmdArgs, [switch]$Quiet) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if ($Quiet) { & $Exe @CmdArgs *> $null } else { & $Exe @CmdArgs }
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
 Require-Tool 'git'  'Install Git for Windows.'
 Require-Tool 'cargo' 'Install Rust: https://rustup.rs'
 Require-Tool 'gh'   "Install the GitHub CLI: https://cli.github.com, then run 'gh auth login'."
 
-gh auth status *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Invoke-Checked 'gh' @('auth', 'status') -Quiet)) {
     throw "gh is not authenticated. Run 'gh auth login' first."
 }
 
@@ -180,15 +199,13 @@ try {
     }
 
     # -- 5. Create the release if it doesn't exist yet -----------------------
-    gh release view $Tag *> $null
-    $releaseExists = ($LASTEXITCODE -eq 0)
+    $releaseExists = Invoke-Checked 'gh' @('release', 'view', $Tag) -Quiet
 
     if (-not $releaseExists) {
         Write-Step "Creating release $Tag"
-        $prereleaseFlag = @()
-        if ($Tag -match '-(rc|beta|alpha)\d*$') { $prereleaseFlag = @('--prerelease') }
-        gh release create $Tag --title "Librarium $Tag" --generate-notes @prereleaseFlag
-        if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+        $createArgs = @('release', 'create', $Tag, '--title', "Librarium $Tag", '--generate-notes')
+        if ($Tag -match '-(rc|beta|alpha)\d*$') { $createArgs += '--prerelease' }
+        if (-not (Invoke-Checked 'gh' $createArgs)) { throw 'gh release create failed' }
     } else {
         Write-Step "Release $Tag already exists - uploading into it"
     }
@@ -198,8 +215,8 @@ try {
     $existingSums = @()
     if ($releaseExists) {
         $tmpSums = Join-Path $StageDir '.existing-SHA256SUMS.txt'
-        gh release download $Tag -p 'SHA256SUMS.txt' -O $tmpSums *> $null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpSums)) {
+        $downloaded = Invoke-Checked 'gh' @('release', 'download', $Tag, '-p', 'SHA256SUMS.txt', '-O', $tmpSums) -Quiet
+        if ($downloaded -and (Test-Path $tmpSums)) {
             $newNames = $artifacts | ForEach-Object { Split-Path -Leaf $_ }
             $existingSums = Get-Content $tmpSums | Where-Object {
                 $line = $_
@@ -212,10 +229,13 @@ try {
 
     # -- 7. Upload -------------------------------------------------------------
     Write-Step "Uploading artifacts to $Tag"
-    gh release upload $Tag $installerDest $portableZip $portableDesktopZip $sumsFile --clobber
-    if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
+    $uploadArgs = @('release', 'upload', $Tag, $installerDest, $portableZip, $portableDesktopZip, $sumsFile, '--clobber')
+    if (-not (Invoke-Checked 'gh' $uploadArgs)) { throw 'gh release upload failed' }
 
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     $url = gh release view $Tag --json url --jq '.url'
+    $ErrorActionPreference = $prevEap
     Write-Host ''
     Write-Host "Done: $url" -ForegroundColor Green
 } finally {
