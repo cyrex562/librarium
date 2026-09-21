@@ -1,6 +1,6 @@
 [package]
 name = "librarium-client"
-version = "0.102.10"
+version = "0.102.11"
 edition = "2021"
 
 [dependencies]
