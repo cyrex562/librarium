@@ -1,6 +1,6 @@
 [package]
 name = "librarium-tauri"
-version = "0.102.11"
+version = "0.102.12"
 edition = "2021"
 description = "Tauri desktop shell for Librarium"
 

@@ -25,7 +25,8 @@ the gate; run it before every push.
 | ✅ | **Dependency vulnerabilities** (item 5): `npm audit fix` plus removing the dead `@tiptap/*` dependency (PR #126). | `npm audit`: 0 vulnerabilities, down from 24 (18 in prod). Build and vitest unchanged. |
 | ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
 | ✅ | **Documentation triage** (item 4): verified 8 archived docs against current code; 5 rewritten and promoted to `docs/`, `API.md` rewritten as a structural overview instead of a rotting exhaustive list, `PLUGIN_API.md`/`PLUGIN_ARCHITECTURE.md` left archived with the real gaps they'd have hidden documented in `docs/DESIGN.md` instead. Added `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, issue templates. Two incidental bugs fixed (a false docker-compose.yml comment, stale archive cross-references). | `cargo xtask ci`: 5 passed, 0 failed. See item 4 below for detail. |
-| ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts, Windows to follow. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
+| ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
+| ✅ | **Windows artifacts published** (item 3): [`v0.102.11-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.11-rc1) — installer + both portable packages, via the new `scripts/release-for-windows.ps1`. **Open question, not yet decided:** this is a separate release from `v0.102.4-rc1` (no Linux/Android artifacts under this tag) — the two prereleases should probably be reconciled (delete the stale one, or cut one release with everything) before pointing anyone at either as "the" download. | `SHA256SUMS.txt` matches all 3 uploaded files, no stale entries; verified end-to-end on the user's real Windows host after fixing two real PowerShell bugs the first run surfaced (see item 3 below). |
 
 ---
 
@@ -252,20 +253,45 @@ The remaining gaps:
   produces an *unsigned* release APK, which Android will refuse to install.
   Generating a keystore once (AGENTS.md's "Android release signing") is a
   prerequisite for shipping the APK the README promises.
-- **Windows publish tooling added ✅ *(2026-09-20)*.** Added
-  `scripts/release-for-windows.ps1`: builds all three Windows deliverables
-  (NSIS installer via `cargo xtask build-installer`, plus both existing but
-  previously-undocumented `build-portable.ps1`/`build-portable-desktop.ps1`
-  packages, zipped) and publishes them to a tagged GitHub release, creating
-  the release if needed and merging into `SHA256SUMS.txt` rather than
-  clobbering other platforms' entries. Refuses to run with a dirty working
-  tree; requires `gh auth login` first. Verified the version-parsing regex,
-  the checksum-merge logic, and prerelease-tag detection against the real
-  repo and hand-built test cases (no Windows machine available here to run
-  the full script end-to-end — **that verification is the next step**, on
-  the user's Windows host). **Windows install/upgrade UX itself is still an
-  open question** — issue #27 — this only closes the "how do artifacts get
-  from a Windows checkout to a GitHub release" gap.
+- **Windows publish tooling added and verified end-to-end ✅ *(2026-09-20 to
+  2026-09-22)*.** Added `scripts/release-for-windows.ps1`: builds all three
+  Windows deliverables (NSIS installer via `cargo xtask build-installer`,
+  plus both existing but previously-undocumented
+  `build-portable.ps1`/`build-portable-desktop.ps1` packages, zipped) and
+  publishes them to a tagged GitHub release, creating the release if needed
+  and merging into `SHA256SUMS.txt` rather than clobbering other platforms'
+  entries. Refuses to run with a dirty working tree; requires `gh auth
+  login` first.
+
+  The first real run (on the user's actual Windows host — no Windows machine
+  available in this environment) surfaced two real bugs neither static
+  review nor PowerShell-7-on-Linux parsing could catch:
+  1. Windows PowerShell 5.1 reads a BOM-less UTF-8 script using the system
+     codepage, corrupting the em-dashes/box-drawing characters used
+     throughout all three `scripts/*.ps1` files (two of which pre-date this
+     work and had never actually been run before) — fixed by replacing every
+     non-ASCII character with a plain ASCII equivalent.
+  2. Windows PowerShell escalates a native command's stderr output into a
+     terminating exception under `$ErrorActionPreference = 'Stop'`,
+     regardless of `*> $null` redirection — broke the script's deliberate
+     `gh release view <tag>` probe (non-zero exit = release doesn't exist
+     yet, normal control flow, not a failure). Fixed with an `Invoke-Checked`
+     helper that locally overrides the preference around every `gh` call.
+     Root cause confirmed via `$PSNativeCommandUseErrorActionPreference`
+     being `False` on PowerShell 7 (this environment) vs. Windows
+     PowerShell 5.1's older, unconditional escalation — explains why this
+     specific bug class was invisible during authoring here.
+
+  Also gitignored `.claude/settings.local.json` and
+  `.claude/scheduled_tasks.lock` (never ignored; tripped the dirty-tree
+  check on files unrelated to any release).
+
+  **Verified working**: `v0.102.11-rc1` published with all four expected
+  assets (installer, both portable zips, `SHA256SUMS.txt` with matching
+  checksums for exactly those three files, no stale entries). **Windows
+  install/upgrade UX itself is still an open question** — issue #27 — this
+  only closes the "how do artifacts get from a Windows checkout to a GitHub
+  release" gap.
 
 ### 4. Documentation people can read ✅ *(triaged 2026-09-16)*
 
@@ -412,25 +438,24 @@ docs work, not feature work.
 
 ## Suggested order
 
-1. **Build and attach the Windows artifact to `v0.102.4-rc1`** (item 4b
-   follow-through) — from a Windows host: `cargo xtask build-installer` for
-   the NSIS installer, `cargo xtask build-desktop --debug` if a debug build is
-   also wanted, then `gh release upload v0.102.4-rc1 <files>`.
-2. **Rewrite the Quick Start around downloading a binary** (item 3) — v0.102.4-rc1
-   proves the artifacts work; update the README to point at it (and say
-   "prerelease") once Windows lands.
-3. **Docs triage** (item 4) — promote what survives verification out of
-   `archive/`, add `SECURITY.md` and a root `CONTRIBUTING.md`.
-4. **The 9 individually-diagnosable E2E failures** (item 2's remainder) — no
-   longer urgent now that they're not masking each other or a bigger problem,
-   but worth clearing before relying on the suite as a real regression gate.
-5. Everything in P3, as it suits you. The stray `dist/` cruft noted under
-   item 1 is worth a look here too — since fixed: it is gone, tracked cruft was
-   removed and `dist/` is gitignored.
+Items 1, 2, 4, 4b, 5, and 6 are done — see the table at the top. Item 3
+(easy-to-run binaries) and item 2 (E2E suite) are also both done as of
+2026-09-20/22. What's left:
 
-Punch-list items 1, 2, 4b, 5, and 6 (the exposure warning) are done, as are the
-clippy lints from the old item 1 — see the table at the top.
+1. **Reconcile the two prereleases** (`v0.102.4-rc1` vs. `v0.102.11-rc1`) —
+   pick one: cut a single release with Linux + Windows + Android artifacts
+   together, or delete/supersede the stale one. Do this before step 2.
+2. **Rewrite the Quick Start around downloading a binary** (item 3) — now
+   genuinely unblocked (Windows artifacts exist), blocked only on step 1
+   above so the README points at one coherent release, not two partial ones.
+3. **Android release keystore** (item 3) — the release APK is still unsigned
+   and Android will refuse to install it. Generating one is a five-minute,
+   one-time step (AGENTS.md's "Android release signing") but creates a
+   durable credential (losing it breaks all future update signing), so it's
+   deliberately not done unprompted — confirm storage location first.
+4. **TLS docs for the networked case** (item 7) — small, doc-only, no
+   dependencies. The feature already works; only the guidance is missing.
+5. Everything in P3, as it suits you.
 
-Steps 1–2 above (Windows artifact, Quick Start rewrite) are the realistic
-definition of "ready to hand to a friend." Adding step 3 (docs triage) gets
-you to "ready to post publicly."
+No macOS build is still an open, deferred gap (no Mac available) — not
+blocking, just not solvable from here.
