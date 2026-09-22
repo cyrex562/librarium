@@ -47,7 +47,7 @@ section of `docs/DESIGN.md` is fully superseded, move the long-form detail to
 **Version bumps** must stay in sync across all of: `crates/*/Cargo.toml`,
 `frontend/package.json`, and `crates/librarium-tauri/tauri.conf.json`. The `/api/version` endpoint
 reads `CARGO_PKG_VERSION`, so the crate versions feed it directly, and the
-frontend's Settings → About panel displays it. Current version: **0.102.11**.
+frontend's Settings → About panel displays it. Current version: **0.102.12**.
 
 **Bump the version before every push** to a PR branch or `main` — run
 `cargo xtask bump-version` (defaults to a patch bump; pass `minor`/`major`
