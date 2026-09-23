@@ -26,7 +26,7 @@ the gate; run it before every push.
 | ✅ | **Release pipeline decision** (item 4b): build locally per platform, publish by hand. Linux + Android on this machine; Windows built and published from a Windows host as needed, debug or release, via the existing `cargo xtask build-installer` / `build-desktop [--debug]`. macOS deferred — no Mac available. | User decision, 2026-09-14. No code change needed — the xtask commands already support this. |
 | ✅ | **Documentation triage** (item 4): verified 8 archived docs against current code; 5 rewritten and promoted to `docs/`, `API.md` rewritten as a structural overview instead of a rotting exhaustive list, `PLUGIN_API.md`/`PLUGIN_ARCHITECTURE.md` left archived with the real gaps they'd have hidden documented in `docs/DESIGN.md` instead. Added `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, issue templates. Two incidental bugs fixed (a false docker-compose.yml comment, stale archive cross-references). | `cargo xtask ci`: 5 passed, 0 failed. See item 4 below for detail. |
 | ✅ | **First release published** (item 1): [`v0.102.4-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.4-rc1), 5 artifacts. | Server binary and Android APK verified running, not just built; desktop bundles verified structurally (no display to launch-test here). |
-| ✅ | **Windows artifacts published** (item 3): [`v0.102.11-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.11-rc1) — installer + both portable packages, via the new `scripts/release-for-windows.ps1`. **Open question, not yet decided:** this is a separate release from `v0.102.4-rc1` (no Linux/Android artifacts under this tag) — the two prereleases should probably be reconciled (delete the stale one, or cut one release with everything) before pointing anyone at either as "the" download. | `SHA256SUMS.txt` matches all 3 uploaded files, no stale entries; verified end-to-end on the user's real Windows host after fixing two real PowerShell bugs the first run surfaced (see item 3 below). |
+| ✅ | **All platform artifacts consolidated onto one release** (item 3): [`v0.102.11-rc1`](https://github.com/cyrex562/librarium/releases/tag/v0.102.11-rc1) now has Windows (installer + both portable packages, via `scripts/release-for-windows.ps1`), Linux (raw binary, server `.deb`, desktop AppImage + `.deb`, built and smoke-tested on this machine), and Android (`-android-universal-debug.apk`, unsigned — see the keystore gap below) — 8 artifacts + one merged `SHA256SUMS.txt`. `v0.102.4-rc1` is now superseded and stale; worth deleting once someone's had a chance to look at it, but left alone here since deleting a release is a one-way, visible action. | Server binary smoke-tested directly (`/api/health`, `/api/version`, clean shutdown); both `.deb`s inspected via `dpkg -c`; AppImage confirmed a valid static-PIE ELF executable; APK confirmed a valid archive with `AndroidManifest.xml`/`classes.dex`. `SHA256SUMS.txt` downloaded back from the release and diffed byte-identical against the local copy. |
 
 ---
 
@@ -293,6 +293,33 @@ The remaining gaps:
   only closes the "how do artifacts get from a Windows checkout to a GitHub
   release" gap.
 
+- **Linux + Android artifacts consolidated onto the same release ✅
+  *(2026-09-22)*.** Built and published to `v0.102.11-rc1` on this machine,
+  following the old (deleted) `release.yml`'s exact recipe (recovered via
+  `git show 83626fc:.github/workflows/release.yml`): the raw server binary
+  (`cargo build --release -p librarium-server`), the server `.deb`
+  (`scripts/package-server-deb.sh`), the desktop AppImage + `.deb`
+  (`cargo tauri build --bundles appimage,deb`), and the Android debug APK
+  (`cargo tauri android build --apk --debug -t aarch64 x86_64` — still
+  unsigned; see the keystore gap above). Each verified directly rather than
+  just "it built": the server binary smoke-tested against `/api/health`
+  and `/api/version` with a clean shutdown, both `.deb`s inspected via
+  `dpkg -c`, the AppImage confirmed a valid static-PIE ELF executable, the
+  APK confirmed a valid archive containing `AndroidManifest.xml` and
+  `classes.dex`. `v0.102.11-rc1` now has one `SHA256SUMS.txt` covering all
+  8 binary assets across all three platforms, verified byte-identical
+  between the local copy and what `gh release download` returns.
+
+  One side effect caught and deliberately reverted, not committed: building
+  for Android regenerated `crates/librarium-tauri/gen/schemas/acl-manifests.json`
+  (a tracked, auto-generated Tauri ACL schema) ~14KB larger than the
+  committed version — plausibly real drift (mobile-specific permissions a
+  desktop-only build wouldn't touch), but unrelated to this release-artifact
+  task and not something to fold into an unrelated commit without a closer
+  look. Worth a dedicated look at some point: is the committed file stale,
+  and should regenerating it be a normal part of the Android build/release
+  routine?
+
 ### 4. Documentation people can read ✅ *(triaged 2026-09-16)*
 
 **Result:** verified every claim in the 8 candidate archive docs against
@@ -440,19 +467,21 @@ docs work, not feature work.
 
 Items 1, 2, 4, 4b, 5, and 6 are done — see the table at the top. Item 3
 (easy-to-run binaries) and item 2 (E2E suite) are also both done as of
-2026-09-20/22. What's left:
+2026-09-20/22, and `v0.102.11-rc1` now has all platform artifacts in one
+place. What's left:
 
-1. **Reconcile the two prereleases** (`v0.102.4-rc1` vs. `v0.102.11-rc1`) —
-   pick one: cut a single release with Linux + Windows + Android artifacts
-   together, or delete/supersede the stale one. Do this before step 2.
+1. **Delete the stale `v0.102.4-rc1` prerelease** — superseded by
+   `v0.102.11-rc1`, which has everything it had plus Windows. Left alone
+   here since deleting a release is a one-way, visible GitHub action.
 2. **Rewrite the Quick Start around downloading a binary** (item 3) — now
-   genuinely unblocked (Windows artifacts exist), blocked only on step 1
-   above so the README points at one coherent release, not two partial ones.
-3. **Android release keystore** (item 3) — the release APK is still unsigned
-   and Android will refuse to install it. Generating one is a five-minute,
-   one-time step (AGENTS.md's "Android release signing") but creates a
-   durable credential (losing it breaks all future update signing), so it's
-   deliberately not done unprompted — confirm storage location first.
+   genuinely unblocked: `v0.102.11-rc1` has one coherent set of artifacts
+   for every platform except macOS.
+3. **Android release keystore** (item 3) — the uploaded APK is still the
+   unsigned debug build; Android will refuse to install a release build
+   without one. Generating one is a five-minute, one-time step (AGENTS.md's
+   "Android release signing") but creates a durable credential (losing it
+   breaks all future update signing), so it's deliberately not done
+   unprompted — confirm storage location first.
 4. **TLS docs for the networked case** (item 7) — small, doc-only, no
    dependencies. The feature already works; only the guidance is missing.
 5. Everything in P3, as it suits you.
