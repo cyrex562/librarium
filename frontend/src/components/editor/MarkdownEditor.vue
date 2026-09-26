@@ -1107,11 +1107,16 @@ defineExpose({ applyCommand, callUndo, callRedo, collapseAllFolds, expandAllFold
 
 /* Tables render as a grid in formatted mode (see highlight.ts). The pipes,
    the divider row and the row newlines are still in the DOM — only hidden —
-   so the editor's text stays byte-identical to the markdown. */
+   so the editor's text stays byte-identical to the markdown. CSS Grid rather
+   than display: table because merged cells (`^^` / `<<`) need
+   grid-row/grid-column spans, which table layout can't express. Rows are
+   display: contents so their cells become the grid's items. */
 .markdown-editor.is-formatted-mode :deep(.editor-md-table) {
-  display: table;
-  border-collapse: collapse;
+  display: inline-grid;
+  grid-template-columns: repeat(var(--table-cols), minmax(3em, auto));
   margin: 0.35em 0;
+  border-top: 1px solid rgba(var(--v-theme-on-background), 0.22);
+  border-left: 1px solid rgba(var(--v-theme-on-background), 0.22);
 }
 
 .markdown-editor.is-formatted-mode :deep(.editor-md-table.is-nested) {
@@ -1119,23 +1124,25 @@ defineExpose({ applyCommand, callUndo, callRedo, collapseAllFolds, expandAllFold
 }
 
 .markdown-editor.is-formatted-mode :deep(.editor-md-table > .editor-md-table-row) {
-  display: table-row;
+  display: contents;
 }
 
 .markdown-editor.is-formatted-mode :deep(.editor-md-table.is-hidden),
 .markdown-editor.is-formatted-mode :deep(.editor-md-table > .editor-md-table-row.is-divider),
 .markdown-editor.is-formatted-mode :deep(.editor-md-table > .editor-md-table-row.is-hidden),
 .markdown-editor.is-formatted-mode :deep(.editor-md-table-pipe),
-.markdown-editor.is-formatted-mode :deep(.editor-md-table-eol) {
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-eol),
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-cell.is-merged) {
   display: none;
 }
 
+/* Each cell draws only its right and bottom edges (the table draws top and
+   left), so spanned cells don't double up borders. */
 .markdown-editor.is-formatted-mode :deep(.editor-md-table-cell) {
-  display: table-cell;
-  min-width: 3em;
+  display: block;
   padding: 0.3em 0.6em;
-  border: 1px solid rgba(var(--v-theme-on-background), 0.22);
-  vertical-align: top;
+  border-right: 1px solid rgba(var(--v-theme-on-background), 0.22);
+  border-bottom: 1px solid rgba(var(--v-theme-on-background), 0.22);
 }
 
 .markdown-editor.is-formatted-mode :deep(.editor-md-table-row.is-header .editor-md-table-cell) {

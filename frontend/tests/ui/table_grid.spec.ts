@@ -97,3 +97,64 @@ test.describe('Formatted mode: tables render as a grid', () => {
         await expect(page.locator('.markdown-editor')).toContainText('| Apple | 3 | 1.50 |');
     });
 });
+
+test.describe('Formatted mode: merged cells', () => {
+    const MERGED = [
+        '| Region | Q1 | Q2 |',
+        '| --- | --- | --- |',
+        '| North | 10 | 12 |',
+        '| ^^ | 11 | 13 |',
+        '| Total | 44 | << |',
+    ].join('\n');
+
+    async function openMerged(page: Page, content: string) {
+        await seedAuthTokens(page);
+        await seedActiveVault(page, defaultVault.id);
+        await installCommonAppMocks(page, {
+            profile: defaultProfile,
+            vaults: [defaultVault],
+            treeByVaultId: {
+                [defaultVault.id]: [{ name: NOTE, path: NOTE, is_directory: false, modified: new Date().toISOString() }],
+            },
+            fileContentsByVaultId: { [defaultVault.id]: { [NOTE]: content } },
+        });
+        await page.goto('/');
+        await page.getByText(NOTE).click();
+        await expect(page.locator('.markdown-editor .editor-md-table')).toBeVisible();
+    }
+
+    test('^^ and << span the anchor cell and hide the marker cells', async ({ page }) => {
+        await openMerged(page, MERGED);
+
+        const north = await cell(page, 'North').boundingBox();
+        const ten = await cell(page, '10').boundingBox();
+        const eleven = await cell(page, '11').boundingBox();
+        // North spans the 10 and 11 rows.
+        expect(north!.y).toBeCloseTo(ten!.y, 0);
+        expect(north!.height).toBeCloseTo(eleven!.y + eleven!.height - ten!.y, 0);
+
+        const total44 = await cell(page, '44').boundingBox();
+        const q1 = await cell(page, 'Q1').boundingBox();
+        const q2 = await cell(page, 'Q2').boundingBox();
+        // 44 spans the Q1 and Q2 columns.
+        expect(total44!.x).toBeCloseTo(q1!.x, 0);
+        expect(total44!.width).toBeCloseTo(q2!.x + q2!.width - q1!.x, 0);
+
+        await expect(page.locator('.markdown-editor .editor-md-table-cell.is-merged')).toHaveCount(2);
+        await expect(page.locator('.markdown-editor .editor-md-table-cell.is-merged').first()).toBeHidden();
+        expect(await editorText(page)).toBe(MERGED);
+    });
+
+    test('typing ^^ into a cell merges it into the cell above', async ({ page }) => {
+        await openMerged(page, '| a | b |\n| --- | --- |\n| top | 1 |\n| low | 2 |');
+
+        await cell(page, 'low').click();
+        await page.keyboard.press('End');
+        for (let i = 0; i < 4; i += 1) await page.keyboard.press('Backspace', { delay: 80 }); // "low " -> ""
+        await page.keyboard.type('^^', { delay: 120 });
+
+        await expect.poll(() => editorText(page)).toContain('| ^^| 2 |');
+        await expect(page.locator('.markdown-editor .editor-md-table-cell.is-merged')).toHaveCount(1);
+        await expect(cell(page, 'top')).toHaveAttribute('style', /grid-row: span 2/);
+    });
+});
