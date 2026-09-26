@@ -42,7 +42,7 @@ import { apiResolveWikiLink } from '@/api/client';
 
 const props = defineProps<{ content: string }>();
 
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 const tabsStore = useTabsStore();
 const vaultsStore = useVaultsStore();
 

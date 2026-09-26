@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, seedAuthTokens } from './helpers/appMocks';
+import { expandFrontmatter } from './helpers/panels';
 
 test.describe('Frontmatter metadata editor', () => {
     test('shows frontmatter panel and marks tab dirty after edit', async ({ page }) => {
@@ -29,7 +30,7 @@ test.describe('Frontmatter metadata editor', () => {
         await page.goto('/');
         await page.getByText('project_alpha.md').click();
 
-        await expect(page.getByRole('button', { name: 'Frontmatter' })).toBeVisible();
+        await expandFrontmatter(page);
         // Frontmatter keys are rendered as v-text-field values (not plain text nodes).
         // Confirm the "status" key input exists in the form view.
         await expect(page.locator('.v-expansion-panel-text input[value="status"]')).toBeVisible();

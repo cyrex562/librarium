@@ -39,7 +39,7 @@ import type { BacklinkEntry } from '@/api/types';
 
 const props = defineProps<{ filePath: string }>();
 
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 const loading = ref(false);
 const backlinks = ref<BacklinkEntry[]>([]);
 

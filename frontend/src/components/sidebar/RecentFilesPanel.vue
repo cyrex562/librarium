@@ -44,7 +44,7 @@ import { useFilesStore } from '@/stores/files';
 import { useTabsStore } from '@/stores/tabs';
 import { useDeleteNote } from '@/composables/useDeleteNote';
 
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 const filesStore = useFilesStore();
 const tabsStore = useTabsStore();
 const { deleteNote } = useDeleteNote();

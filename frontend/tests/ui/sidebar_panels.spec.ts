@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, seedAuthTokens } from './helpers/appMocks';
+import { expandPanel } from './helpers/panels';
 
 const FILE_A = 'notes/alpha.md';
 const FILE_B = 'notes/beta.md';
@@ -50,6 +51,7 @@ test.describe('Bookmarks panel', () => {
     test('shows existing bookmarks and opens file on click', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText(FILE_A.split('/').pop()!).click(); // open alpha
+        await expandPanel(page, '.bookmarks-header');
 
         await expect(page.getByText('BOOKMARKS')).toBeVisible();
         await expect(page.locator('.bookmark-item')).toContainText('beta');
@@ -61,6 +63,7 @@ test.describe('Bookmarks panel', () => {
     test('adds a bookmark for the current file', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.bookmarks-header');
 
         // click the bookmark-plus button (stop propagation avoids header toggle)
         await page.locator('button[title="Bookmark current file"]').click();
@@ -71,6 +74,7 @@ test.describe('Bookmarks panel', () => {
     test('removes a bookmark via the × button', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.bookmarks-header');
 
         await expect(page.locator('.bookmark-item')).toHaveCount(1);
         await page.locator('.bookmark-item button[title="Remove bookmark"]').first().click();
@@ -80,6 +84,7 @@ test.describe('Bookmarks panel', () => {
     test('collapses and expands by clicking the BOOKMARKS header', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.bookmarks-header');
 
         await expect(page.locator('.bookmark-item')).toBeVisible();
         // click header to collapse
@@ -94,6 +99,7 @@ test.describe('Bookmarks panel', () => {
 test.describe('Tags panel', () => {
     test('shows tags sorted by count', async ({ page }) => {
         await setupWithPanels(page);
+        await expandPanel(page, '.tags-header');
 
         await expect(page.getByText('TAGS')).toBeVisible();
         const items = page.locator('.tag-item');
@@ -104,6 +110,7 @@ test.describe('Tags panel', () => {
 
     test('clicking a tag opens search with #tag query', async ({ page }) => {
         await setupWithPanels(page);
+        await expandPanel(page, '.tags-header');
         // Click a tag — the sidebar emits a 'search' event which should open the search modal
         await page.locator('.tag-item', { hasText: 'research' }).click();
         const input = page.getByRole('textbox', { name: 'Search', exact: true });
@@ -113,6 +120,7 @@ test.describe('Tags panel', () => {
 
     test('collapses on header click', async ({ page }) => {
         await setupWithPanels(page);
+        await expandPanel(page, '.tags-header');
         await expect(page.locator('.tag-item').first()).toBeVisible();
         await page.locator('.tags-header').click();
         await expect(page.locator('.tag-item').first()).not.toBeVisible();
@@ -123,6 +131,7 @@ test.describe('Backlinks panel', () => {
     test('shows backlinks for the open file', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.backlinks-header');
 
         await expect(page.getByText('BACKLINKS')).toBeVisible();
         await expect(page.locator('.backlink-item')).toHaveCount(1);
@@ -132,6 +141,7 @@ test.describe('Backlinks panel', () => {
     test('opens a backlinked file on click', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.backlinks-header');
 
         await page.locator('.backlink-item').first().click();
         await expect(page.locator('.tab-item.tab-active')).toContainText('beta');
@@ -140,6 +150,7 @@ test.describe('Backlinks panel', () => {
     test('collapses backlinks panel on header click', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.backlinks-header');
 
         await expect(page.locator('.backlink-item').first()).toBeVisible();
         await page.locator('.backlinks-header').click();
@@ -158,6 +169,7 @@ test.describe('Backlinks panel', () => {
         });
         await page.goto('/');
         await page.getByText('solo.md').click();
+        await expandPanel(page, '.backlinks-header');
 
         await expect(page.getByText('No notes link to this file yet.')).toBeVisible();
     });
@@ -179,6 +191,7 @@ test.describe('Outline panel', () => {
         });
         await page.goto('/');
         await page.getByText('outline-note.md').click();
+        await expandPanel(page, '.outline-header');
 
         const outlinePanel = page.locator('.outline-panel');
         await expect(outlinePanel.getByText('OUTLINE', { exact: true })).toBeVisible();
@@ -198,6 +211,7 @@ test.describe('Outline panel', () => {
         });
         await page.goto('/');
         await page.getByText('plain.md').click();
+        await expandPanel(page, '.outline-header');
 
         await expect(page.locator('.outline-panel').getByText('No headings')).toBeVisible();
     });
@@ -219,6 +233,7 @@ test.describe('Outgoing links panel', () => {
         });
         await page.goto('/');
         await page.getByText('links.md').click();
+        await expandPanel(page, '.outgoing-header');
 
         const outgoingPanel = page.locator('.outgoing-links-panel');
         await expect(outgoingPanel.getByText('OUTGOING LINKS', { exact: true })).toBeVisible();
@@ -229,6 +244,7 @@ test.describe('Outgoing links panel', () => {
     test('opens internal wiki-link file on click', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
+        await expandPanel(page, '.outgoing-header');
 
         // alpha.md has [[beta]] and [[gamma]]
         const betaLink = page.locator('.link-item', { hasText: 'beta' }).first();
@@ -242,6 +258,7 @@ test.describe('Neighboring files panel', () => {
     test('shows previous and next markdown files', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('beta.md').click();
+        await expandPanel(page, '.neighboring-header');
 
         await expect(page.getByText('NEIGHBORING FILES')).toBeVisible();
         // beta is between alpha and gamma in the flat tree
@@ -252,6 +269,7 @@ test.describe('Neighboring files panel', () => {
     test('navigates to neighboring file on click', async ({ page }) => {
         await setupWithPanels(page);
         await page.getByText('beta.md').click();
+        await expandPanel(page, '.neighboring-header');
 
         await page.locator('.neighbor-item', { hasText: 'alpha' }).click();
         await expect(page.locator('.tab-item.tab-active')).toContainText('alpha');
@@ -265,6 +283,7 @@ test.describe('Recent files panel', () => {
         // Open two files to populate recent list
         await page.getByText('alpha.md').click();
         await page.getByText('beta.md').click();
+        await expandPanel(page, '.recent-header');
 
         await expect(page.locator('.recent-files-panel').getByText('RECENT FILES', { exact: true })).toBeVisible();
         // Recent files should include the opened files
@@ -275,6 +294,7 @@ test.describe('Recent files panel', () => {
         await setupWithPanels(page);
         await page.getByText('alpha.md').click();
         await page.getByText('beta.md').click();
+        await expandPanel(page, '.recent-header');
 
         // click a recent item
         const recentItem = page.locator('.recent-item').first();
