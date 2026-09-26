@@ -191,6 +191,7 @@ test.describe('Outline panel', () => {
         });
         await page.goto('/');
         await page.getByText('outline-note.md').click();
+        await expandPanel(page, '.outline-header');
 
         const outlinePanel = page.locator('.outline-panel');
         await expect(outlinePanel.getByText('OUTLINE', { exact: true })).toBeVisible();
@@ -210,6 +211,7 @@ test.describe('Outline panel', () => {
         });
         await page.goto('/');
         await page.getByText('plain.md').click();
+        await expandPanel(page, '.outline-header');
 
         await expect(page.locator('.outline-panel').getByText('No headings')).toBeVisible();
     });
