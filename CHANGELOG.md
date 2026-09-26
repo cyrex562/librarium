@@ -9,6 +9,32 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 
 ## [Unreleased]
 
+### Added
+
+- Formatted mode renders Markdown tables as a grid (borders, shaded header
+  row, column alignment) that you click into and type in. The file is still
+  plain Markdown; Plain mode shows the `| … |` source.
+- `cargo xtask docker-build` / `docker-publish` for building the server image
+  and pushing it to GHCR by hand.
+- `scripts/release-for-windows.ps1` — builds the Windows installer and both
+  portable packages and publishes them to a GitHub release.
+
+### Changed
+
+- Sidebar panels (Tags, Outline, AI Insights, Outgoing Links, Backlinks,
+  Neighboring Files, Favorites, Bookmarks, Recent Files) and the Frontmatter
+  panel now start collapsed.
+
+### Fixed
+
+- Importing files now refreshes the file tree immediately instead of waiting
+  for a WebSocket change event.
+- The admin "Temporary password" field is now masked like other password
+  fields.
+- The Windows PowerShell scripts no longer fail to parse on Windows
+  PowerShell 5.1 (non-ASCII characters) or crash on an expected non-zero
+  exit from `gh`.
+
 ## [0.102.4] - 2026-09-16
 
 ### Added

@@ -71,22 +71,116 @@ function formatMarkdownLine(line: string): string {
     return `${escapeHtml(indent)}<span class="editor-md-fence"><span class="editor-md-syntax">${escapeHtml(fence)}</span>${formatInlineMarkdown(rest)}</span>`;
   }
 
-  const tableDividerMatch = line.match(/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/);
-  if (tableDividerMatch) {
-    return `<span class="editor-md-table-row editor-md-table-divider">${escapeHtml(line)}</span>`;
-  }
-
-  const tableRowMatch = line.match(/^\s*\|?.*\|.*\|\s*$/);
-  if (tableRowMatch) {
-    return `<span class="editor-md-table-row">${formatInlineMarkdown(line)}</span>`;
-  }
-
   const hrMatch = line.match(/^(\s*)([-*_])(?:\s*\2){2,}\s*$/);
   if (hrMatch) {
     return `<span class="editor-md-hr">${escapeHtml(line)}</span>`;
   }
 
   return formatInlineMarkdown(line);
+}
+
+// ── Tables ──────────────────────────────────────────────────────────────────
+//
+// In formatted mode a GFM table renders as a grid (CSS display: table) rather
+// than as pipe-delimited text. The markdown text itself is untouched: pipes,
+// the divider row and the row-separating newlines stay in the DOM, just
+// hidden with CSS, so textContent is still exactly the source — CodeJar reads
+// it back as the document and caret offsets are character offsets into it.
+
+type ColumnAlign = 'left' | 'center' | 'right' | null;
+
+interface TableBlock {
+  startLine: number;
+  endLine: number;
+}
+
+// GFM allows a single hyphen per divider cell (e.g. `:-:`).
+const TABLE_DIVIDER_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** Indices of the unescaped `|` characters in a line. */
+function unescapedPipeIndices(line: string): number[] {
+  const indices: number[] = [];
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] === '\\') { i += 1; continue; }
+    if (line[i] === '|') indices.push(i);
+  }
+  return indices;
+}
+
+/**
+ * Split a table row into alternating pipe/cell segments whose texts,
+ * concatenated, reproduce the line exactly. Leading/trailing whitespace next
+ * to an edge pipe is folded into that pipe's segment so it hides with it.
+ */
+function splitTableRow(line: string): Array<{ kind: 'pipe' | 'cell'; text: string }> {
+  const pipes = unescapedPipeIndices(line);
+  const firstNonWs = line.search(/\S/);
+  const lastNonWs = line.length - 1 - (line.match(/\s*$/)?.[0].length ?? 0);
+  const hasLead = pipes.length > 0 && pipes[0] === firstNonWs;
+  const hasTrail = pipes.length > 0 && pipes[pipes.length - 1] === lastNonWs;
+
+  const segments: Array<{ kind: 'pipe' | 'cell'; text: string }> = [];
+  let cursor = 0;
+  pipes.forEach((p, idx) => {
+    const isLead = idx === 0 && hasLead;
+    const isTrail = idx === pipes.length - 1 && hasTrail;
+    if (!isLead) segments.push({ kind: 'cell', text: line.slice(cursor, p) });
+    const pipeStart = isLead ? 0 : p;
+    const pipeEnd = isTrail ? line.length : p + 1;
+    segments.push({ kind: 'pipe', text: line.slice(pipeStart, pipeEnd) });
+    cursor = pipeEnd;
+  });
+  if (cursor < line.length) segments.push({ kind: 'cell', text: line.slice(cursor) });
+  return segments;
+}
+
+function parseColumnAlignments(divider: string): ColumnAlign[] {
+  return splitTableRow(divider)
+    .filter((s) => s.kind === 'cell')
+    .map(({ text }) => {
+      const t = text.trim();
+      if (t.startsWith(':') && t.endsWith(':')) return 'center';
+      if (t.endsWith(':')) return 'right';
+      if (t.startsWith(':')) return 'left';
+      return null;
+    });
+}
+
+/**
+ * Find GFM tables: a row containing an unescaped pipe, immediately followed by
+ * a divider row, then any further non-blank pipe-containing rows. Lines inside
+ * fenced code are never tables.
+ */
+function collectTableBlocks(lines: string[], codeRegions: MarkdownFoldRegion[]): TableBlock[] {
+  const codeLines = new Set<number>();
+  for (const region of codeRegions) {
+    for (let l = region.startLine; l <= region.endLine; l += 1) codeLines.add(l);
+  }
+  const isRow = (i: number) =>
+    i < lines.length && !codeLines.has(i) && lines[i].trim() !== '' && unescapedPipeIndices(lines[i]).length > 0;
+
+  const blocks: TableBlock[] = [];
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    if (!isRow(i) || !isRow(i + 1) || !TABLE_DIVIDER_RE.test(lines[i + 1])) continue;
+    let end = i + 1;
+    while (isRow(end + 1) && !TABLE_DIVIDER_RE.test(lines[end + 1])) end += 1;
+    blocks.push({ startLine: i, endLine: end });
+    i = end;
+  }
+  return blocks;
+}
+
+function renderTableRowCells(line: string, alignments: ColumnAlign[]): string {
+  let col = 0;
+  return splitTableRow(line).map((seg) => {
+    if (seg.kind === 'pipe') {
+      return `<span class="editor-md-table-pipe">${escapeHtml(seg.text)}</span>`;
+    }
+    const align = alignments[col] ?? null;
+    col += 1;
+    const alignClass = align ? ` is-align-${align}` : '';
+    return `<span class="editor-md-table-cell${alignClass}">${formatInlineMarkdown(seg.text)}</span>`;
+  }).join('');
 }
 
 function collectCodeFoldRegions(lines: string[]): MarkdownFoldRegion[] {
@@ -182,7 +276,10 @@ export function renderFormattedMarkdown(text: string, collapsedStarts: Set<numbe
     }
   }
 
-  const html = lines.map((line, index) => {
+  const tableBlocks = collectTableBlocks(lines, codeRegions);
+  const tableByStart = new Map(tableBlocks.map((block) => [block.startLine, block]));
+
+  const renderLine = (line: string, index: number) => {
     const region = foldByStart.get(index);
     const isCollapsed = region ? collapsedStarts.has(index) : false;
     const hiddenClass = hiddenLines.has(index) ? ' is-hidden' : '';
@@ -197,7 +294,42 @@ export function renderFormattedMarkdown(text: string, collapsedStarts: Set<numbe
       : '';
 
     return `<span class="editor-md-line${hiddenClass}${nestedClass}" style="--fold-depth:${depth}" data-line="${index}">${toggle}${formatMarkdownLine(line)}${summary}</span>`;
-  }).join('\n');
+  };
+
+  // A table renders as one grid block. Its rows are display: table-row, so a
+  // bare "\n" text node between them would become an anonymous table cell;
+  // instead each row's newline lives in a hidden span at the end of the row.
+  // Headings and code fences are never table rows, so no fold toggle or
+  // summary can occur inside a block.
+  const renderTable = (block: TableBlock) => {
+    const alignments = parseColumnAlignments(lines[block.startLine + 1]);
+    const depth = headingDepthByLine[block.startLine] ?? 0;
+    const nestedClass = depth > 0 ? ' is-nested' : '';
+    let allHidden = true;
+    const rows: string[] = [];
+    for (let index = block.startLine; index <= block.endLine; index += 1) {
+      const line = lines[index];
+      const hidden = hiddenLines.has(index);
+      if (!hidden) allHidden = false;
+      const roleClass = index === block.startLine ? ' is-header' : index === block.startLine + 1 ? ' is-divider' : '';
+      const body = index === block.startLine + 1 ? escapeHtml(line) : renderTableRowCells(line, alignments);
+      const eol = index < block.endLine ? '<span class="editor-md-table-eol">\n</span>' : '';
+      rows.push(`<span class="editor-md-line editor-md-table-row${roleClass}${hidden ? ' is-hidden' : ''}" data-line="${index}">${body}${eol}</span>`);
+    }
+    return `<span class="editor-md-table${nestedClass}${allHidden ? ' is-hidden' : ''}" style="--fold-depth:${depth}">${rows.join('')}</span>`;
+  };
+
+  const pieces: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const block = tableByStart.get(index);
+    if (block) {
+      pieces.push(renderTable(block));
+      index = block.endLine;
+    } else {
+      pieces.push(renderLine(lines[index], index));
+    }
+  }
+  const html = pieces.join('\n');
 
   return { html, foldRegions };
 }

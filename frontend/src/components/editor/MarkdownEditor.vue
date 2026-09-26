@@ -24,6 +24,7 @@ import {
 import { applyListIndent } from '@/editor/list-indent';
 import { applyLineIndent } from '@/editor/line-indent';
 import { applyHeadingSpaceDedent, applyHeadingEnter } from '@/editor/heading-behavior';
+import { visibleTableCaretPosition } from '@/editor/table-caret';
 import { ApiError } from '@/api/client';
 import { useVaultsStore } from '@/stores/vaults';
 import { useFilesStore } from '@/stores/files';
@@ -175,6 +176,7 @@ onMounted(async () => {
   // keys and typing; click covers pointer placement.
   editorEl.value.addEventListener('keyup', onCaretMaybeMoved);
   editorEl.value.addEventListener('click', onCaretMaybeMoved);
+  document.addEventListener('selectionchange', keepCaretOutOfHiddenTableText);
 });
 
 onUnmounted(() => {
@@ -184,8 +186,22 @@ onUnmounted(() => {
   editorEl.value?.removeEventListener('blur', onEditorBlur);
   editorEl.value?.removeEventListener('keyup', onCaretMaybeMoved);
   editorEl.value?.removeEventListener('click', onCaretMaybeMoved);
+  document.removeEventListener('selectionchange', keepCaretOutOfHiddenTableText);
   jar = null;
 });
+
+/**
+ * Formatted-mode tables hide their pipes/newlines with display: none, and
+ * CodeJar's offset-based caret restore can land the caret inside one of those
+ * hidden nodes (see editor/table-caret.ts). Nudge it back to visible text.
+ */
+function keepCaretOutOfHiddenTableText() {
+  if (props.mode !== 'formatted_raw' || !editorEl.value) return;
+  const sel = window.getSelection();
+  if (!sel || !sel.isCollapsed || !sel.anchorNode || !editorEl.value.contains(sel.anchorNode)) return;
+  const target = visibleTableCaretPosition(editorEl.value, sel.anchorNode, sel.anchorOffset);
+  if (target) sel.setBaseAndExtent(target.node, target.offset, target.node, target.offset);
+}
 
 function onEditorFocus() {
   isEditorFocused = true;
@@ -1089,17 +1105,45 @@ defineExpose({ applyCommand, callUndo, callRedo, collapseAllFolds, expandAllFold
   color: rgb(var(--v-theme-secondary));
 }
 
-.markdown-editor.is-formatted-mode :deep(.editor-md-table-row) {
-  display: inline-block;
-  width: fit-content;
-  min-width: min(100%, 480px);
-  padding: 0.05em 0.4em;
-  border-radius: 0.28em;
-  background: rgba(var(--v-theme-on-background), 0.04);
+/* Tables render as a grid in formatted mode (see highlight.ts). The pipes,
+   the divider row and the row newlines are still in the DOM — only hidden —
+   so the editor's text stays byte-identical to the markdown. */
+.markdown-editor.is-formatted-mode :deep(.editor-md-table) {
+  display: table;
+  border-collapse: collapse;
+  margin: 0.35em 0;
 }
 
-.markdown-editor.is-formatted-mode :deep(.editor-md-table-divider) {
-  color: rgb(var(--v-theme-secondary));
-  background: rgba(var(--v-theme-primary), 0.08);
+.markdown-editor.is-formatted-mode :deep(.editor-md-table.is-nested) {
+  margin-left: calc(var(--fold-depth) * 4px + var(--fold-depth) * 6px);
 }
+
+.markdown-editor.is-formatted-mode :deep(.editor-md-table > .editor-md-table-row) {
+  display: table-row;
+}
+
+.markdown-editor.is-formatted-mode :deep(.editor-md-table.is-hidden),
+.markdown-editor.is-formatted-mode :deep(.editor-md-table > .editor-md-table-row.is-divider),
+.markdown-editor.is-formatted-mode :deep(.editor-md-table > .editor-md-table-row.is-hidden),
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-pipe),
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-eol) {
+  display: none;
+}
+
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-cell) {
+  display: table-cell;
+  min-width: 3em;
+  padding: 0.3em 0.6em;
+  border: 1px solid rgba(var(--v-theme-on-background), 0.22);
+  vertical-align: top;
+}
+
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-row.is-header .editor-md-table-cell) {
+  font-weight: 600;
+  background: rgba(var(--v-theme-on-background), 0.06);
+}
+
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-cell.is-align-left) { text-align: left; }
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-cell.is-align-center) { text-align: center; }
+.markdown-editor.is-formatted-mode :deep(.editor-md-table-cell.is-align-right) { text-align: right; }
 </style>

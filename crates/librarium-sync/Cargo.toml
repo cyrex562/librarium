@@ -1,6 +1,6 @@
 [package]
 name = "librarium-sync"
-version = "0.102.15"
+version = "0.102.16"
 edition = "2021"
 
 [dependencies]
