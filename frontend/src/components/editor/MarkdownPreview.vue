@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import DOMPurify from 'dompurify';
+import { applyTableMerges } from '@/editor/table-merge-layout';
 import { apiRenderMarkdownInVault, apiResolveWikiLink } from '@/api/client';
 import { openExternalUrl } from '@/utils/tauri';
 import { useTabsStore } from '@/stores/tabs';
@@ -58,6 +59,9 @@ async function render() {
       ADD_ATTR: ['allow', 'allowfullscreen', 'frameborder', 'scrolling'],
     });
     await nextTick();
+    // `^^` / `<<` merged cells: the server renderer has no spans, so it emits
+    // the markers as text — apply them here, with the same rules as the editor.
+    if (previewEl.value) applyTableMerges(previewEl.value);
     attachCodeBlockCopyButtons();
     void renderMermaidDiagrams();
   } catch {

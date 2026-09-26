@@ -41,8 +41,7 @@ Four modes, switchable from the toolbar or `Ctrl/Cmd+1`/`2`/`3`:
   grid you can click into and type in; the table toolbar appears while the
   cursor is in one. Switch to Plain to see the underlying `| … |` syntax.
   To merge cells, type `^^` in a cell to merge it into the cell above, or
-  `<<` to merge it into the cell to its left. (Preview doesn't show merges
-  yet; it displays the markers as text.)
+  `<<` to merge it into the cell to its left. Preview shows merges too.
 - **Preview** (`3`) — fully rendered, read-only.
 - **Structural** — a form-style editor for structured entities (see
   Worldbuilding/entities below), toggled from the mode selector rather than

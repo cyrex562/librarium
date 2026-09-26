@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.17
+**Version:** 0.102.18
 
 ---
 
@@ -240,8 +240,18 @@ padded empty cell and would be erased by the next table edit). `highlight.ts`
 computes spans and the grid uses CSS Grid (`grid-row`/`grid-column: span N`,
 rows as `display: contents`) since table layout can't span; marker cells are
 hidden, and `table.ts`'s Tab handling skips them (`isMergedAwayCell` mirrors
-the renderer's rules). Preview mode is server-rendered by `pulldown-cmark`,
-which has no span support, so it shows the markers as text.
+the renderer's rules). The span rules live in one place,
+`editor/table-merge-layout.ts`, shared by the Formatted-mode renderer and
+Preview: Preview's HTML comes from the server's `pulldown-cmark`, which has no
+notion of spans and emits the markers as cell text, so `MarkdownPreview.vue`
+applies `rowspan`/`colspan` and removes the marker cells after each render —
+client-side, so it works the same over every transport.
+
+The server renderer (`MarkdownService::parse_with_wiki_links`) transforms the
+event stream first — wiki links, tags, highlighted code and escaped raw HTML
+become pre-rendered `Event::Html` — then calls `html::push_html` once over the
+whole stream. It used to render one event at a time, which discarded the
+writer's table state (every cell became `<th>`, alignment was dropped — #123).
 
 ### Source layout (`frontend/src/`)
 
