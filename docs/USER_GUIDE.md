@@ -38,8 +38,8 @@ Four modes, switchable from the toolbar or `Ctrl/Cmd+1`/`2`/`3`:
 - **Plain** (`1`) — raw Markdown source, no formatting.
 - **Formatted** (`2`) — Markdown source with inline styling (headings, bold,
   etc. rendered in place) while still editing plain text. Tables show as a
-  grid you can click into and type in; the table toolbar appears while the
-  cursor is in one. Switch to Plain to see the underlying `| … |` syntax.
+  grid you can click into and type in; while the cursor is in a table, the
+  toolbar's second row switches to table controls. Switch to Plain to see the underlying `| … |` syntax.
   To merge cells, type `^^` in a cell to merge it into the cell above, or
   `<<` to merge it into the cell to its left. Preview shows merges too.
 - **Preview** (`3`) — fully rendered, read-only.
