@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, seedAuthTokens } from './helpers/appMocks';
+import { expandPanel } from './helpers/panels';
 
 const tree = [
     { name: 'search-a.md', path: 'search-a.md', is_directory: false, modified: new Date().toISOString() },
@@ -101,7 +102,7 @@ test.describe('Search modal — advanced', () => {
         await setup(page);
 
         // click a tag in the sidebar tags panel
-        await expect(page.getByText('TAGS')).toBeVisible();
+        await expandPanel(page, '.tags-header');
         await page.locator('.tag-item', { hasText: 'important' }).click();
 
         const input = page.getByRole('textbox', { name: 'Search', exact: true });

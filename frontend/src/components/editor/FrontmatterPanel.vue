@@ -106,7 +106,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { useMobile } from '@/composables/useMobile';
 
 const props = defineProps<{
   tabId: string;
@@ -119,8 +118,7 @@ const emit = defineEmits<{
 
 // Expanded by default on desktop; collapsed on mobile where vertical space is
 // scarce (the user can still tap the header to expand it).
-const { isMobile } = useMobile();
-const open = ref<number | undefined>(isMobile.value ? undefined : 0);
+const open = ref<number | undefined>(undefined); // start collapsed
 const mode = ref<'form' | 'raw'>('form');
 const addingKey = ref(false);
 const newKey = ref('');

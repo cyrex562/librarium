@@ -56,7 +56,7 @@ import type { FileNode } from '@/api/types';
 
 const props = defineProps<{ filePath: string }>();
 
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 const filesStore = useFilesStore();
 const tabsStore = useTabsStore();
 const { deleteNote } = useDeleteNote();

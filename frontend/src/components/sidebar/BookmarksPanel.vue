@@ -67,7 +67,7 @@ import { apiListBookmarks, apiCreateBookmark, apiDeleteBookmark } from '@/api/cl
 import { useDeleteNote } from '@/composables/useDeleteNote';
 import type { Bookmark } from '@/api/types';
 
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 const loading = ref(false);
 const bookmarks = ref<Bookmark[]>([]);
 

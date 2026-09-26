@@ -60,7 +60,7 @@ import type { TagEntry } from '@/api/types';
 
 const emit = defineEmits<{ search: [query: string] }>();
 
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 const loading = ref(false);
 const tags = ref<TagEntry[]>([]);
 

@@ -61,7 +61,7 @@ const favoritesStore = useFavoritesStore();
 // Expanded state is per-mount (not persisted). Matches BookmarksPanel /
 // RecentFilesPanel behavior; a session-scoped default is enough.
 import { ref } from 'vue';
-const expanded = ref(true);
+const expanded = ref(false); // start collapsed
 
 const activeFilePath = computed(() => tabsStore.activeTab?.filePath ?? null);
 

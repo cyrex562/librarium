@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { defaultProfile, defaultVault, installCommonAppMocks, seedActiveVault, seedAuthTokens } from './helpers/appMocks';
+import { expandFrontmatter } from './helpers/panels';
 
 const NOTE = 'fm-test.md';
 
@@ -17,7 +18,7 @@ async function setup(page: Parameters<typeof installCommonAppMocks>[0], frontmat
     });
     await page.goto('/');
     await page.getByText(NOTE).click();
-    await expect(page.getByRole('button', { name: 'Frontmatter' })).toBeVisible();
+    await expandFrontmatter(page);
 }
 
 test.describe('Frontmatter panel operations', () => {
