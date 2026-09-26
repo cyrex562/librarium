@@ -1,3 +1,5 @@
+import { computeMergeLayout, type CellLayout } from '@/editor/table-merge-layout';
+
 function escapeHtml(text: string): string {
   return text
     .replaceAll('&', '&amp;')
@@ -170,63 +172,22 @@ function collectTableBlocks(lines: string[], codeRegions: MarkdownFoldRegion[]):
   return blocks;
 }
 
-// Merged cells: a cell whose entire content is `^^` merges into the cell
-// above it (body rows only); `<<` merges into the cell to its left (any row).
-// Both are ordinary cell content, so they survive editor/table.ts
-// re-serializing the table on every edit, and read sensibly in Plain mode and
-// other Markdown tools. A marker with nothing to merge into is literal text.
-const MERGE_UP = '^^';
-const MERGE_LEFT = '<<';
-
-interface CellLayout {
-  merged: boolean;
-  colSpan: number;
-  rowSpan: number;
-}
-
 function cellTexts(line: string): string[] {
   return splitTableRow(line).filter((s) => s.kind === 'cell').map((s) => s.text.trim());
 }
 
-/** Layout for every cell of a table block, keyed `${lineIndex}:${col}`. */
+/**
+ * Merged-cell layout (`^^` / `<<`, see editor/table-merge-layout.ts) for every
+ * cell of a table block, keyed `${lineIndex}:${col}`.
+ */
 function computeCellLayout(lines: string[], block: TableBlock): Map<string, CellLayout> {
-  const layout = new Map<string, CellLayout>();
-  const cellRows: Array<{ line: number; texts: string[] }> = [];
+  const rowLines: number[] = [];
   for (let line = block.startLine; line <= block.endLine; line += 1) {
-    if (line === block.startLine + 1) continue; // divider row
-    const texts = cellTexts(lines[line]);
-    cellRows.push({ line, texts });
-    texts.forEach((_, col) => layout.set(`${line}:${col}`, { merged: false, colSpan: 1, rowSpan: 1 }));
+    if (line !== block.startLine + 1) rowLines.push(line); // skip the divider row
   }
-
-  // Column spans, left to right within each row.
-  for (const { line, texts } of cellRows) {
-    let anchor: number | null = null;
-    texts.forEach((text, col) => {
-      if (text === MERGE_LEFT && anchor !== null) {
-        layout.get(`${line}:${col}`)!.merged = true;
-        layout.get(`${line}:${anchor}`)!.colSpan += 1;
-      } else {
-        anchor = col;
-      }
-    });
-  }
-
-  // Row spans, top to bottom within each column, body rows only.
-  const body = cellRows.filter((r) => r.line !== block.startLine);
-  const colCount = Math.max(0, ...body.map((r) => r.texts.length));
-  for (let col = 0; col < colCount; col += 1) {
-    let anchorLine: number | null = null;
-    for (const { line, texts } of body) {
-      if (texts[col] === undefined) { anchorLine = null; continue; }
-      if (texts[col] === MERGE_UP && anchorLine !== null) {
-        layout.get(`${line}:${col}`)!.merged = true;
-        layout.get(`${anchorLine}:${col}`)!.rowSpan += 1;
-      } else {
-        anchorLine = line;
-      }
-    }
-  }
+  const matrix = computeMergeLayout(rowLines.map((line) => cellTexts(lines[line])));
+  const layout = new Map<string, CellLayout>();
+  rowLines.forEach((line, r) => matrix[r].forEach((cell, c) => layout.set(`${line}:${c}`, cell)));
   return layout;
 }
 

@@ -29,6 +29,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 
 ### Fixed
 
+- Preview tables: body cells were rendered as header cells and column
+  alignment was dropped (#123). Preview now also shows `^^` / `<<` merged
+  cells, and an image's alt text goes in its `alt` attribute instead of
+  appearing as text after the image.
 - Importing files now refreshes the file tree immediately instead of waiting
   for a WebSocket change event.
 - The admin "Temporary password" field is now masked like other password

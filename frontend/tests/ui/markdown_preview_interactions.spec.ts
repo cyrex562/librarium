@@ -70,3 +70,41 @@ test.describe('Markdown preview interactions', () => {
         await expect(page.locator('.markdown-preview')).toBeVisible();
     });
 });
+
+test.describe('Preview: tables', () => {
+    // Exactly what the real server renderer returns for this input (captured
+    // from POST /api/render after the #123 fix): body cells are <td>, and the
+    // merge markers come through as plain cell text.
+    const MARKDOWN = '| A | B |\n| --- | ---: |\n| wide | << |\n| x | y |\n| ^^ | z |';
+    const SERVER_HTML = `<table><thead><tr><th>A</th><th style="text-align: right">B</th></tr></thead><tbody>
+<tr><td>wide</td><td style="text-align: right">&lt;&lt;</td></tr>
+<tr><td>x</td><td style="text-align: right">y</td></tr>
+<tr><td>^^</td><td style="text-align: right">z</td></tr>
+</tbody></table>`;
+
+    test('applies ^^ / << merges and keeps alignment', async ({ page }) => {
+        await seedAuthTokens(page);
+        await seedActiveVault(page, defaultVault.id);
+        await installCommonAppMocks(page, {
+            profile: defaultProfile,
+            vaults: [defaultVault],
+            treeByVaultId: {
+                [defaultVault.id]: [{ name: 'note.md', path: 'note.md', is_directory: false, modified: new Date().toISOString() }],
+            },
+            fileContentsByVaultId: { [defaultVault.id]: { 'note.md': MARKDOWN } },
+        });
+        await page.route(/.*\/api\/vaults\/[^/]+\/render$/, (route) =>
+            route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SERVER_HTML) }));
+        await page.goto('/');
+        await page.getByText('note.md').click();
+        await page.getByRole('button', { name: 'Preview' }).click();
+
+        const preview = page.locator('.markdown-preview');
+        await expect(preview.locator('td', { hasText: 'wide' })).toHaveAttribute('colspan', '2');
+        await expect(preview.locator('td', { hasText: 'x' })).toHaveAttribute('rowspan', '2');
+        await expect(preview).not.toContainText('<<');
+        await expect(preview).not.toContainText('^^');
+        await expect(preview.locator('td', { hasText: 'z' })).toHaveCSS('text-align', 'right');
+        await expect(preview.locator('tbody th')).toHaveCount(0);
+    });
+});

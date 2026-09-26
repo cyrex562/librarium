@@ -93,18 +93,37 @@ impl MarkdownService {
         enable_highlighting: bool,
         render_opts: Option<&RenderOptions>,
     ) -> String {
-        // Parse markdown and apply syntax highlighting to code blocks
+        // Transform the event stream first — wiki links, tags, highlighted
+        // code and escaped raw HTML all become pre-rendered `Event::Html` —
+        // then render it with ONE `html::push_html` call. pulldown-cmark keeps
+        // table state (head vs body, column alignments) inside its writer, so
+        // rendering event-by-event threw that away: every cell came out as
+        // <th> and alignment was lost (#123).
         let parser = Parser::new_ext(markdown, options);
-        let mut html_output = String::new();
+        let mut events: Vec<Event> = Vec::new();
 
         // Use cached syntax set and theme
         let theme = &THEME_SET.themes["base16-ocean.dark"];
 
         let mut in_code_block = false;
         let mut in_frontmatter = false;
+        // pulldown-cmark renders an image's alt attribute from the plain Text
+        // events inside it, so those must pass through untouched rather than
+        // being turned into pre-rendered wiki-link/tag HTML.
+        let mut image_depth = 0usize;
         let mut code_block_lang = String::new();
         let mut code_block_content = String::new();
         let mut text_buffer = String::new();
+
+        let flush_text = |buffer: &mut String, events: &mut Vec<Event>| {
+            if buffer.is_empty() {
+                return;
+            }
+            let mut rendered = String::new();
+            Self::process_obsidian_syntax(buffer, &mut rendered, render_opts);
+            events.push(Event::Html(rendered.into()));
+            buffer.clear();
+        };
 
         for event in parser {
             // Handle text buffering for wiki links (outside code blocks and frontmatter)
@@ -112,19 +131,24 @@ impl MarkdownService {
                 if in_frontmatter {
                     continue; // Ignore frontmatter text
                 }
-                if !in_code_block {
+                if !in_code_block && image_depth == 0 {
                     text_buffer.push_str(text);
                     continue;
                 }
             }
 
             // If we have a non-text event (or text in code block), flush the buffer first
-            if !text_buffer.is_empty() {
-                Self::process_obsidian_syntax(&text_buffer, &mut html_output, render_opts);
-                text_buffer.clear();
-            }
+            flush_text(&mut text_buffer, &mut events);
 
             match event {
+                Event::Start(Tag::Image { .. }) => {
+                    image_depth += 1;
+                    events.push(event);
+                }
+                Event::End(TagEnd::Image) => {
+                    image_depth = image_depth.saturating_sub(1);
+                    events.push(event);
+                }
                 Event::Start(Tag::MetadataBlock(_)) => {
                     in_frontmatter = true;
                 }
@@ -140,20 +164,17 @@ impl MarkdownService {
                 Event::End(TagEnd::CodeBlock) if in_code_block => {
                     in_code_block = false;
 
-                    if enable_highlighting {
+                    let rendered = if enable_highlighting {
                         // Apply syntax highlighting
-                        let highlighted =
-                            Self::highlight_code(&code_block_content, &code_block_lang, theme);
-                        html_output.push_str(&highlighted);
+                        Self::highlight_code(&code_block_content, &code_block_lang, theme)
                     } else {
-                        html_output.push_str("<pre><code>");
                         let escaped = code_block_content
                             .replace('&', "&amp;")
                             .replace('<', "&lt;")
                             .replace('>', "&gt;");
-                        html_output.push_str(&escaped);
-                        html_output.push_str("</code></pre>\n");
-                    }
+                        format!("<pre><code>{escaped}</code></pre>\n")
+                    };
+                    events.push(Event::Html(rendered.into()));
                 }
                 Event::Text(text) if in_code_block => {
                     code_block_content.push_str(&text);
@@ -161,21 +182,17 @@ impl MarkdownService {
                 Event::Html(html_content) => {
                     // Escape raw HTML to prevent XSS
                     let escaped = Self::html_escape(&html_content);
-                    html_output.push_str(&escaped);
+                    events.push(Event::Html(escaped.into()));
                 }
-                _ => {
-                    // For non-code-block events, use default HTML rendering
-                    let single_event = vec![event];
-                    html::push_html(&mut html_output, single_event.into_iter());
-                }
+                other => events.push(other),
             }
         }
 
         // Flush remaining buffer at end
-        if !text_buffer.is_empty() {
-            Self::process_obsidian_syntax(&text_buffer, &mut html_output, render_opts);
-        }
+        flush_text(&mut text_buffer, &mut events);
 
+        let mut html_output = String::new();
+        html::push_html(&mut html_output, events.into_iter());
         html_output
     }
 
@@ -660,6 +677,69 @@ mod tests {
         assert!(html.contains("Cell 1"));
     }
 
+    // #123: the renderer used to feed pulldown-cmark's writer one event at a
+    // time, discarding its table state — so every cell rendered as <th> and
+    // column alignment never reached the output.
+    #[test]
+    fn test_table_body_cells_are_td() {
+        let markdown = "| Name | Role |\n| --- | --- |\n| Ada | Eng |";
+        let html = MarkdownService::to_html(markdown);
+
+        assert!(html.contains("<th>Name</th>"), "{html}");
+        assert!(html.contains("<td>Ada</td>"), "{html}");
+        assert!(!html.contains("<th>Ada</th>"), "{html}");
+    }
+
+    #[test]
+    fn test_table_column_alignment() {
+        let markdown = "| Name | Role | Mid |\n| :--- | ---: | :-: |\n| Ada | Eng | x |";
+        let html = MarkdownService::to_html(markdown);
+
+        assert!(
+            html.contains(r#"<td style="text-align: left">Ada</td>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<td style="text-align: right">Eng</td>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<td style="text-align: center">x</td>"#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn test_wiki_link_inside_table_cell_keeps_table_structure() {
+        // A wiki link is rendered by our own code mid-stream; it must not
+        // split the table and reset the writer's head/body state.
+        let markdown = "| Name | Link |\n| --- | --- |\n| Ada | [[Other Note]] |\n| Bob | plain |";
+        let html = MarkdownService::to_html(markdown);
+
+        assert!(html.contains("wiki-link"), "{html}");
+        assert!(html.contains("<td>Bob</td>"), "{html}");
+        assert!(html.contains("<td>plain</td>"), "{html}");
+        assert!(!html.contains("<th>Bob</th>"), "{html}");
+    }
+
+    #[test]
+    fn test_raw_html_block_still_escaped() {
+        let markdown = "<div onclick=\"x()\">hi</div>\n";
+        let html = MarkdownService::to_html(markdown);
+
+        assert!(!html.contains("<div onclick"), "{html}");
+        assert!(html.contains("&lt;div"), "{html}");
+    }
+
+    #[test]
+    fn test_frontmatter_not_rendered() {
+        let markdown = "---\ntitle: Secret Title\n---\n\n# Body";
+        let html = MarkdownService::to_html(markdown);
+
+        assert!(!html.contains("Secret Title"), "{html}");
+        assert!(html.contains("Body"), "{html}");
+    }
+
     #[test]
     fn test_strikethrough() {
         let markdown = "~~strikethrough~~";
@@ -739,6 +819,9 @@ mod tests {
 
         assert!(html.contains("image.png"));
         assert!(html.contains("Alt text"));
+        // The alt text belongs in the attribute, not as visible text after
+        // the image (what per-event rendering used to produce).
+        assert!(html.contains(r#"alt="Alt text""#), "{html}");
     }
 
     // ── DocumentParser trait tests ──────────────────────────────────────────
