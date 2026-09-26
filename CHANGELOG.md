@@ -14,6 +14,8 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 - Formatted mode renders Markdown tables as a grid (borders, shaded header
   row, column alignment) that you click into and type in. The file is still
   plain Markdown; Plain mode shows the `| … |` source.
+- Merged table cells in Formatted mode: `^^` in a cell merges it into the
+  cell above, `<<` into the cell to its left.
 - `cargo xtask docker-build` / `docker-publish` for building the server image
   and pushing it to GHCR by hand.
 - `scripts/release-for-windows.ps1` — builds the Windows installer and both

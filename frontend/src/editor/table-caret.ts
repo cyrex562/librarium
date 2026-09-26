@@ -13,7 +13,7 @@
  * text in the row.
  */
 
-const HIDDEN_SELECTOR = '.editor-md-table-pipe, .editor-md-table-eol, .editor-md-table-row.is-divider';
+const HIDDEN_SELECTOR = '.editor-md-table-pipe, .editor-md-table-eol, .editor-md-table-row.is-divider, .editor-md-table-cell.is-merged';
 
 function isHiddenTableText(node: Node): boolean {
     const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);

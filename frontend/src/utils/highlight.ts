@@ -170,16 +170,87 @@ function collectTableBlocks(lines: string[], codeRegions: MarkdownFoldRegion[]):
   return blocks;
 }
 
-function renderTableRowCells(line: string, alignments: ColumnAlign[]): string {
+// Merged cells: a cell whose entire content is `^^` merges into the cell
+// above it (body rows only); `<<` merges into the cell to its left (any row).
+// Both are ordinary cell content, so they survive editor/table.ts
+// re-serializing the table on every edit, and read sensibly in Plain mode and
+// other Markdown tools. A marker with nothing to merge into is literal text.
+const MERGE_UP = '^^';
+const MERGE_LEFT = '<<';
+
+interface CellLayout {
+  merged: boolean;
+  colSpan: number;
+  rowSpan: number;
+}
+
+function cellTexts(line: string): string[] {
+  return splitTableRow(line).filter((s) => s.kind === 'cell').map((s) => s.text.trim());
+}
+
+/** Layout for every cell of a table block, keyed `${lineIndex}:${col}`. */
+function computeCellLayout(lines: string[], block: TableBlock): Map<string, CellLayout> {
+  const layout = new Map<string, CellLayout>();
+  const cellRows: Array<{ line: number; texts: string[] }> = [];
+  for (let line = block.startLine; line <= block.endLine; line += 1) {
+    if (line === block.startLine + 1) continue; // divider row
+    const texts = cellTexts(lines[line]);
+    cellRows.push({ line, texts });
+    texts.forEach((_, col) => layout.set(`${line}:${col}`, { merged: false, colSpan: 1, rowSpan: 1 }));
+  }
+
+  // Column spans, left to right within each row.
+  for (const { line, texts } of cellRows) {
+    let anchor: number | null = null;
+    texts.forEach((text, col) => {
+      if (text === MERGE_LEFT && anchor !== null) {
+        layout.get(`${line}:${col}`)!.merged = true;
+        layout.get(`${line}:${anchor}`)!.colSpan += 1;
+      } else {
+        anchor = col;
+      }
+    });
+  }
+
+  // Row spans, top to bottom within each column, body rows only.
+  const body = cellRows.filter((r) => r.line !== block.startLine);
+  const colCount = Math.max(0, ...body.map((r) => r.texts.length));
+  for (let col = 0; col < colCount; col += 1) {
+    let anchorLine: number | null = null;
+    for (const { line, texts } of body) {
+      if (texts[col] === undefined) { anchorLine = null; continue; }
+      if (texts[col] === MERGE_UP && anchorLine !== null) {
+        layout.get(`${line}:${col}`)!.merged = true;
+        layout.get(`${anchorLine}:${col}`)!.rowSpan += 1;
+      } else {
+        anchorLine = line;
+      }
+    }
+  }
+  return layout;
+}
+
+function renderTableRowCells(
+  line: string,
+  alignments: ColumnAlign[],
+  layoutOf: (col: number) => CellLayout | undefined,
+): string {
   let col = 0;
   return splitTableRow(line).map((seg) => {
     if (seg.kind === 'pipe') {
       return `<span class="editor-md-table-pipe">${escapeHtml(seg.text)}</span>`;
     }
     const align = alignments[col] ?? null;
+    const layout = layoutOf(col);
     col += 1;
-    const alignClass = align ? ` is-align-${align}` : '';
-    return `<span class="editor-md-table-cell${alignClass}">${formatInlineMarkdown(seg.text)}</span>`;
+    const classes = ['editor-md-table-cell'];
+    if (align) classes.push(`is-align-${align}`);
+    if (layout?.merged) classes.push('is-merged');
+    const spans: string[] = [];
+    if (layout && layout.colSpan > 1) spans.push(`grid-column: span ${layout.colSpan}`);
+    if (layout && layout.rowSpan > 1) spans.push(`grid-row: span ${layout.rowSpan}`);
+    const style = spans.length ? ` style="${spans.join('; ')}"` : '';
+    return `<span class="${classes.join(' ')}"${style}>${formatInlineMarkdown(seg.text)}</span>`;
   }).join('');
 }
 
@@ -303,6 +374,8 @@ export function renderFormattedMarkdown(text: string, collapsedStarts: Set<numbe
   // summary can occur inside a block.
   const renderTable = (block: TableBlock) => {
     const alignments = parseColumnAlignments(lines[block.startLine + 1]);
+    const layout = computeCellLayout(lines, block);
+    const colCount = cellTexts(lines[block.startLine]).length;
     const depth = headingDepthByLine[block.startLine] ?? 0;
     const nestedClass = depth > 0 ? ' is-nested' : '';
     let allHidden = true;
@@ -312,11 +385,13 @@ export function renderFormattedMarkdown(text: string, collapsedStarts: Set<numbe
       const hidden = hiddenLines.has(index);
       if (!hidden) allHidden = false;
       const roleClass = index === block.startLine ? ' is-header' : index === block.startLine + 1 ? ' is-divider' : '';
-      const body = index === block.startLine + 1 ? escapeHtml(line) : renderTableRowCells(line, alignments);
+      const body = index === block.startLine + 1
+        ? escapeHtml(line)
+        : renderTableRowCells(line, alignments, (col) => layout.get(`${index}:${col}`));
       const eol = index < block.endLine ? '<span class="editor-md-table-eol">\n</span>' : '';
       rows.push(`<span class="editor-md-line editor-md-table-row${roleClass}${hidden ? ' is-hidden' : ''}" data-line="${index}">${body}${eol}</span>`);
     }
-    return `<span class="editor-md-table${nestedClass}${allHidden ? ' is-hidden' : ''}" style="--fold-depth:${depth}">${rows.join('')}</span>`;
+    return `<span class="editor-md-table${nestedClass}${allHidden ? ' is-hidden' : ''}" style="--fold-depth:${depth}; --table-cols:${colCount}">${rows.join('')}</span>`;
   };
 
   const pieces: string[] = [];

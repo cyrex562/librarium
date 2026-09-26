@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.16
+**Version:** 0.102.17
 
 ---
 
@@ -229,6 +229,19 @@ restores the caret by offset and prefers the *following* text node at a
 boundary, the caret can land inside a hidden pipe; `editor/table-caret.ts`
 moves it back to visible text on `selectionchange`. Plain (`raw`) mode shows
 the pipe-delimited source.
+
+**Merged cells** are written as cell *content*, not table structure: `^^`
+merges a cell into the one above (body rows only), `<<` into the one to its
+left. Being ordinary content, they survive `editor/table.ts` re-serializing
+the block on every edit and read sensibly in Plain mode and other tools (`^^`
+matches `markdown-it-multimd-table`; its `||` column marker was rejected
+because `splitRow` trims cells, so an empty `||` is indistinguishable from a
+padded empty cell and would be erased by the next table edit). `highlight.ts`
+computes spans and the grid uses CSS Grid (`grid-row`/`grid-column: span N`,
+rows as `display: contents`) since table layout can't span; marker cells are
+hidden, and `table.ts`'s Tab handling skips them (`isMergedAwayCell` mirrors
+the renderer's rules). Preview mode is server-rendered by `pulldown-cmark`,
+which has no span support, so it shows the markers as text.
 
 ### Source layout (`frontend/src/`)
 

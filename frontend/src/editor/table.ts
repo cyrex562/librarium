@@ -518,6 +518,20 @@ export function handleTableEnterAt(content: string, offset: number): MarkdownCom
 }
 
 /** Tab / Shift-Tab cell navigation that never lands on the separator row. */
+/**
+ * True when a cell's content is a merge marker that actually merges: `^^`
+ * (into the cell above) from the second body row down, or `<<` (into the cell
+ * to the left) from the second column on. Mirrors utils/highlight.ts, which
+ * hides these cells in Formatted mode; a marker with nothing to merge into is
+ * ordinary text there, and here.
+ */
+export function isMergedAwayCell(table: ParsedTable, rowIndex: number, colIndex: number): boolean {
+    const text = rowIndex === -1 ? table.header[colIndex] : table.rows[rowIndex]?.[colIndex];
+    if (text === '<<') return colIndex > 0;
+    if (text === '^^') return rowIndex > 0;
+    return false;
+}
+
 export function handleTableTabAt(
     content: string,
     offset: number,
@@ -530,27 +544,31 @@ export function handleTableTabAt(
     const lastCol = table.header.length - 1;
     const lastRow = table.rows.length - 1;
 
-    let { rowIndex, colIndex } = cursor;
-
-    if (reverse) {
-        if (colIndex > 0) {
-            colIndex -= 1;
-        } else if (rowIndex > -1) {
-            rowIndex -= 1;
-            colIndex = lastCol;
-        } else {
-            return null; // At the very first cell; let the default happen.
+    type Step = { rowIndex: number; colIndex: number } | 'grow' | 'default';
+    const step = (rowIndex: number, colIndex: number): Step => {
+        if (reverse) {
+            if (colIndex > 0) return { rowIndex, colIndex: colIndex - 1 };
+            if (rowIndex > -1) return { rowIndex: rowIndex - 1, colIndex: lastCol };
+            return 'default'; // At the very first cell; let the default happen.
         }
-    } else if (colIndex < lastCol) {
-        colIndex += 1;
-    } else if (rowIndex < lastRow) {
-        rowIndex += 1;
-        colIndex = 0;
-    } else {
-        // Past the last cell: grow the table by one row.
+        if (colIndex < lastCol) return { rowIndex, colIndex: colIndex + 1 };
+        if (rowIndex < lastRow) return { rowIndex: rowIndex + 1, colIndex: 0 };
+        return 'grow'; // Past the last cell.
+    };
+
+    // Skip cells hidden by a merge (see isMergedAwayCell) — Formatted mode
+    // doesn't show them, so Tab landing there would look like nothing moved.
+    let next = step(cursor.rowIndex, cursor.colIndex);
+    while (typeof next === 'object' && isMergedAwayCell(table, next.rowIndex, next.colIndex)) {
+        next = step(next.rowIndex, next.colIndex);
+    }
+
+    if (next === 'default') return null;
+    if (next === 'grow') {
         const grown = insertRow(table, Math.max(0, lastRow), 'below');
         return replaceBlock(content, table, grown, { rowIndex: lastRow + 1, colIndex: 0 });
     }
+    const { rowIndex, colIndex } = next;
 
     const caret = offsetOfCell(table, { rowIndex, colIndex });
     const serialized = serializeTable(table);

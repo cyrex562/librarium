@@ -98,3 +98,66 @@ describe('renderFormattedMarkdown — table grid', () => {
         expect(el.querySelector('.editor-md-table-cell .editor-md-wikilink')).not.toBeNull();
     });
 });
+
+describe('renderFormattedMarkdown — merged cells', () => {
+    // `^^` merges a cell into the one above it; `<<` into the one to its
+    // left. Markers stay in the text (textContent invariant) but are hidden,
+    // and the anchor cell gets a grid span.
+    const MERGED = [
+        '| Region | Q1 | Q2 |',
+        '| --- | --- | --- |',
+        '| North | 10 | 12 |',
+        '| ^^ | 11 | 13 |',
+        '| Total | 44 | << |',
+    ].join('\n');
+
+    function cellsOf(el: HTMLElement, rowIndex: number) {
+        return [...el.querySelectorAll('.editor-md-table-row')[rowIndex].querySelectorAll('.editor-md-table-cell')];
+    }
+
+    it('preserves textContent', () => {
+        expect(render(MERGED).textContent).toBe(MERGED);
+    });
+
+    it('gives the anchor cell a row span and hides the ^^ cell', () => {
+        const el = render(MERGED);
+        const north = cellsOf(el, 2)[0] as HTMLElement;
+        expect(north.style.gridRow).toBe('span 2');
+        const marker = cellsOf(el, 3)[0];
+        expect(marker.classList.contains('is-merged')).toBe(true);
+    });
+
+    it('gives the anchor cell a column span and hides the << cell', () => {
+        const el = render(MERGED);
+        const total44 = cellsOf(el, 4)[1] as HTMLElement;
+        expect(total44.style.gridColumn).toBe('span 2');
+        expect(cellsOf(el, 4)[2].classList.contains('is-merged')).toBe(true);
+    });
+
+    it('extends a row span across several ^^ cells', () => {
+        const el = render('| a | b |\n| --- | --- |\n| x | 1 |\n| ^^ | 2 |\n| ^^ | 3 |');
+        expect((cellsOf(el, 2)[0] as HTMLElement).style.gridRow).toBe('span 3');
+    });
+
+    it('extends a column span across several << cells', () => {
+        const el = render('| a | b | c |\n| --- | --- | --- |\n| wide | << | << |');
+        expect((cellsOf(el, 2)[0] as HTMLElement).style.gridColumn).toBe('span 3');
+    });
+
+    it('treats a marker with nothing to merge into as literal text', () => {
+        // `^^` in the first body row (nothing above within the body), `<<` in the first column.
+        const el = render('| a | b |\n| --- | --- |\n| ^^ | x |\n| << | y |');
+        expect(el.querySelectorAll('.editor-md-table-cell.is-merged')).toHaveLength(0);
+    });
+
+    it('allows << merges in the header row', () => {
+        const el = render('| Name | << |\n| --- | --- |\n| a | b |');
+        expect((cellsOf(el, 0)[0] as HTMLElement).style.gridColumn).toBe('span 2');
+        expect(cellsOf(el, 0)[1].classList.contains('is-merged')).toBe(true);
+    });
+
+    it('sets the column count on the table for the grid template', () => {
+        const table = render(MERGED).querySelector('.editor-md-table') as HTMLElement;
+        expect(table.style.getPropertyValue('--table-cols')).toBe('3');
+    });
+});

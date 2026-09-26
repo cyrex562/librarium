@@ -328,3 +328,41 @@ describe('handleTableTabAt', () => {
         expect(handleTableTabAt('prose', 3, false)).toBeNull();
     });
 });
+
+import { isMergedAwayCell } from './table';
+
+describe('merged cells', () => {
+    const MERGED = '| a | b | c |\n| --- | --- | --- |\n| wide | << | 1 |\n| x | y | 2 |\n| ^^ | z | 3 |';
+
+    it('Tab skips a << cell', () => {
+        // Caret in "wide" (row 0, col 0): next visible cell is col 2, not the hidden col 1.
+        const offset = MERGED.indexOf('wide') + 1;
+        const res = handleTableTabAt(MERGED, offset, false)!;
+        const line = res.content.split('\n')[2];
+        const caretCol = line.slice(0, res.selectionStart - res.content.indexOf(line)).split('|').length - 2;
+        expect(caretCol).toBe(2);
+    });
+
+    it('Tab skips a ^^ cell when wrapping to the next row', () => {
+        // From "2" (row 1, last col), the next row's first cell is ^^ (hidden), so land on "z".
+        const offset = MERGED.indexOf('| 2 |') + 2;
+        const res = handleTableTabAt(MERGED, offset, false)!;
+        expect(res.content.slice(res.selectionStart, res.selectionStart + 1)).toBe('z');
+    });
+
+    it('re-serializing preserves the markers', () => {
+        const table = findTableAt(MERGED, 0)!;
+        expect(serializeTable(table)).toContain('<<');
+        expect(serializeTable(table)).toContain('^^');
+    });
+
+    it('isMergedAwayCell mirrors the renderer rules', () => {
+        const table = findTableAt(MERGED, 0)!;
+        expect(isMergedAwayCell(table, 0, 1)).toBe(true); // <<
+        expect(isMergedAwayCell(table, 2, 0)).toBe(true); // ^^ below a body row
+        expect(isMergedAwayCell(table, 0, 0)).toBe(false);
+        const edge = findTableAt('| a | b |\n| --- | --- |\n| ^^ | x |\n| << | y |', 0)!;
+        expect(isMergedAwayCell(edge, 0, 0)).toBe(false); // ^^ in first body row: literal
+        expect(isMergedAwayCell(edge, 1, 0)).toBe(false); // << in first column: literal
+    });
+});
