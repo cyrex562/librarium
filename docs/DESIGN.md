@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.15
+**Version:** 0.102.16
 
 ---
 
@@ -196,9 +196,8 @@ how a file changed.
 **Stack:** Vue 3 (Composition API), TypeScript, Vuetify 3, Pinia, Vue Router 4,
 Vite 6. Editing uses **CodeJar** (a `contenteditable`) over the Markdown source,
 with a bespoke line-based highlighter (`utils/highlight.ts`) providing the
-`formatted_raw` mode. Tiptap is present in `package.json` and
-`components/editor/TiptapEditor.vue` exists, but **nothing imports it** — it is
-currently dead code, not the editing path. Rendering helpers: `highlight.js`
+`formatted_raw` mode. (A Tiptap editor component existed but was never
+imported; it and its dependencies were removed in #126.) Rendering helpers: `highlight.js`
 (code), `mermaid` (diagrams), `pdfjs-dist` (PDF preview),
 `d3-force`/`d3-selection` (graph view), `dompurify` (sanitization), `yaml`
 (frontmatter).
@@ -214,10 +213,22 @@ re-serializes the whole block, so tables are auto-aligned on every edit.
 Enter and Tab behaviour lives here too as pure functions, with
 `MarkdownEditor.vue` reduced to a thin adapter; the table logic previously sat
 inside that component where it could not be unit-tested, which is how the
-separator-row bug reached users. Deliberately, `formatted_raw` shows aligned
-Markdown source rather than a rendered grid: files on disk are the source of
-truth, and a rich-text document model would round-trip the whole document and
-risk reformatting content the user never touched.
+separator-row bug reached users.
+
+In `formatted_raw` mode a table *renders* as a grid (borders, shaded header
+row, column alignment from the separator row) but is still edited as source:
+`utils/highlight.ts` splits each row into cell and pipe spans, and CSS lays
+them out with `display: table` while hiding the pipes, the separator row and
+the row newlines. Nothing is removed from the DOM, so the editor's
+`textContent` stays byte-identical to the Markdown — CodeJar reads it back as
+the document, caret offsets are character offsets into it, and every
+`editor/table.ts` command and the undo history work unchanged. This keeps the
+files-on-disk-are-the-source-of-truth property that a rich-text document model
+(which round-trips the whole document) would put at risk. Because CodeJar
+restores the caret by offset and prefers the *following* text node at a
+boundary, the caret can land inside a hidden pipe; `editor/table-caret.ts`
+moves it back to visible text on `selectionchange`. Plain (`raw`) mode shows
+the pipe-delimited source.
 
 ### Source layout (`frontend/src/`)
 

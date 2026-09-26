@@ -37,7 +37,9 @@ Four modes, switchable from the toolbar or `Ctrl/Cmd+1`/`2`/`3`:
 
 - **Plain** (`1`) — raw Markdown source, no formatting.
 - **Formatted** (`2`) — Markdown source with inline styling (headings, bold,
-  tables, etc. rendered in place) while still editing plain text.
+  etc. rendered in place) while still editing plain text. Tables show as a
+  grid you can click into and type in; the table toolbar appears while the
+  cursor is in one. Switch to Plain to see the underlying `| … |` syntax.
 - **Preview** (`3`) — fully rendered, read-only.
 - **Structural** — a form-style editor for structured entities (see
   Worldbuilding/entities below), toggled from the mode selector rather than
