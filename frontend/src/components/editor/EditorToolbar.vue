@@ -1,105 +1,139 @@
 <template>
-  <div class="editor-toolbar">
-    <!-- Formatting buttons — only actionable when editor is editable (not pure preview) -->
-    <template v-if="editorVisible">
-      <!-- Undo / Redo -->
-      <v-btn v-bind="btn" icon="mdi-undo" title="Undo (Ctrl+Z)" @mousedown.prevent="emit('command', 'undo')" />
-      <v-btn v-bind="btn" icon="mdi-redo" title="Redo (Ctrl+Y)" @mousedown.prevent="emit('command', 'redo')" />
-      <v-btn
-        v-bind="btn"
-        icon="mdi-unfold-less-horizontal"
-        title="Collapse all foldable sections"
-        :disabled="!isFormattedMode"
-        @mousedown.prevent="emit('command', 'collapse_all_folds')"
-      />
-      <v-btn
-        v-bind="btn"
-        icon="mdi-unfold-more-horizontal"
-        title="Expand all folded sections"
-        :disabled="!isFormattedMode"
-        @mousedown.prevent="emit('command', 'expand_all_folds')"
-      />
+  <!--
+    Two rows on desktop, and the toolbar's height never changes: row 1 holds
+    the everyday tools and the view switcher; row 2 is a context row showing
+    the table controls while the caret is in a table and the less-used tools
+    otherwise. (A single wrapping row used to grow a second line the moment
+    the caret entered a table, shifting the content under the pointer.)
+    On narrow screens both rows collapse into one horizontally scrolling row.
+  -->
+  <div class="editor-toolbar" :class="{ 'is-editing': editorVisible }">
+    <div class="toolbar-row toolbar-row-primary">
+      <template v-if="editorVisible">
+        <!-- Undo / Redo -->
+        <v-btn v-bind="btn" icon="mdi-undo" title="Undo (Ctrl+Z)" @mousedown.prevent="emit('command', 'undo')" />
+        <v-btn v-bind="btn" icon="mdi-redo" title="Redo (Ctrl+Y)" @mousedown.prevent="emit('command', 'redo')" />
 
-      <div class="toolbar-sep" />
-
-      <!-- Headings -->
-      <v-btn v-bind="btn" icon="mdi-format-header-1" title="Heading 1" @mousedown.prevent="emit('command', 'heading_1')" />
-      <v-btn v-bind="btn" icon="mdi-format-header-2" title="Heading 2" @mousedown.prevent="emit('command', 'heading_2')" />
-      <v-btn v-bind="btn" icon="mdi-format-header-3" title="Heading 3" @mousedown.prevent="emit('command', 'heading_3')" />
-
-      <div class="toolbar-sep" />
-
-      <!-- Inline text formatting -->
-      <v-btn v-bind="btn" icon="mdi-format-bold" title="Bold" @mousedown.prevent="emit('command', 'bold')" />
-      <v-btn v-bind="btn" icon="mdi-format-italic" title="Italic" @mousedown.prevent="emit('command', 'italic')" />
-      <v-btn v-bind="btn" icon="mdi-format-strikethrough-variant" title="Strikethrough" @mousedown.prevent="emit('command', 'strikethrough')" />
-      <v-btn v-bind="btn" icon="mdi-marker" title="Highlight" @mousedown.prevent="emit('command', 'highlight')" />
-      <v-btn v-bind="btn" icon="mdi-code-tags" title="Inline code" @mousedown.prevent="emit('command', 'inline_code')" />
-
-      <div class="toolbar-sep" />
-
-      <!-- Links & media -->
-      <v-btn v-bind="btn" icon="mdi-link-variant" title="Insert link" @mousedown.prevent="emit('command', 'link')" />
-      <v-btn v-bind="btn" icon="mdi-image-plus-outline" title="Insert image" @mousedown.prevent="emit('command', 'image')" />
-
-      <div class="toolbar-sep" />
-
-      <!-- Lists & blocks -->
-      <v-btn v-bind="btn" icon="mdi-format-quote-open" title="Blockquote" @mousedown.prevent="emit('command', 'blockquote')" />
-      <v-btn v-bind="btn" icon="mdi-format-list-bulleted" title="Bulleted list" @mousedown.prevent="emit('command', 'bulleted_list')" />
-      <v-btn v-bind="btn" icon="mdi-format-list-numbered" title="Numbered list" @mousedown.prevent="emit('command', 'numbered_list')" />
-      <v-btn v-bind="btn" icon="mdi-format-list-checks" title="Task list" @mousedown.prevent="emit('command', 'task_list')" />
-      <v-btn v-bind="btn" icon="mdi-format-indent-decrease" title="Decrease indent (Shift+Tab)" @mousedown.prevent="emit('command', 'outdent')" />
-      <v-btn v-bind="btn" icon="mdi-format-indent-increase" title="Increase indent (Tab)" @mousedown.prevent="emit('command', 'indent')" />
-
-      <div class="toolbar-sep" />
-
-      <!-- Inserts -->
-      <v-menu v-model="gridMenu" :close-on-content-click="false" location="bottom start">
-        <template #activator="{ props: menuProps }">
-          <v-btn v-bind="{ ...btn, ...menuProps }" icon="mdi-table-plus" title="Insert table" />
-        </template>
-        <v-card class="pa-3">
-          <div class="text-caption mb-2">{{ gridRows }} × {{ gridCols }}</div>
-          <div v-for="r in 8" :key="r" class="d-flex">
-            <div
-              v-for="c in 10"
-              :key="c"
-              class="grid-cell"
-              :class="{ 'is-active': r <= gridRows && c <= gridCols }"
-              @mouseenter="gridRows = r; gridCols = c"
-              @click="emitCreate(r, c)"
-            />
-          </div>
-          <div class="d-flex ga-2 mt-3 align-center">
-            <v-text-field
-              v-model.number="gridRows"
-              label="Rows"
-              type="number"
-              density="compact"
-              hide-details
-              min="1"
-              style="max-width: 90px;"
-            />
-            <v-text-field
-              v-model.number="gridCols"
-              label="Columns"
-              type="number"
-              density="compact"
-              hide-details
-              min="1"
-              style="max-width: 110px;"
-            />
-            <v-btn size="small" @click="emitCreate(gridRows, gridCols)">Insert</v-btn>
-          </div>
-        </v-card>
-      </v-menu>
-      <v-btn v-bind="btn" icon="mdi-code-braces-box" title="Code block" @mousedown.prevent="emit('command', 'code_block')" />
-      <v-btn v-bind="btn" icon="mdi-minus" title="Horizontal rule" @mousedown.prevent="emit('command', 'horizontal_rule')" />
-
-      <!-- Table controls — only while the caret is inside a table -->
-      <template v-if="inTable">
         <div class="toolbar-sep" />
+
+        <!-- Headings -->
+        <v-btn v-bind="btn" icon="mdi-format-header-1" title="Heading 1" @mousedown.prevent="emit('command', 'heading_1')" />
+        <v-btn v-bind="btn" icon="mdi-format-header-2" title="Heading 2" @mousedown.prevent="emit('command', 'heading_2')" />
+        <v-btn v-bind="btn" icon="mdi-format-header-3" title="Heading 3" @mousedown.prevent="emit('command', 'heading_3')" />
+
+        <div class="toolbar-sep" />
+
+        <!-- Inline text formatting -->
+        <v-btn v-bind="btn" icon="mdi-format-bold" title="Bold" @mousedown.prevent="emit('command', 'bold')" />
+        <v-btn v-bind="btn" icon="mdi-format-italic" title="Italic" @mousedown.prevent="emit('command', 'italic')" />
+        <v-btn v-bind="btn" icon="mdi-format-strikethrough-variant" title="Strikethrough" @mousedown.prevent="emit('command', 'strikethrough')" />
+        <v-btn v-bind="btn" icon="mdi-marker" title="Highlight" @mousedown.prevent="emit('command', 'highlight')" />
+        <v-btn v-bind="btn" icon="mdi-code-tags" title="Inline code" @mousedown.prevent="emit('command', 'inline_code')" />
+
+        <div class="toolbar-sep" />
+
+        <!-- Links & media -->
+        <v-btn v-bind="btn" icon="mdi-link-variant" title="Insert link" @mousedown.prevent="emit('command', 'link')" />
+        <v-btn v-bind="btn" icon="mdi-image-plus-outline" title="Insert image" @mousedown.prevent="emit('command', 'image')" />
+
+        <div class="toolbar-sep" />
+
+        <!-- Lists -->
+        <v-btn v-bind="btn" icon="mdi-format-list-bulleted" title="Bulleted list" @mousedown.prevent="emit('command', 'bulleted_list')" />
+        <v-btn v-bind="btn" icon="mdi-format-list-numbered" title="Numbered list" @mousedown.prevent="emit('command', 'numbered_list')" />
+        <v-btn v-bind="btn" icon="mdi-format-list-checks" title="Task list" @mousedown.prevent="emit('command', 'task_list')" />
+
+        <div class="toolbar-sep" />
+
+        <!-- Inserts -->
+        <v-menu v-model="gridMenu" :close-on-content-click="false" location="bottom start">
+          <template #activator="{ props: menuProps }">
+            <v-btn v-bind="{ ...btn, ...menuProps }" icon="mdi-table-plus" title="Insert table" />
+          </template>
+          <v-card class="pa-3">
+            <div class="text-caption mb-2">{{ gridRows }} × {{ gridCols }}</div>
+            <div v-for="r in 8" :key="r" class="d-flex">
+              <div
+                v-for="c in 10"
+                :key="c"
+                class="grid-cell"
+                :class="{ 'is-active': r <= gridRows && c <= gridCols }"
+                @mouseenter="gridRows = r; gridCols = c"
+                @click="emitCreate(r, c)"
+              />
+            </div>
+            <div class="d-flex ga-2 mt-3 align-center">
+              <v-text-field
+                v-model.number="gridRows"
+                label="Rows"
+                type="number"
+                density="compact"
+                hide-details
+                min="1"
+                style="max-width: 90px;"
+              />
+              <v-text-field
+                v-model.number="gridCols"
+                label="Columns"
+                type="number"
+                density="compact"
+                hide-details
+                min="1"
+                style="max-width: 110px;"
+              />
+              <v-btn size="small" @click="emitCreate(gridRows, gridCols)">Insert</v-btn>
+            </div>
+          </v-card>
+        </v-menu>
+
+        <div class="toolbar-sep" />
+
+        <!-- Overflow: less-common actions -->
+        <v-menu location="bottom start">
+          <template #activator="{ props: menuProps }">
+            <v-btn v-bind="{ ...btn, ...menuProps }" icon="mdi-dots-horizontal" title="More options" />
+          </template>
+          <v-list density="compact" min-width="240">
+            <v-list-item
+              prepend-icon="mdi-note-plus-outline"
+              title="Extract selection to note"
+              @click="emit('command', 'extract_to_note')"
+            />
+            <v-divider class="my-1" />
+            <v-list-subheader>Ordered list styles</v-list-subheader>
+            <v-list-item prepend-icon="mdi-format-list-numbered" title="a, b, c …" @click="emit('command', 'numbered_list_lower_alpha')" />
+            <v-list-item prepend-icon="mdi-format-list-numbered" title="A, B, C …" @click="emit('command', 'numbered_list_upper_alpha')" />
+            <v-list-item prepend-icon="mdi-format-list-numbered" title="i, ii, iii …" @click="emit('command', 'numbered_list_lower_roman')" />
+            <v-list-item prepend-icon="mdi-format-list-numbered" title="I, II, III …" @click="emit('command', 'numbered_list_upper_roman')" />
+          </v-list>
+        </v-menu>
+      </template>
+
+      <span v-else class="text-caption text-secondary ml-1">Preview mode — switch to Plain or Formatted to edit</span>
+
+      <v-spacer />
+
+      <!-- View mode toggle (always visible) -->
+      <v-btn-toggle
+        :model-value="mode"
+        mandatory
+        density="compact"
+        variant="outlined"
+        divided
+        style="flex-shrink: 0;"
+        @update:model-value="(v) => emit('mode-change', v as EditorMode)"
+      >
+        <v-btn value="raw" size="x-small" title="Plain text editor">Plain</v-btn>
+        <v-btn value="formatted_raw" size="x-small" title="Markdown text with inline formatting">Formatted</v-btn>
+        <v-btn value="fully_rendered" size="x-small" title="Rendered preview only">Preview</v-btn>
+        <v-btn value="structural" size="x-small" title="Structural entity editor">Structural</v-btn>
+      </v-btn-toggle>
+    </div>
+
+    <div v-if="editorVisible" class="toolbar-row toolbar-row-context" :data-context="inTable ? 'table' : 'default'">
+      <!-- Table controls — while the caret is inside a table -->
+      <template v-if="inTable">
+        <span class="toolbar-context-label text-caption">Table</span>
         <v-btn v-bind="btn" icon="mdi-table-column-plus-before" title="Add column left" @mousedown.prevent="emit('command', 'table_col_insert_before')" />
         <v-btn v-bind="btn" icon="mdi-table-column-plus-after" title="Add column right" @mousedown.prevent="emit('command', 'table_col_insert_after')" />
         <v-btn v-bind="btn" icon="mdi-table-column-remove" title="Delete column" @mousedown.prevent="emit('command', 'table_col_delete')" />
@@ -129,48 +163,35 @@
         </v-menu>
       </template>
 
-      <div class="toolbar-sep" />
+      <!-- Less frequently used tools — the rest of the time -->
+      <template v-else>
+        <v-btn
+          v-bind="btn"
+          icon="mdi-unfold-less-horizontal"
+          title="Collapse all foldable sections"
+          :disabled="!isFormattedMode"
+          @mousedown.prevent="emit('command', 'collapse_all_folds')"
+        />
+        <v-btn
+          v-bind="btn"
+          icon="mdi-unfold-more-horizontal"
+          title="Expand all folded sections"
+          :disabled="!isFormattedMode"
+          @mousedown.prevent="emit('command', 'expand_all_folds')"
+        />
 
-      <!-- Overflow: less-common actions -->
-      <v-menu location="bottom start">
-        <template #activator="{ props: menuProps }">
-          <v-btn v-bind="{ ...btn, ...menuProps }" icon="mdi-dots-horizontal" title="More options" />
-        </template>
-        <v-list density="compact" min-width="240">
-          <v-list-item
-            prepend-icon="mdi-note-plus-outline"
-            title="Extract selection to note"
-            @click="emit('command', 'extract_to_note')"
-          />
-          <v-divider class="my-1" />
-          <v-list-subheader>Ordered list styles</v-list-subheader>
-          <v-list-item prepend-icon="mdi-format-list-numbered" title="a, b, c …" @click="emit('command', 'numbered_list_lower_alpha')" />
-          <v-list-item prepend-icon="mdi-format-list-numbered" title="A, B, C …" @click="emit('command', 'numbered_list_upper_alpha')" />
-          <v-list-item prepend-icon="mdi-format-list-numbered" title="i, ii, iii …" @click="emit('command', 'numbered_list_lower_roman')" />
-          <v-list-item prepend-icon="mdi-format-list-numbered" title="I, II, III …" @click="emit('command', 'numbered_list_upper_roman')" />
-        </v-list>
-      </v-menu>
-    </template>
+        <div class="toolbar-sep" />
 
-    <span v-else class="text-caption text-secondary ml-1">Preview mode — switch to Plain or Formatted to edit</span>
+        <v-btn v-bind="btn" icon="mdi-format-quote-open" title="Blockquote" @mousedown.prevent="emit('command', 'blockquote')" />
+        <v-btn v-bind="btn" icon="mdi-format-indent-decrease" title="Decrease indent (Shift+Tab)" @mousedown.prevent="emit('command', 'outdent')" />
+        <v-btn v-bind="btn" icon="mdi-format-indent-increase" title="Increase indent (Tab)" @mousedown.prevent="emit('command', 'indent')" />
 
-    <v-spacer />
+        <div class="toolbar-sep" />
 
-    <!-- View mode toggle (always visible) -->
-    <v-btn-toggle
-      :model-value="mode"
-      mandatory
-      density="compact"
-      variant="outlined"
-      divided
-      style="flex-shrink: 0;"
-      @update:model-value="(v) => emit('mode-change', v as EditorMode)"
-    >
-      <v-btn value="raw" size="x-small" title="Plain text editor">Plain</v-btn>
-      <v-btn value="formatted_raw" size="x-small" title="Markdown text with inline formatting">Formatted</v-btn>
-      <v-btn value="fully_rendered" size="x-small" title="Rendered preview only">Preview</v-btn>
-      <v-btn value="structural" size="x-small" title="Structural entity editor">Structural</v-btn>
-    </v-btn-toggle>
+        <v-btn v-bind="btn" icon="mdi-code-braces-box" title="Code block" @mousedown.prevent="emit('command', 'code_block')" />
+        <v-btn v-bind="btn" icon="mdi-minus" title="Horizontal rule" @mousedown.prevent="emit('command', 'horizontal_rule')" />
+      </template>
+    </div>
   </div>
 </template>
 
@@ -216,28 +237,69 @@ function emitCreate(rows: number, cols: number) {
 <style scoped>
 .editor-toolbar {
   display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 8px;
+  flex-direction: column;
+  padding: 2px 8px;
   border-bottom: 1px solid rgb(var(--v-theme-border));
   background: rgb(var(--v-theme-surface));
   flex-shrink: 0;
-  flex-wrap: wrap;
-  min-height: 40px;
 }
 
-/* Narrow screens: keep the toolbar a single horizontally-scrollable row
-   instead of wrapping to 2-3 rows — vertical space is precious on a phone,
-   especially with the on-screen keyboard up. */
+/* Each row is a fixed height and scrolls sideways rather than wrapping, so
+   the toolbar's height can't change when row 2 swaps between the table
+   controls and the less-used tools. */
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+.toolbar-row::-webkit-scrollbar {
+  display: none;
+}
+.toolbar-row > * {
+  flex-shrink: 0;
+}
+
+.toolbar-row-context {
+  border-top: 1px solid rgba(var(--v-theme-border), 0.6);
+}
+
+.toolbar-context-label {
+  font-weight: 600;
+  color: rgb(var(--v-theme-primary));
+  margin: 0 6px 0 2px;
+}
+
+/* Narrow screens: one horizontally scrolling row (both rows flattened into
+   it) — vertical space is precious on a phone, especially with the
+   on-screen keyboard up. */
 @media (max-width: 959px) {
   .editor-toolbar {
-    flex-wrap: nowrap;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    height: 40px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* Firefox */
   }
   .editor-toolbar::-webkit-scrollbar {
     display: none;
+  }
+  .toolbar-row {
+    display: contents;
+  }
+  .toolbar-row-context::before {
+    content: '';
+    width: 1px;
+    height: 20px;
+    background: rgb(var(--v-theme-border));
+    margin: 0 3px;
+    flex-shrink: 0;
   }
 }
 

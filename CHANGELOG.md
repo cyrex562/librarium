@@ -23,6 +23,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 
 ### Changed
 
+- The editor toolbar is now two fixed rows on desktop: everyday tools on
+  top, and a context row below that shows table controls while the cursor
+  is in a table and less-used tools (folding, blockquote, indent, code block,
+  horizontal rule) otherwise. Clicking into a table no longer shifts the page.
 - Sidebar panels (Tags, Outline, AI Insights, Outgoing Links, Backlinks,
   Neighboring Files, Favorites, Bookmarks, Recent Files) and the Frontmatter
   panel now start collapsed.

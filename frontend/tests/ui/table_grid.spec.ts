@@ -158,3 +158,36 @@ test.describe('Formatted mode: merged cells', () => {
         await expect(cell(page, 'top')).toHaveAttribute('style', /grid-row: span 2/);
     });
 });
+
+test.describe('Editor toolbar: no layout shift entering a table', () => {
+    test('the toolbar keeps its height and the table does not move', async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await openNote(page);
+        const toolbar = page.locator('.editor-toolbar');
+        const context = page.locator('.toolbar-row-context');
+
+        await expect(context).toHaveAttribute('data-context', 'default');
+        await expect(page.getByTitle('Code block')).toBeVisible();
+        const toolbarBefore = await toolbar.boundingBox();
+        const cellBefore = await cell(page, 'Apple').boundingBox();
+
+        await cell(page, 'Apple').click();
+
+        await expect(context).toHaveAttribute('data-context', 'table');
+        await expect(page.getByTitle('Add row below')).toBeVisible();
+        expect((await toolbar.boundingBox())!.height).toBe(toolbarBefore!.height);
+        expect((await cell(page, 'Apple').boundingBox())!.y).toBe(cellBefore!.y);
+    });
+
+    test('double-clicking a word in a table selects it in the clicked cell', async ({ page }) => {
+        // Before the fixed-height toolbar, the first click grew the toolbar
+        // and the second click landed on the row above.
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await openNote(page);
+
+        await cell(page, 'Pear').dblclick();
+        await page.keyboard.type('Plum');
+
+        await expect.poll(() => editorText(page)).toContain('| Plum | 10 | 0.75 |');
+    });
+});
