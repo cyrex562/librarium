@@ -19,6 +19,7 @@ import {
     apiDownloadZip,
     apiDownloadTar,
     apiExportPdf,
+    apiConvertToTypst,
     ApiError,
     isLocalTransportActive,
 } from '@/api/client';
@@ -421,7 +422,17 @@ export const useFilesStore = defineStore('files', () => {
         triggerBlobDownload(blob, paths.length === 1 ? `${paths[0].split('/').pop() ?? 'download'}.tar.gz` : `${paths.length}_files.tar.gz`);
     }
 
-    /** Export a Typst note as PDF and trigger a browser download (#140). */
+    /**
+     * Convert a Markdown note to a new Typst note beside it (#141). Returns
+     * the new path and what couldn't be carried over.
+     */
+    async function convertToTypst(vaultId: string, path: string) {
+        const result = await apiConvertToTypst(vaultId, path);
+        await loadTree(vaultId);
+        return result;
+    }
+
+    /** Export a Typst or Markdown note as PDF and trigger a browser download (#140). */
     async function exportAsPdf(vaultId: string, path: string, content?: string): Promise<void> {
         const blob = await apiExportPdf(vaultId, path, content);
         const stem = (path.split('/').pop() ?? 'note').replace(/\.[^.]+$/, '');
@@ -568,6 +579,7 @@ export const useFilesStore = defineStore('files', () => {
         downloadAsZip,
         downloadAsTar,
         exportAsPdf,
+        convertToTypst,
         selectionMode,
         selectedPaths,
         lastSelectionAnchorPath,

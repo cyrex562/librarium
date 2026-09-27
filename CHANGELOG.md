@@ -37,6 +37,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   vault; packages aren't supported.
 - Export Typst notes as PDF (#140): the PDF button in the Typst editor (exports
   the current text), or "Export as PDF" on a `.typ` file in the file tree.
+- Markdown → Typst conversion (#141): "Convert to Typst" (file-tree menu, or
+  the Markdown editor's ⋯ menu) creates a `.typ` copy of a note and lists
+  anything that didn't carry over. Markdown notes can now be exported to PDF
+  as well (#140).
 
 ### Changed
 

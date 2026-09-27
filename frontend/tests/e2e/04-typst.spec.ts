@@ -78,4 +78,46 @@ test.describe('Typst notes', () => {
     expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
     if (process.env.TYPST_PDF_COPY) fs.copyFileSync(target, process.env.TYPST_PDF_COPY);
   });
+
+  test('5.3 - A Markdown note converts to Typst and exports to PDF', async ({ page }) => {
+    await page.locator('button[title="New note"]').click();
+    await page.getByLabel('File name').fill('plan.md');
+    await page.locator('button:has-text("Create")').click();
+    await expect(page.locator('.tab-item', { hasText: 'plan.md' })).toBeVisible({ timeout: 5000 });
+
+    await page.locator('.markdown-editor').click();
+    // (No typed list: the editor continues "- " on Enter, which would nest it.)
+    await page.keyboard.type('# Plan\n\nShip **PDF export**, see [[Roadmap]].\n\n![logo](https://example.com/logo.png)\n');
+
+    // Markdown → PDF straight from the editor.
+    await page.getByTitle('More options').click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="toolbar-export-pdf"]').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('plan.pdf');
+    const target = test.info().outputPath('plan.pdf');
+    await download.saveAs(target);
+    const fs = await import('node:fs');
+    expect(fs.readFileSync(target).subarray(0, 5).toString()).toBe('%PDF-');
+    if (process.env.TYPST_PDF_COPY) fs.copyFileSync(target, process.env.TYPST_PDF_COPY);
+
+    // Convert to Typst: the remote image can't come along, and says so.
+    await page.getByTitle('More options').click();
+    await page.locator('[data-testid="toolbar-convert-typst"]').click();
+    const report = page.locator('[data-testid="conversion-report"]');
+    await expect(report).toContainText('Created plan.typ from plan.md', { timeout: 10_000 });
+    await expect(report).toContainText('Remote image');
+    await report.getByRole('button', { name: 'OK' }).click();
+
+    await expect(page.locator('.tab-item', { hasText: 'plan.typ' })).toBeVisible();
+    const editor = page.locator('[data-testid="typst-editor"] .typst-editor');
+    await expect(editor).toContainText('= Plan');
+    await expect(editor).toContainText('#strong[PDF export]');
+    await expect(editor).toContainText('#link("librarium://note/Roadmap")[Roadmap]');
+
+    // And the converted note renders.
+    await page.locator('[data-testid="typst-editor"]').getByRole('button', { name: 'Preview' }).click();
+    await expect(page.locator('[data-testid="typst-preview-body"] h2')).toHaveText('Plan', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="typst-preview-body"] strong')).toHaveText('PDF export');
+  });
 });

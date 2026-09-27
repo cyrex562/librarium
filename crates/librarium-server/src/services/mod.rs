@@ -26,6 +26,7 @@ pub mod reindex_service;
 pub mod relation_service;
 pub mod schema_service;
 pub mod template_service;
+pub mod typst_convert;
 #[cfg(feature = "typst")]
 pub mod typst_service;
 

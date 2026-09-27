@@ -374,6 +374,67 @@ async fn create_file(
         .json(content))
 }
 
+#[derive(serde::Deserialize)]
+struct ConvertToTypstRequest {
+    /// Vault-relative path of the Markdown note to convert.
+    path: String,
+}
+
+/// Convert a Markdown note to a new Typst note beside it (#141). The
+/// Markdown file is left alone. The new file is `<stem>.typ`, or
+/// `<stem> (2).typ` and so on if that exists. Returns `{path, warnings}`,
+/// where warnings list what couldn't be carried over. Needs write access,
+/// since it creates a file.
+#[post("/api/vaults/{vault_id}/convert-to-typst")]
+async fn convert_to_typst(
+    state: web::Data<AppState>,
+    vault_id: web::Path<String>,
+    req: web::Json<ConvertToTypstRequest>,
+) -> AppResult<HttpResponse> {
+    let vault_id = vault_id.into_inner();
+    let vault = state.db.get_vault(&vault_id).await?;
+    if !req.path.to_ascii_lowercase().ends_with(".md") {
+        return Err(AppError::InvalidInput(
+            "Only Markdown (.md) notes can be converted to Typst".to_string(),
+        ));
+    }
+    let source = FileService::resolve_path(&vault.path, &req.path)?;
+    if !source.is_file() {
+        return Err(AppError::NotFound(format!("File not found: {}", req.path)));
+    }
+    let markdown = std::fs::read_to_string(&source)?;
+    let conversion = crate::services::typst_convert::markdown_to_typst(&markdown);
+
+    let stem = &req.path[..req.path.len() - ".md".len()];
+    let mut target = format!("{stem}.typ");
+    let mut n = 2;
+    while FileService::resolve_path(&vault.path, &target)?.exists() {
+        target = format!("{stem} ({n}).typ");
+        n += 1;
+    }
+
+    let content = FileService::create_file(&vault.path, &target, Some(&conversion.typst))?;
+    let etag = build_file_etag(&content);
+    let content_hash = FileService::content_hash(&vault.path, &target)?;
+    state
+        .db
+        .log_file_change(
+            &vault_id,
+            &target,
+            "created",
+            content_hash.as_deref(),
+            Some(etag.as_str()),
+            None,
+            state.change_log_retention_days,
+        )
+        .await?;
+
+    Ok(HttpResponse::Created().json(serde_json::json!({
+        "path": target,
+        "warnings": conversion.warnings,
+    })))
+}
+
 #[put("/api/vaults/{vault_id}/files/{file_path:.*}")]
 async fn update_file(
     state: web::Data<AppState>,
@@ -1632,6 +1693,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(serve_raw_file)
         .service(get_thumbnail)
         .service(create_file)
+        .service(convert_to_typst)
         .service(update_file)
         .service(delete_file)
         .service(create_directory)

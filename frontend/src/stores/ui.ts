@@ -10,6 +10,12 @@ export interface ConflictState {
     serverModified?: string;
 }
 
+export interface ConversionReport {
+    source: string;
+    target: string;
+    warnings: Array<{ line: number | null; message: string }>;
+}
+
 export interface ImportDialogOptions {
     targetPath?: string;
     entries?: ImportCandidate[];
@@ -26,6 +32,8 @@ export const useUiStore = defineStore('ui', () => {
     // Move-to-folder picker (LIB-104): the vault-relative paths being moved.
     const moveDialogOpen = ref(false);
     const moveSourcePaths = ref<string[]>([]);
+    // What Markdown → Typst conversion couldn't carry over (#141).
+    const conversionReport = ref<ConversionReport | null>(null);
 
     function openTemplateSelector() {
         templateSelectorOpen.value = true;
@@ -87,6 +95,7 @@ export const useUiStore = defineStore('ui', () => {
     }
 
     return {
+        conversionReport,
         templateSelectorOpen,
         conflictResolverOpen,
         conflictState,

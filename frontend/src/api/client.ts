@@ -755,8 +755,24 @@ export const apiDownloadTar = async (vaultId: string, paths: string[]): Promise<
     });
 };
 
+export interface ConversionWarning {
+    /** 1-based line in the Markdown source, when known. */
+    line: number | null;
+    message: string;
+}
+
+/** Convert a Markdown note to a new Typst note beside it (#141). */
+export const apiConvertToTypst = (
+    vaultId: string,
+    path: string,
+): Promise<{ path: string; warnings: ConversionWarning[] }> =>
+    request(`/api/vaults/${vaultId}/convert-to-typst`, {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+    });
+
 /**
- * Export a Typst note as PDF (#140). With `content`, the current (possibly
+ * Export a Typst or Markdown note as PDF (#140; Markdown is converted to Typst first). With `content`, the current (possibly
  * unsaved) text is exported; without it, the saved file. A note with errors
  * rejects with an ApiError (422) whose body carries `diagnostics`.
  */

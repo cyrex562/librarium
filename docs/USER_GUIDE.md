@@ -65,9 +65,18 @@ packages (`@preview/…`) aren't available.
 **Export as PDF**: the PDF button in the Typst editor exports the text as it
 is now, saved or not. You can also right-click a `.typ` file in the file tree
 and choose "Export as PDF", which exports the saved file. If the note has
-errors, the editor switches to Preview to show them. Markdown notes can't be
-exported to PDF yet; that comes with Markdown→Typst conversion. Search and
-links for Typst notes are planned (see epic #121).
+errors, the editor switches to Preview to show them.
+
+**Markdown notes** can be exported to PDF too, from the Markdown editor's
+"More options" menu (⋯) or by right-clicking the file. Librarium converts them
+to Typst behind the scenes. To keep a Typst copy you can edit, choose "Convert
+to Typst" instead. It creates `note.typ` beside `note.md`, leaving the
+Markdown note unchanged, and opens it. If anything couldn't be carried over
+exactly, a dialog lists it with line numbers: raw HTML, images linked from the
+web, embedded notes (`![[note]]`), and LaTeX math with no plain-Typst
+equivalent. Wiki links become `#link("librarium://note/…")`, and merged table
+cells carry over. Converting Typst back to Markdown, and search and links for
+Typst notes, are planned (see epic #121).
 
 ### File operations
 

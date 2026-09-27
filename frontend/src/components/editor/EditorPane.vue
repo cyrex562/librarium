@@ -124,6 +124,7 @@ import { useFilesStore } from '@/stores/files';
 import { ApiError } from '@/api/client';
 import { useUiStore } from '@/stores/ui';
 import type { EditorMode } from '@/api/types';
+import { useNoteConversion } from '@/composables/useNoteConversion';
 
 import DocumentMetaBar from './DocumentMetaBar.vue';
 import FrontmatterPanel from './FrontmatterPanel.vue';
@@ -149,6 +150,7 @@ const editorStore = useEditorStore();
 const prefsStore = usePreferencesStore();
 const filesStore = useFilesStore();
 const uiStore = useUiStore();
+const noteConversion = useNoteConversion();
 
 const activeTab = computed(() => {
   const pane = tabsStore.panes.find(p => p.id === props.paneId);
@@ -241,6 +243,13 @@ function scheduleTabSave(tabId: string, content: string, frontmatter: Record<str
   });
 }
 
+/** Save pending edits first: conversion reads the Markdown file from disk. */
+async function convertCurrentNote(path: string) {
+  const tabId = activeTab.value?.id;
+  if (tabId) await editorStore.flushAutoSave(tabId);
+  await noteConversion.convertToTypst(path);
+}
+
 function onModeChange(value: EditorMode | null) {
   if (!value) return;
   editorStore.setMode(value);
@@ -256,6 +265,9 @@ function onToolbarCommand(cmd: string, payload?: { rows: number; cols: number })
   if (cmd === 'redo') { markdownEditorRef.value?.callRedo(); return; }
   if (cmd === 'collapse_all_folds') { markdownEditorRef.value?.collapseAllFolds(); return; }
   if (cmd === 'expand_all_folds') { markdownEditorRef.value?.expandAllFolds(); return; }
+  const path = activeTab.value?.filePath;
+  if (cmd === 'export_pdf') { if (path) void noteConversion.exportPdf(path, activeTab.value?.content ?? ''); return; }
+  if (cmd === 'convert_to_typst') { if (path) void convertCurrentNote(path); return; }
   markdownEditorRef.value?.applyCommand(cmd as any, payload);
 }
 </script>
