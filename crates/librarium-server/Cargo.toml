@@ -1,6 +1,6 @@
 [package]
 name = "librarium-server"
-version = "0.102.24"
+version = "0.102.25"
 edition = "2021"
 
 [lib]
@@ -55,6 +55,9 @@ tracing-appender = "0.2"
 # Error handling
 anyhow = "1.0"
 thiserror = "2.0"
+
+# LaTeX math -> Typst math, for Markdown -> Typst conversion (#141).
+mitex = "0.2.4"
 
 # Typst compiler (feature "typst"): renders .typ notes for Preview and PDF export.
 typst = { version = "0.15.1", optional = true }

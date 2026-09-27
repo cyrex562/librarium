@@ -223,12 +223,12 @@ test.describe('Typst notes', () => {
         await expect(page.locator('[data-testid="typst-diagnostics"]')).toContainText('unclosed delimiter');
     });
 
-    test('file tree offers Export as PDF for Typst notes only', async ({ page }) => {
+    test('file tree offers Export as PDF for notes, not other files', async ({ page }) => {
         await setup(page, {
             treeByVaultId: {
                 [defaultVault.id]: [
                     { name: NOTE, path: NOTE, is_directory: false, modified: new Date().toISOString() },
-                    { name: 'plain.md', path: 'plain.md', is_directory: false, modified: new Date().toISOString() },
+                    { name: 'data.json', path: 'data.json', is_directory: false, modified: new Date().toISOString() },
                 ],
             },
         });
@@ -239,7 +239,7 @@ test.describe('Typst notes', () => {
             await route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.7 fake' });
         });
 
-        await page.locator('.file-tree-node', { hasText: 'plain.md' }).click({ button: 'right' });
+        await page.locator('.file-tree-node', { hasText: 'data.json' }).click({ button: 'right' });
         await expect(page.locator('[data-testid="ctx-rename"]')).toBeVisible();
         await expect(page.locator('[data-testid="ctx-export-pdf"]')).toHaveCount(0);
         await page.keyboard.press('Escape');

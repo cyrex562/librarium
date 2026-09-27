@@ -12,7 +12,7 @@ use librarium::config::AppConfig;
 use librarium::db::Database;
 use librarium::middleware::AuthMiddleware;
 use librarium::models::CreateVaultRequest;
-use librarium::routes::{auth, markdown, vaults, AppState};
+use librarium::routes::{auth, files, markdown, vaults, AppState};
 use librarium::services::{MarkdownParser, SearchIndex};
 use librarium::watcher::FileWatcher;
 use serde_json::{json, Value};
@@ -69,6 +69,7 @@ async fn viewers_can_render_typst_and_outsiders_cannot() {
             .wrap(AuthMiddleware)
             .configure(auth::configure)
             .configure(vaults::configure)
+            .configure(files::configure)
             .configure(markdown::configure),
     )
     .await;
@@ -213,15 +214,51 @@ async fn viewers_can_render_typst_and_outsiders_cannot() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["diagnostics"][0]["severity"], "error");
 
+    // Markdown exports too, converted to Typst on the way (#141).
+    std::fs::write(
+        vault_dir.join("papers/notes.md"),
+        "---\ntitle: Notes\n---\n# Notes\n\n| a | b |\n|---|---|\n| 1 | << |\n\nSee [[Other]] and $x^2$.\n",
+    )
+    .unwrap();
+    let resp =
+        test::call_service(&app, export("viewer", json!({ "path": "papers/notes.md" }))).await;
+    assert_eq!(resp.status(), 200);
+    assert!(test::read_body(resp).await.starts_with(b"%PDF-"));
+
     let resp = test::call_service(
         &app,
         export(
             "viewer",
-            json!({ "path": "notes/plain.md", "content": "# md" }),
+            json!({ "path": "papers/data.txt", "content": "plain" }),
         ),
     )
     .await;
     assert_eq!(resp.status(), 400);
+
+    // Convert to Typst creates a file, so a viewer can't…
+    let convert = |user: &'static str| {
+        test::TestRequest::post()
+            .uri(&format!("/api/vaults/{vault_id}/convert-to-typst"))
+            .insert_header(bearer(user))
+            .set_json(json!({ "path": "papers/notes.md" }))
+            .to_request()
+    };
+    let resp = test::call_service(&app, convert("viewer")).await;
+    assert_eq!(resp.status(), 403);
+    // …but the owner can, and a second conversion doesn't overwrite the first.
+    let resp = test::call_service(&app, convert("admin")).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["path"], "papers/notes.typ");
+    assert!(body["warnings"].as_array().unwrap().is_empty(), "{body}");
+    let typ = std::fs::read_to_string(vault_dir.join("papers/notes.typ")).unwrap();
+    assert!(typ.contains("#set document(title: \"Notes\")"), "{typ}");
+    assert!(typ.contains("table.cell(colspan: 2)[1]"), "{typ}");
+    assert!(vault_dir.join("papers/notes.md").exists());
+    let resp = test::call_service(&app, convert("admin")).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["path"], "papers/notes (2).typ");
 
     let resp = test::call_service(
         &app,

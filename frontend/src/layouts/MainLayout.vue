@@ -108,6 +108,7 @@
   <PluginManager v-if="canUsePlugins" v-model="pluginsOpen" />
   <TemplateSelector v-model="uiStore.templateSelectorOpen" />
   <ConflictResolver v-model="uiStore.conflictResolverOpen" />
+  <ConversionReportDialog />
   <ImportVaultDialog v-model="uiStore.importDialogOpen" />
   <MoveToFolderModal v-model="uiStore.moveDialogOpen" :source-paths="uiStore.moveSourcePaths" />
   </template>
@@ -156,6 +157,7 @@ import QuickSwitcher from '@/components/modals/QuickSwitcher.vue';
 import PluginManager from '@/components/modals/PluginManager.vue';
 import TemplateSelector from '@/components/modals/TemplateSelector.vue';
 import ConflictResolver from '@/components/modals/ConflictResolver.vue';
+import ConversionReportDialog from '@/components/modals/ConversionReportDialog.vue';
 import ImportVaultDialog from '@/components/modals/ImportVaultDialog.vue';
 import MoveToFolderModal from '@/components/modals/MoveToFolderModal.vue';
 

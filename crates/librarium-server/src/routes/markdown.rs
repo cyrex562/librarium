@@ -118,9 +118,10 @@ pub struct ExportPdfRequest {
     content: Option<String>,
 }
 
-/// Export a Typst note as a PDF download (#140). Compile errors are a 422
-/// with `{error, diagnostics}`. Markdown notes follow once they can be
-/// converted to Typst (#141).
+/// Export a Typst or Markdown note as a PDF download (#140). Markdown is
+/// converted to Typst first (#141); the conversion's warnings aren't
+/// reported here (Convert to Typst shows them). Compile errors are a 422
+/// with `{error, diagnostics}`.
 #[post("/api/vaults/{vault_id}/export-pdf")]
 pub async fn export_pdf(
     state: web::Data<AppState>,
@@ -129,9 +130,10 @@ pub async fn export_pdf(
 ) -> AppResult<HttpResponse> {
     let vault = state.db.get_vault(&vault_id.into_inner()).await?;
     let req = req.into_inner();
-    if !req.path.to_ascii_lowercase().ends_with(".typ") {
+    let lower = req.path.to_ascii_lowercase();
+    if !lower.ends_with(".typ") && !lower.ends_with(".md") {
         return Err(crate::error::AppError::InvalidInput(
-            "Only Typst (.typ) notes can be exported to PDF so far".to_string(),
+            "Only Typst (.typ) and Markdown (.md) notes can be exported to PDF".to_string(),
         ));
     }
     export_pdf_impl(vault.path, req).await
@@ -153,6 +155,11 @@ async fn export_pdf_impl(vault_path: String, req: ExportPdfRequest) -> AppResult
             }
             std::fs::read_to_string(&full)?
         }
+    };
+    let content = if req.path.to_ascii_lowercase().ends_with(".md") {
+        crate::services::typst_convert::markdown_to_typst(&content).typst
+    } else {
+        content
     };
     let file_name = std::path::Path::new(&req.path)
         .file_stem()

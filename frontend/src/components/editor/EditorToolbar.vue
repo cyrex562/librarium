@@ -99,6 +99,20 @@
               title="Extract selection to note"
               @click="emit('command', 'extract_to_note')"
             />
+            <template v-if="canUseTypstRendering">
+              <v-list-item
+                prepend-icon="mdi-file-pdf-box"
+                title="Export as PDF"
+                data-testid="toolbar-export-pdf"
+                @click="emit('command', 'export_pdf')"
+              />
+              <v-list-item
+                prepend-icon="mdi-alpha-t-box-outline"
+                title="Convert to Typst"
+                data-testid="toolbar-convert-typst"
+                @click="emit('command', 'convert_to_typst')"
+              />
+            </template>
             <v-divider class="my-1" />
             <v-list-subheader>Ordered list styles</v-list-subheader>
             <v-list-item prepend-icon="mdi-format-list-numbered" title="a, b, c …" @click="emit('command', 'numbered_list_lower_alpha')" />
@@ -200,8 +214,18 @@ import { computed, ref } from 'vue';
 import type { MarkdownToolbarCommand } from '@/editor/markdown-toolbar';
 import type { EditorMode } from '@/api/types';
 import type { TableContext } from './MarkdownEditor.vue';
+import { useCapabilities } from '@/composables/useCapabilities';
 
-type ToolbarCommand = MarkdownToolbarCommand | 'undo' | 'redo' | 'collapse_all_folds' | 'expand_all_folds';
+const { canUseTypstRendering } = useCapabilities();
+
+type ToolbarCommand =
+  | MarkdownToolbarCommand
+  | 'undo'
+  | 'redo'
+  | 'collapse_all_folds'
+  | 'expand_all_folds'
+  | 'export_pdf'
+  | 'convert_to_typst';
 
 const props = defineProps<{
   mode: EditorMode;
