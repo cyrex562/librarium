@@ -44,7 +44,7 @@ frontend switches on, e.g. TOTP-required responses).
 | `groups.rs` | Groups and group membership, for bulk vault sharing |
 | `vaults.rs` | Register/list/delete vaults, sharing (users + groups), visibility, ownership transfer |
 | `files.rs` | The bulk of the surface: tree, read/write/delete, rename, directories, upload (including chunked upload-sessions), download (raw/zip/tar), thumbnails, trash, random/daily note, wiki-link resolution |
-| `markdown.rs` | `POST /api/render` and the vault-scoped variant — Markdown → HTML |
+| `markdown.rs` | `POST /api/render` and the vault-scoped variant — Markdown → HTML; `POST /api/vaults/{id}/render-typst` — Typst note → `{html, css, diagnostics}` (feature `typst`; 501 without it) |
 | `entities.rs` | Structured entities, relations, the knowledge graph, reindexing (builder-style routes, not the `#[get]` macro) |
 | `tags.rs` | Tag listing and backlinks |
 | `bookmarks.rs`, `favorites.rs` | Per-user, per-vault bookmarks and favorites |

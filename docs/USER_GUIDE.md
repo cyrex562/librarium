@@ -53,10 +53,14 @@ an image into the editor to upload and embed it.
 
 **Typst notes.** To create one, name a new note with a `.typ` extension
 (for example `paper.typ`). A name with no extension creates a Markdown note.
-Typst notes open in a simpler editor with only Plain and Formatted:
+Typst notes open in a simpler editor with Plain, Formatted and Preview.
 Formatted colors headings, `*strong*`, `_emphasis_`, `#` code, math, raw
-blocks, comments, labels and references. Preview, PDF export, search and
-links for Typst notes are planned (see epic #121).
+blocks, comments, labels and references. Preview renders the note with the
+Typst compiler on the server. If the note has errors, they're listed above
+the last good render; click "Line N" to jump to the problem. `#include` and
+`image()` read other files in the same vault, relative to the note. Typst
+packages (`@preview/…`) aren't available. PDF export, search and links for
+Typst notes are planned (see epic #121).
 
 ### File operations
 
@@ -72,7 +76,7 @@ links for Typst notes are planned (see epic #121).
 | Type | Extensions | Support |
 | --- | --- | --- |
 | Markdown | `.md` | Full editing |
-| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted mode); Plain mode shows plain text. Preview, export and search come later. |
+| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted), plain text (Plain), and a rendered Preview with compile errors. Export and search come later. |
 | Images | `.png .jpg .jpeg .gif .svg .webp` | Viewer with zoom/pan |
 | PDF | `.pdf` | Native viewer, search, metadata |
 | Audio | `.mp3 .wav .ogg` | Playback |

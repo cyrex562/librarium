@@ -30,6 +30,11 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   and open in an editor with Typst syntax highlighting (Formatted mode) or as
   plain text (Plain mode). They autosave like Markdown notes. Name a new note
   `something.typ` to create one; a name with no extension is still Markdown.
+- Typst Preview (#139): the server compiles Typst notes with the Typst
+  compiler (the `typst` crate, cargo feature `typst`, on by default) and the
+  editor's Preview shows the result. Compile errors are listed with their
+  line; click one to jump there. `#include` and `image()` read files from the
+  vault; packages aren't supported.
 
 ### Changed
 

@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.21
+**Version:** 0.102.22
 
 ---
 
@@ -136,6 +136,7 @@ shaping only. Notable modules: `auth`, `totp`, `oidc`, `api_keys`, `admin`,
 | `search_service` | Tantivy wrapper: per-vault index, incremental updates, query + snippet highlighting. Lives in `librarium-core` (behind its `search` feature), re-exported here. Index directory is resolved here (`LIBRARIUM_INDEX_DIR`/`CODEX_INDEX_DIR`, default `./data/indices`) and passed in explicitly — the core crate has no stable notion of an environment or current directory. |
 | `reindex_service` | Two-pass entity/relation indexer from frontmatter; single source of truth for entity state (distinct from full-text search). |
 | `markdown_service` | Markdown parsing/rendering (`pulldown-cmark`), link rewriting. Lives in `librarium-core`, re-exported here. |
+| `typst_service` | Compiles Typst notes to HTML for Preview with the `typst` crate (cargo feature `typst`, default on). A vault-scoped `World` reads `#include`/`image()` targets through `FileService::resolve_path`; packages are refused; fonts (Typst's bundled set) and the standard library load once per process. Serves `POST /api/vaults/{id}/render-typst` (a vault *read*), which runs compiles on the blocking pool, at most two at a time, and answers 501 when built without the feature. Server-only: not in `librarium-core`, so the Android thin client has no Typst preview (#146). |
 | `wiki_link_service` | Obsidian `[[wiki link]]` parsing and rewriting. Lives in `librarium-core`, re-exported here. |
 | `frontmatter_service` | YAML frontmatter read/write. Lives in `librarium-core`, re-exported here. |
 | `auth_provider` / `ldap_provider` / `oidc_provider` | Pluggable auth: local password (Argon2), LDAP/AD, OIDC. |
@@ -209,9 +210,16 @@ lexer keeps the same invariant, `textContent` equal to the source. The
 character-offset caret helpers both editors use live in
 `editor/selection-offsets.ts`. The server needs no special case: `FileService`
 only parses and serializes frontmatter for `.md`, so a `.typ` file is read and
-written verbatim, and autosave, conflicts and trash work unchanged. Typst
-preview, export, search and links are later issues in the epic. The #137
-spike's measurements and recommendations are in that issue.
+written verbatim, and autosave, conflicts and trash work unchanged.
+Preview (`TypstPreview.vue`, #139) posts the current buffer to the server's
+`typst_service` (see §4) and shows the compiler's HTML export (semantic HTML,
+MathML, native table spans), sanitized with DOMPurify. Requests are
+debounced, and stale responses are dropped. Compile errors come back as
+diagnostics with 1-based line/column; clicking one jumps the editor there.
+The last good render per note is kept and shown dimmed while the text has
+errors. The Typst editor disables CodeJar's `addClosing`, which inserts
+closing brackets but never types over them. Export, search and links are
+later issues in the epic. The #137 spike's measurements are in that issue.
 
 **Markdown tables** (#122) are handled entirely as source text. `editor/table.ts`
 is a pure-function module — parse a table block into a `ParsedTable`

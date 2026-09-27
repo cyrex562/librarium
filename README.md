@@ -1,6 +1,6 @@
 # Librarium
 
-**Version 0.102.21** · A self-hosted knowledge base and vault manager for
+**Version 0.102.22** · A self-hosted knowledge base and vault manager for
 Obsidian-compatible Markdown vaults.
 
 Librarium keeps your notes as plain Markdown files on disk — they stay portable
@@ -67,6 +67,12 @@ cargo run -p librarium-server
 # 3. Open the app
 #    http://localhost:8080
 ```
+
+The server includes the Typst compiler, which renders Preview for `.typ`
+notes. It adds about 30 MB to the release binary (27.7 MB to 58 MB) and a couple of minutes to a clean
+build. To leave it out, build with
+`cargo build -p librarium-server --no-default-features`. Typst preview then
+reports that it's unavailable.
 
 On first run with auth enabled, Librarium bootstraps an admin account and writes
 the generated credentials next to the database, then forces a password change at

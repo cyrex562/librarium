@@ -1,12 +1,14 @@
 <template>
   <div class="typst-editor-shell" data-testid="typst-editor">
     <div class="typst-toolbar">
-      <v-btn v-bind="btn" icon="mdi-undo" title="Undo (Ctrl+Z)" @mousedown.prevent="callUndo" />
-      <v-btn v-bind="btn" icon="mdi-redo" title="Redo (Ctrl+Y)" @mousedown.prevent="callRedo" />
+      <template v-if="!previewing">
+        <v-btn v-bind="btn" icon="mdi-undo" title="Undo (Ctrl+Z)" @mousedown.prevent="callUndo" />
+        <v-btn v-bind="btn" icon="mdi-redo" title="Redo (Ctrl+Y)" @mousedown.prevent="callRedo" />
+      </template>
       <span class="text-caption text-secondary ml-2">Typst</span>
       <v-spacer />
       <v-btn-toggle
-        :model-value="highlighted ? 'formatted_raw' : 'raw'"
+        :model-value="toggleValue"
         mandatory
         density="compact"
         variant="outlined"
@@ -15,9 +17,25 @@
       >
         <v-btn value="raw" size="x-small" title="Plain text editor">Plain</v-btn>
         <v-btn value="formatted_raw" size="x-small" title="Typst text with syntax highlighting">Formatted</v-btn>
+        <v-btn value="fully_rendered" size="x-small" title="Rendered with the Typst compiler">Preview</v-btn>
       </v-btn-toggle>
     </div>
-    <div ref="editorEl" class="typst-editor" :class="{ 'is-highlighted': highlighted }" spellcheck="false" />
+    <!-- Kept mounted (hidden) during Preview so undo history and caret survive. -->
+    <div
+      v-show="!previewing"
+      ref="editorEl"
+      class="typst-editor"
+      :class="{ 'is-highlighted': highlighted }"
+      spellcheck="false"
+    />
+    <TypstPreview
+      v-if="previewing"
+      :vault-id="vaultId"
+      :file-path="filePath ?? ''"
+      :content="content"
+      class="typst-preview"
+      @jump="jumpTo"
+    />
   </div>
 </template>
 
@@ -27,10 +45,12 @@
  * syntax highlighting in Formatted mode (utils/typst-highlight.ts). Deliberately
  * leaner than MarkdownEditor: none of its Markdown-specific key handling
  * (list/heading Enter, tables, wiki-link completion) applies to Typst.
- * Preview arrives with #139; until then, the Markdown-only modes (Preview,
- * Structural) show the highlighted editor.
+ * Preview (#139) renders through the server's Typst compiler
+ * (TypstPreview.vue); the Markdown-only Structural mode shows the
+ * highlighted editor.
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import TypstPreview from './TypstPreview.vue';
 import { useUndoRedo } from '@/composables/useUndoRedo';
 import { highlightPlainText } from '@/utils/highlight';
 import { renderTypstHighlight } from '@/utils/typst-highlight';
@@ -39,6 +59,7 @@ import type { EditorMode } from '@/api/types';
 
 const props = defineProps<{
   tabId: string;
+  vaultId: string;
   content: string;
   filePath: string | null | undefined;
   mode: EditorMode;
@@ -50,7 +71,9 @@ const emit = defineEmits<{
 }>();
 
 const btn = { size: 'small', variant: 'text' as const, density: 'compact' as const };
+const previewing = computed(() => props.mode === 'fully_rendered');
 const highlighted = computed(() => props.mode !== 'raw');
+const toggleValue = computed(() => (previewing.value ? 'fully_rendered' : highlighted.value ? 'formatted_raw' : 'raw'));
 
 const editorEl = ref<HTMLElement | null>(null);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,6 +122,20 @@ function callRedo() {
   if (next != null) replaceContent(next);
 }
 
+/** From a Preview diagnostic: back to the editor, caret at line:column. */
+async function jumpTo(pos: { line: number; column: number }) {
+  emit('mode-change', 'formatted_raw');
+  await nextTick();
+  if (!editorEl.value) return;
+  const lines = (jar?.toString() ?? props.content).split('\n');
+  const lineIdx = Math.min(Math.max(pos.line, 1), lines.length) - 1;
+  let offset = 0;
+  for (let i = 0; i < lineIdx; i += 1) offset += lines[i].length + 1;
+  offset += Math.min(Math.max(pos.column - 1, 0), lines[lineIdx].length);
+  isEditorFocused = true;
+  restoreSelection(offset);
+}
+
 function onKeydown(e: KeyboardEvent) {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key === 'z' && !e.shiftKey) {
@@ -118,7 +155,9 @@ const onBlur = () => { isEditorFocused = false; };
 onMounted(async () => {
   if (!editorEl.value) return;
   const { CodeJar } = await import('codejar');
-  jar = CodeJar(editorEl.value, highlight, { tab: '  ', history: false });
+  // addClosing off: CodeJar inserts a closing bracket or quote but never types
+  // over it, so typing `f(x)` would leave `f(x))`.
+  jar = CodeJar(editorEl.value, highlight, { tab: '  ', history: false, addClosing: false });
   jar.updateCode(props.content);
   jar.onUpdate((code: string) => {
     if (ignoreNextChange) { ignoreNextChange = false; return; }
@@ -180,6 +219,9 @@ defineExpose({ callUndo, callRedo });
   padding: 0 4px;
   border-bottom: 1px solid rgb(var(--v-theme-border));
   background: rgb(var(--v-theme-surface));
+}
+.typst-preview {
+  flex: 1;
 }
 .typst-editor {
   flex: 1;
