@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.19
+**Version:** 0.102.20
 
 ---
 
@@ -639,7 +639,11 @@ cargo bench --bench markdown_benchmarks # benchmarks
 Release profiles in the root `Cargo.toml`: `release` (size-optimized: `opt-level=z`,
 LTO, strip, panic=abort) and `release-fast` (3–5× faster builds for iteration).
 Docker and packaging are covered in `docs/DEPLOYMENT.md` and
-`docs/BUILD.md`.
+`docs/BUILD.md`. Servers without a toolchain upgrade from published releases
+with `scripts/librarium-upgrade.sh` (shipped in the server `.deb` as
+`librarium-upgrade`). It verifies checksums, backs up the database, and rolls
+back on a failed health check. Its hermetic test,
+`scripts/tests/librarium-upgrade.test.sh`, is a `cargo xtask ci` gate.
 
 ---
 

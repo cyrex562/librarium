@@ -28,6 +28,9 @@ mkdir -p \
 # ── Binary ──────────────────────────────────────────────────────────────────
 cp target/release/librarium "${BUILD_DIR}/usr/bin/librarium"
 chmod 755 "${BUILD_DIR}/usr/bin/librarium"
+# Self-upgrade from GitHub releases: sudo librarium-upgrade
+cp scripts/librarium-upgrade.sh "${BUILD_DIR}/usr/bin/librarium-upgrade"
+chmod 755 "${BUILD_DIR}/usr/bin/librarium-upgrade"
 
 # ── Default config (non-executable, non-conffile — admin edits in /etc) ─────
 cat > "${BUILD_DIR}/etc/librarium/config.toml" <<'TOMLEOF'
@@ -153,12 +156,16 @@ POSTEOF
 chmod 755 "${BUILD_DIR}/DEBIAN/postinst"
 
 # ── DEBIAN/prerm ─────────────────────────────────────────────────────────────
+# dpkg runs prerm with "upgrade" when a newer package replaces this one: stop
+# the service then, but only disable it when the package is being removed.
 cat > "${BUILD_DIR}/DEBIAN/prerm" <<'PREEOF'
 #!/bin/sh
 set -e
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl stop librarium.service >/dev/null 2>&1 || true
-    systemctl disable librarium.service >/dev/null 2>&1 || true
+    if [ "$1" = "remove" ]; then
+        systemctl disable librarium.service >/dev/null 2>&1 || true
+    fi
 fi
 PREEOF
 chmod 755 "${BUILD_DIR}/DEBIAN/prerm"
