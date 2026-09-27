@@ -158,6 +158,78 @@ async fn viewers_can_render_typst_and_outsiders_cannot() {
     assert_eq!(body["diagnostics"][0]["severity"], "error");
     assert_eq!(body["diagnostics"][0]["line"], 2);
 
+    // PDF export: the saved file when no content is sent, the buffer when it is.
+    std::fs::write(vault_dir.join("papers/report.typ"), "= Saved report\n").unwrap();
+    let export = |user: &'static str, body: Value| {
+        test::TestRequest::post()
+            .uri(&format!("/api/vaults/{vault_id}/export-pdf"))
+            .insert_header(bearer(user))
+            .set_json(body)
+            .to_request()
+    };
+    let resp = test::call_service(
+        &app,
+        export("viewer", json!({ "path": "papers/report.typ" })),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "application/pdf"
+    );
+    let disposition = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        disposition.contains("attachment") && disposition.contains("report.pdf"),
+        "{disposition}"
+    );
+    let pdf = test::read_body(resp).await;
+    assert!(pdf.starts_with(b"%PDF-"));
+
+    let resp = test::call_service(
+        &app,
+        export(
+            "viewer",
+            json!({ "path": "papers/report.typ", "content": "= Buffer\n#include \"intro.typ\"\n" }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+
+    let resp = test::call_service(
+        &app,
+        export(
+            "viewer",
+            json!({ "path": "papers/report.typ", "content": "#oops(" }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), 422);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["diagnostics"][0]["severity"], "error");
+
+    let resp = test::call_service(
+        &app,
+        export(
+            "viewer",
+            json!({ "path": "notes/plain.md", "content": "# md" }),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+
+    let resp = test::call_service(
+        &app,
+        export("outsider", json!({ "path": "papers/report.typ" })),
+    )
+    .await;
+    assert_eq!(resp.status(), 403);
+
     // No access to the vault: refused before anything compiles.
     let resp = test::call_service(&app, render("outsider", "= Secret\n")).await;
     assert_eq!(resp.status(), 403);

@@ -56,4 +56,26 @@ test.describe('Typst notes', () => {
     // The last good render stays visible, dimmed.
     await expect(body.locator('h2')).toHaveText('Findings');
   });
+
+  test('5.2 - Export as PDF downloads a real PDF of the current text', async ({ page }) => {
+    await page.locator('button[title="New note"]').click();
+    await page.getByLabel('File name').fill('report.typ');
+    await page.locator('button:has-text("Create")').click();
+    await expect(page.locator('.tab-item', { hasText: 'report.typ' })).toBeVisible({ timeout: 5000 });
+
+    const editor = page.locator('[data-testid="typst-editor"] .typst-editor');
+    await editor.click();
+    await page.keyboard.type('= Quarterly report\n\nRevenue grew by *12%*.\n\n$ sum_(i=1)^n x_i $\n\n#pagebreak()\n= Appendix\n');
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="typst-export-pdf"]').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('report.pdf');
+    const target = test.info().outputPath('report.pdf');
+    await download.saveAs(target);
+    const fs = await import('node:fs');
+    const bytes = fs.readFileSync(target);
+    expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+    if (process.env.TYPST_PDF_COPY) fs.copyFileSync(target, process.env.TYPST_PDF_COPY);
+  });
 });

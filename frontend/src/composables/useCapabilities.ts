@@ -36,5 +36,7 @@ export function useCapabilities() {
     canUseEntityGraph: !isLocalMode,
     canUseReindex: !isLocalMode,
     canUseArchiveImportExport: !isLocalMode,
+    /** Typst Preview and PDF export compile on the server (#139, #140). */
+    canUseTypstRendering: !isLocalMode,
   };
 }

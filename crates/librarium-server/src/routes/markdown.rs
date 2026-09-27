@@ -68,24 +68,30 @@ pub async fn render_typst(
 
 #[cfg(feature = "typst")]
 async fn render_typst_impl(vault_path: String, req: RenderTypstRequest) -> AppResult<HttpResponse> {
+    let rendered = run_typst(move || {
+        crate::services::typst_service::render_html(&vault_path, &req.path, req.content)
+    })
+    .await?;
+    Ok(HttpResponse::Ok().json(rendered))
+}
+
+/// Run a Typst compile on the blocking pool. Compiles are CPU-bound and
+/// can't be cancelled once started (a note with an unbounded loop runs until
+/// it finishes), so at most two run at once, shared by Preview and PDF
+/// export, rather than letting one user's typing occupy every blocking thread.
+#[cfg(feature = "typst")]
+async fn run_typst<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> AppResult<T> {
     use std::sync::LazyLock;
     use tokio::sync::Semaphore;
 
-    // Compiles are CPU-bound and can't be cancelled once started (a note
-    // with an unbounded loop runs until it finishes), so cap how many run at
-    // once rather than letting one user's typing occupy every blocking thread.
     static COMPILES: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(2));
     let _permit = COMPILES
         .acquire()
         .await
         .map_err(|e| crate::error::AppError::InternalError(e.to_string()))?;
-
-    let rendered = web::block(move || {
-        crate::services::typst_service::render_html(&vault_path, &req.path, req.content)
-    })
-    .await
-    .map_err(|e| crate::error::AppError::InternalError(e.to_string()))?;
-    Ok(HttpResponse::Ok().json(rendered))
+    web::block(f)
+        .await
+        .map_err(|e| crate::error::AppError::InternalError(e.to_string()))
 }
 
 #[cfg(not(feature = "typst"))]
@@ -93,13 +99,97 @@ async fn render_typst_impl(
     _vault_path: String,
     _req: RenderTypstRequest,
 ) -> AppResult<HttpResponse> {
-    Ok(HttpResponse::NotImplemented().json(serde_json::json!({
+    Ok(typst_unavailable())
+}
+
+#[cfg(not(feature = "typst"))]
+fn typst_unavailable() -> HttpResponse {
+    HttpResponse::NotImplemented().json(serde_json::json!({
         "error": "This server was built without Typst support (cargo feature \"typst\")."
-    })))
+    }))
+}
+
+#[derive(Deserialize)]
+#[cfg_attr(not(feature = "typst"), allow(dead_code))]
+pub struct ExportPdfRequest {
+    /// Vault-relative path of the note.
+    path: String,
+    /// The note's current text; when absent the saved file is exported.
+    content: Option<String>,
+}
+
+/// Export a Typst note as a PDF download (#140). Compile errors are a 422
+/// with `{error, diagnostics}`. Markdown notes follow once they can be
+/// converted to Typst (#141).
+#[post("/api/vaults/{vault_id}/export-pdf")]
+pub async fn export_pdf(
+    state: web::Data<AppState>,
+    vault_id: web::Path<String>,
+    req: web::Json<ExportPdfRequest>,
+) -> AppResult<HttpResponse> {
+    let vault = state.db.get_vault(&vault_id.into_inner()).await?;
+    let req = req.into_inner();
+    if !req.path.to_ascii_lowercase().ends_with(".typ") {
+        return Err(crate::error::AppError::InvalidInput(
+            "Only Typst (.typ) notes can be exported to PDF so far".to_string(),
+        ));
+    }
+    export_pdf_impl(vault.path, req).await
+}
+
+#[cfg(feature = "typst")]
+async fn export_pdf_impl(vault_path: String, req: ExportPdfRequest) -> AppResult<HttpResponse> {
+    use crate::services::FileService;
+
+    let content = match req.content {
+        Some(content) => content,
+        None => {
+            let full = FileService::resolve_path(&vault_path, &req.path)?;
+            if !full.is_file() {
+                return Err(crate::error::AppError::NotFound(format!(
+                    "File not found: {}",
+                    req.path
+                )));
+            }
+            std::fs::read_to_string(&full)?
+        }
+    };
+    let file_name = std::path::Path::new(&req.path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("note")
+        .to_string();
+    let path = req.path;
+    let result =
+        run_typst(move || crate::services::typst_service::render_pdf(&vault_path, &path, content))
+            .await?;
+    match result {
+        Ok(pdf) => Ok(HttpResponse::Ok()
+            .content_type("application/pdf")
+            .insert_header((
+                "Content-Disposition",
+                format!(
+                    "attachment; filename=\"{}.pdf\"; filename*=UTF-8''{}.pdf",
+                    file_name.replace(['"', '\\'], "_"),
+                    urlencoding::encode(&file_name)
+                ),
+            ))
+            .body(pdf)),
+        Err(diagnostics) => Ok(HttpResponse::UnprocessableEntity().json(serde_json::json!({
+            "error": "The note has errors, so it couldn't be exported",
+            "diagnostics": diagnostics,
+        }))),
+    }
+}
+
+#[cfg(not(feature = "typst"))]
+async fn export_pdf_impl(_vault_path: String, _req: ExportPdfRequest) -> AppResult<HttpResponse> {
+    Ok(typst_unavailable())
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(render_markdown)
         .service(render_markdown_with_resolution)
-        .service(render_typst);
+        .service(render_typst)
+        .service(export_pdf);
 }

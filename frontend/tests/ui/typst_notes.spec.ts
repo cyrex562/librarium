@@ -187,4 +187,67 @@ test.describe('Typst notes', () => {
         await page.locator('[data-testid="typst-editor"]').getByRole('button', { name: 'Preview' }).click();
         await expect(page.locator('[data-testid="typst-preview-unavailable"]')).toContainText('built without Typst support');
     });
+
+    test('Export as PDF sends the current text and downloads the PDF', async ({ page }) => {
+        await setup(page);
+        let sent: { path: string; content?: string } | null = null;
+        await page.route(/.*\/api\/vaults\/[^/]+\/export-pdf$/, async (route) => {
+            sent = route.request().postDataJSON();
+            await route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.7 fake' });
+        });
+        await page.getByText(NOTE).click();
+        await editor(page).locator('.typ-heading').click();
+        await page.keyboard.press('End');
+        await page.keyboard.type(' now');
+
+        const download = page.waitForEvent('download');
+        await page.locator('[data-testid="typst-export-pdf"]').click();
+        expect((await download).suggestedFilename()).toBe('paper.pdf');
+        expect(sent).toEqual({ path: NOTE, content: CONTENT.replace('= Results', '= Results now') });
+    });
+
+    test('Export as PDF with compile errors opens Preview to show them', async ({ page }) => {
+        await setup(page);
+        await page.route(/.*\/api\/vaults\/[^/]+\/export-pdf$/, (route) => route.fulfill({
+            status: 422,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'The note has errors', diagnostics: [{ severity: 'error', message: 'unclosed delimiter', line: 2, column: 1, hints: [] }] }),
+        }));
+        await page.route(/.*\/api\/vaults\/[^/]+\/render-typst$/, (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ html: null, css: '', diagnostics: [{ severity: 'error', message: 'unclosed delimiter', line: 2, column: 1, hints: [] }] }),
+        }));
+        await page.getByText(NOTE).click();
+        await page.locator('[data-testid="typst-export-pdf"]').click();
+        await expect(page.locator('[data-testid="typst-diagnostics"]')).toContainText('unclosed delimiter');
+    });
+
+    test('file tree offers Export as PDF for Typst notes only', async ({ page }) => {
+        await setup(page, {
+            treeByVaultId: {
+                [defaultVault.id]: [
+                    { name: NOTE, path: NOTE, is_directory: false, modified: new Date().toISOString() },
+                    { name: 'plain.md', path: 'plain.md', is_directory: false, modified: new Date().toISOString() },
+                ],
+            },
+        });
+        let exported: string | null = null;
+        await page.route(/.*\/api\/vaults\/[^/]+\/export-pdf$/, async (route) => {
+            exported = (route.request().postDataJSON() as { path: string; content?: string }).path;
+            expect((route.request().postDataJSON() as { content?: string }).content).toBeUndefined();
+            await route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.7 fake' });
+        });
+
+        await page.locator('.file-tree-node', { hasText: 'plain.md' }).click({ button: 'right' });
+        await expect(page.locator('[data-testid="ctx-rename"]')).toBeVisible();
+        await expect(page.locator('[data-testid="ctx-export-pdf"]')).toHaveCount(0);
+        await page.keyboard.press('Escape');
+
+        await page.locator('.file-tree-node', { hasText: NOTE }).click({ button: 'right' });
+        const download = page.waitForEvent('download');
+        await page.locator('[data-testid="ctx-export-pdf"]').click();
+        expect((await download).suggestedFilename()).toBe('paper.pdf');
+        expect(exported).toBe(NOTE);
+    });
 });
