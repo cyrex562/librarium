@@ -1,6 +1,6 @@
 # Librarium
 
-**Version 0.102.19** · A self-hosted knowledge base and vault manager for
+**Version 0.102.20** · A self-hosted knowledge base and vault manager for
 Obsidian-compatible Markdown vaults.
 
 Librarium keeps your notes as plain Markdown files on disk — they stay portable
@@ -106,6 +106,13 @@ one up (`deploy/systemd/librarium.service.template`) — safe to rerun anytime,
 and it never touches your database or overwrites an existing config. This is
 the local counterpart to `cargo xtask deploy`, which manages a *remote* target
 over SSH from a separate machine instead.
+
+**No build toolchain on the server?** Install the server `.deb` from a
+[release](https://github.com/cyrex562/librarium/releases) and upgrade later
+with `sudo librarium-upgrade`. It downloads a published release, verifies its
+checksum, backs up the database, and rolls back if the new version doesn't
+come up healthy. It also works on plain-binary and `cargo xtask deploy`
+installs. See [DEPLOYMENT.md](docs/DEPLOYMENT.md#upgrading-from-a-github-release).
 
 If the box was instead set up via `cargo xtask deploy` against a
 `targets.toml` entry with `deployment = "docker"` (its `app_dir`, e.g.

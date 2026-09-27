@@ -701,6 +701,27 @@ fn ci(args: &[String]) {
         );
     }
 
+    // ── Server upgrade script ───────────────────────────────────────────────
+    // Hermetic (stub systemctl, fake server on localhost), so it runs by default.
+    if cfg!(windows) {
+        skip!("upgrade script", "bash script; Linux/macOS only");
+    } else if let Some(missing) = ["bash", "python3", "curl", "sha256sum"]
+        .into_iter()
+        .find(|tool| !have_tool(tool))
+    {
+        skip!("upgrade script", format!("{missing} not on PATH"));
+    } else {
+        gate!(
+            "upgrade script",
+            try_run(
+                Command::new("bash")
+                    .arg("scripts/tests/librarium-upgrade.test.sh")
+                    .current_dir(&root),
+                "bash scripts/tests/librarium-upgrade.test.sh",
+            )
+        );
+    }
+
     // ── Optional deeper gates ───────────────────────────────────────────────
     if full {
         if have_tool("cargo-ndk") {

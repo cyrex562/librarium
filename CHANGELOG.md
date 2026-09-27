@@ -20,6 +20,12 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   and pushing it to GHCR by hand.
 - `scripts/release-for-windows.ps1` — builds the Windows installer and both
   portable packages and publishes them to a GitHub release.
+- `librarium-upgrade` upgrades a systemd-managed server to a published GitHub
+  release, with no toolchain on the server. It verifies `SHA256SUMS.txt`,
+  backs up the database, and rolls back if the new version isn't healthy.
+  It handles the server `.deb`, plain-binary and `cargo xtask deploy`
+  layouts. Shipped in the `.deb`; attach it to each release as
+  `librarium-upgrade.sh`.
 
 ### Changed
 

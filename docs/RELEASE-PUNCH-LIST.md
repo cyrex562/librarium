@@ -394,6 +394,10 @@ delete or clearly date-stamp the rest.
 **Decision: build locally per platform, publish by hand.**
 
 - **Linux + Android**: built on this machine.
+  Upload `scripts/librarium-upgrade.sh` with the Linux artifacts, as
+  `librarium-upgrade.sh` and listed in `SHA256SUMS.txt`. Servers upgrade
+  from those assets, and the DEPLOYMENT.md one-liner downloads the script
+  from the latest release (#147).
   `cargo xtask build-desktop` / `build-frontend` for the server+desktop bundle;
   the Android APK via `cargo tauri android build` (see AGENTS.md's "Android
   build" section) or `scripts/android-deploy.sh` for a device-installed build.

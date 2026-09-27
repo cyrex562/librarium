@@ -89,6 +89,56 @@ For a system service, adapt
 automatically — rather than writing a unit file from scratch. It takes the
 service user, working directory, and binary path as placeholders.
 
+## Upgrading from a GitHub release
+
+[`scripts/librarium-upgrade.sh`](../scripts/librarium-upgrade.sh) upgrades a
+systemd-managed server to a published release using only bash, curl and
+coreutils — no git checkout, Rust or Node on the server. It's attached to
+each release, installed as `/usr/bin/librarium-upgrade` by the server `.deb`,
+and copied next to the binary as `librarium-upgrade` after every successful
+upgrade, so after the first time you can run it from the install directory:
+
+```bash
+sudo librarium-upgrade                  # latest stable release
+sudo librarium-upgrade --prerelease     # include -rc builds
+sudo librarium-upgrade --tag v0.103.0   # a specific release
+sudo librarium-upgrade --dry-run        # show the plan, change nothing
+```
+
+For a server that doesn't have it yet, download it from the release first:
+
+```bash
+curl -fsSLO https://github.com/cyrex562/librarium/releases/latest/download/librarium-upgrade.sh
+sudo bash librarium-upgrade.sh
+```
+
+It reads the `librarium` unit (`--service` for another name) to find the
+binary, config and database, and recognizes three layouts: the server `.deb`
+(it installs the new `.deb`), a plain binary such as `cargo xtask
+local-install` produces (swapped in place), and the `releases/` + `current`
+symlink layout `cargo xtask deploy` creates (a new `releases/<tag>` directory,
+then the symlink is switched). Anything else, it refuses rather than guesses.
+
+Before touching the install it checks the download against the release's
+`SHA256SUMS.txt`. It then stops the service, copies the database to
+`librarium.db.pre-<version>.<timestamp>.bak` beside it, swaps the binary,
+starts the service, and waits for `/api/health` to report healthy and
+`/api/version` to report the new version. If that doesn't happen within
+`--timeout` seconds (default 60), it puts the old binary and the database
+backup back and restarts the old version; the failed database is kept as
+`librarium.db.failed-<version>.<timestamp>`. It never edits `config.toml` or
+vault files.
+
+On an air-gapped server, download the release's binary (or server `.deb`)
+and `SHA256SUMS.txt` into a directory elsewhere, copy it over, and pass
+`--from-dir <dir>`.
+
+With no `librarium` service installed it does a first install from the
+server `.deb` on systems with dpkg; on other distributions, install by hand
+as in [Manual setup](#manual-setup-no-cargo-xtask). Docker installs upgrade
+with `docker compose pull && docker compose up -d` instead, once the image
+is published (above). Windows services aren't covered yet.
+
 ## Production hardening
 
 - **TLS and CORS** — see [CONFIGURATION.md](CONFIGURATION.md#tls). Set
