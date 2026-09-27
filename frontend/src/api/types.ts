@@ -706,7 +706,7 @@ export interface CanvasData {
 }
 
 // UI-only tab type
-export type FileType = 'markdown' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'graph' | 'canvas' | 'other';
+export type FileType = 'markdown' | 'typst' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'graph' | 'canvas' | 'other';
 
 export interface Tab {
     id: string;

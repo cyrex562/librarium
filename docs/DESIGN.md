@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.20
+**Version:** 0.102.21
 
 ---
 
@@ -201,6 +201,17 @@ imported; it and its dependencies were removed in #126.) Rendering helpers: `hig
 (code), `mermaid` (diagrams), `pdfjs-dist` (PDF preview),
 `d3-force`/`d3-selection` (graph view), `dompurify` (sanitization), `yaml`
 (frontmatter).
+
+**Typst notes** (`.typ`, epic #121) open in `TypstEditor.vue`: the same CodeJar
+setup with a Typst lexer (`utils/typst-highlight.ts`) in place of the Markdown
+highlighter, and none of MarkdownEditor's Markdown-specific key handling. The
+lexer keeps the same invariant, `textContent` equal to the source. The
+character-offset caret helpers both editors use live in
+`editor/selection-offsets.ts`. The server needs no special case: `FileService`
+only parses and serializes frontmatter for `.md`, so a `.typ` file is read and
+written verbatim, and autosave, conflicts and trash work unchanged. Typst
+preview, export, search and links are later issues in the epic. The #137
+spike's measurements and recommendations are in that issue.
 
 **Markdown tables** (#122) are handled entirely as source text. `editor/table.ts`
 is a pure-function module — parse a table block into a `ParsedTable`

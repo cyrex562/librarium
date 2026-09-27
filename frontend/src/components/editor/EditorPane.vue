@@ -57,6 +57,18 @@
         />
       </div>
 
+      <!-- Typst notes: text editor with Typst highlighting -->
+      <TypstEditor
+        v-else-if="isTypst"
+        :tab-id="activeTab.id"
+        :content="activeTab.content ?? ''"
+        :file-path="activeTab.filePath"
+        :mode="normalizedEditorMode"
+        style="flex: 1; min-height: 0;"
+        @update="onEditorUpdate"
+        @mode-change="onModeChange"
+      />
+
       <!-- Structural entity editor -->
       <StructuralEditor
         v-else-if="isMd && normalizedEditorMode === 'structural'"
@@ -89,9 +101,9 @@
         <span class="text-caption text-secondary">Binary file — cannot be edited here.</span>
       </div>
 
-      <!-- Word count status bar (markdown only) -->
+      <!-- Word count status bar (notes only) -->
       <div
-        v-if="isMd"
+        v-if="isMd || isTypst"
         class="word-count-bar d-flex align-center px-2"
         style="border-top: 1px solid rgb(var(--v-theme-border)); background: rgb(var(--v-theme-surface));"
       >
@@ -117,6 +129,7 @@ import FrontmatterPanel from './FrontmatterPanel.vue';
 import MarkdownEditor, { type TableContext } from './MarkdownEditor.vue';
 import EditorToolbar from './EditorToolbar.vue';
 const MarkdownPreview = defineAsyncComponent(() => import('./MarkdownPreview.vue'));
+const TypstEditor = defineAsyncComponent(() => import('./TypstEditor.vue'));
 const StructuralEditor = defineAsyncComponent(() => import('./StructuralEditor.vue'));
 const ImageViewer = defineAsyncComponent(() => import('@/components/viewers/ImageViewer.vue'));
 const PdfViewer = defineAsyncComponent(() => import('@/components/viewers/PdfViewer.vue'));
@@ -150,6 +163,7 @@ const normalizedEditorMode = computed<EditorMode>(() => {
 
 const ext = computed(() => activeTab.value?.filePath?.split('.').pop()?.toLowerCase() ?? '');
 const isMd = computed(() => ext.value === 'md');
+const isTypst = computed(() => ext.value === 'typ');
 const isImage = computed(() => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext.value));
 const isPdf = computed(() => ext.value === 'pdf');
 const isAv = computed(() => ['mp4', 'webm', 'ogv', 'mov', 'mp3', 'ogg', 'wav', 'flac', 'm4a'].includes(ext.value));
