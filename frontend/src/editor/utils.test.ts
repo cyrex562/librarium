@@ -22,6 +22,12 @@ describe('File type detection', () => {
             expect(getFileType('NOTE.MD')).toBe('markdown');
         });
 
+        it('should detect Typst files', () => {
+            expect(getFileType('paper.typ')).toBe('typst');
+            expect(getFileType('path/to/Paper.TYP')).toBe('typst');
+            expect(isMarkdownFile('paper.typ')).toBe(false);
+        });
+
         it('should detect image files', () => {
             expect(getFileType('image.png')).toBe('image');
             expect(getFileType('photo.jpg')).toBe('image');

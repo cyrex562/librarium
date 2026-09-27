@@ -51,6 +51,13 @@ Changes save automatically. `Ctrl/Cmd+S` saves immediately rather than
 waiting for the debounce. Type `[[` for wiki-link autocomplete. Drag and drop
 an image into the editor to upload and embed it.
 
+**Typst notes.** To create one, name a new note with a `.typ` extension
+(for example `paper.typ`). A name with no extension creates a Markdown note.
+Typst notes open in a simpler editor with only Plain and Formatted:
+Formatted colors headings, `*strong*`, `_emphasis_`, `#` code, math, raw
+blocks, comments, labels and references. Preview, PDF export, search and
+links for Typst notes are planned (see epic #121).
+
 ### File operations
 
 - **Create**: right-click a folder → New File / New Folder (or the sidebar's
@@ -65,6 +72,7 @@ an image into the editor to upload and embed it.
 | Type | Extensions | Support |
 | --- | --- | --- |
 | Markdown | `.md` | Full editing |
+| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted mode); Plain mode shows plain text. Preview, export and search come later. |
 | Images | `.png .jpg .jpeg .gif .svg .webp` | Viewer with zoom/pan |
 | PDF | `.pdf` | Native viewer, search, metadata |
 | Audio | `.mp3 .wav .ogg` | Playback |

@@ -165,6 +165,8 @@
           v-model="newNoteName"
           label="File name"
           placeholder="note.md"
+          hint="Ends in .typ for a Typst note; otherwise Markdown"
+          persistent-hint
           autofocus
           @keyup.enter="confirmNewNote"
         />
@@ -221,6 +223,7 @@ import { useTabsStore } from '@/stores/tabs';
 import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useCapabilities } from '@/composables/useCapabilities';
+import { noteFileName } from '@/editor/utils';
 import NewEntityDialog from '@/components/modals/NewEntityDialog.vue';
 
 const vaultsStore = useVaultsStore();
@@ -288,9 +291,7 @@ async function confirmNewNote() {
     return;
   }
 
-  const name = newNoteName.value.trim().endsWith('.md')
-    ? newNoteName.value.trim()
-    : newNoteName.value.trim() + '.md';
+  const name = noteFileName(newNoteName.value);
   newNoteDialog.value = false;
   const node = await filesStore.createFile(vaultId, name);
   if (node) {

@@ -6,6 +6,7 @@ function getFileType(filePath: string): FileType {
     const ext = filePath.split('.').pop()?.toLowerCase();
     if (!ext) return 'other';
     if (ext === 'md') return 'markdown';
+    if (ext === 'typ') return 'typst';
     if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'image';
     if (ext === 'pdf') return 'pdf';
     if (ext === 'canvas') return 'canvas';

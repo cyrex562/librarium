@@ -183,6 +183,7 @@ import { useUiStore } from '@/stores/ui';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useMobile } from '@/composables/useMobile';
 import { useCapabilities } from '@/composables/useCapabilities';
+import { noteFileName } from '@/editor/utils';
 import { createImportCandidatesFromDataTransfer, hasFilePayload, parentDirectory } from '@/utils/importEntries';
 import { getFileTreeDragItems, getFileTreeDragPayload, setFileTreeDragPayload } from '@/utils/fileTreeDrag';
 
@@ -265,6 +266,7 @@ const fileIcon = computed(() => {
   if (props.node.is_directory) return 'mdi-folder-outline';
   const ext = props.node.name.split('.').pop()?.toLowerCase() ?? '';
   if (ext === 'md') return 'mdi-language-markdown-outline';
+  if (ext === 'typ') return 'mdi-alpha-t-box-outline';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return 'mdi-image-outline';
   if (ext === 'pdf') return 'mdi-file-pdf-box';
   if (['mp4', 'webm', 'ogv', 'mov'].includes(ext)) return 'mdi-video-outline';
@@ -476,7 +478,7 @@ async function newFileInFolder() {
   const fileName = prompt('Enter file name:', 'untitled.md');
   if (!fileName || !fileName.trim()) return;
   
-  const name = fileName.trim().endsWith('.md') ? fileName.trim() : fileName.trim() + '.md';
+  const name = noteFileName(fileName);
   const filePath = `${props.node.path}/${name}`;
   
   const node = await filesStore.createFile(vaultId, filePath);

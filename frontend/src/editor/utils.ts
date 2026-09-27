@@ -1,18 +1,32 @@
 // Editor utility functions
 
-export type FileType = 'markdown' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'other';
+export type FileType = 'markdown' | 'typst' | 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'other';
 
 export function getFileType(filePath: string): FileType {
     const ext = filePath.split('.').pop()?.toLowerCase();
     if (!ext) return 'other';
 
     if (ext === 'md') return 'markdown';
+    if (ext === 'typ') return 'typst';
     if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'image';
     if (ext === 'pdf') return 'pdf';
     if (['mp3', 'wav', 'ogg'].includes(ext)) return 'audio';
     if (['mp4', 'webm'].includes(ext)) return 'video';
     if (['txt', 'json', 'js', 'ts', 'css', 'html', 'xml'].includes(ext)) return 'text';
     return 'other';
+}
+
+/** Extensions a new note may be created with; anything else gets `.md`. */
+export const NOTE_EXTENSIONS = ['md', 'typ'] as const;
+
+/**
+ * File name for a new note: a name that already ends in a note extension
+ * (`.md`, `.typ`) is kept, anything else becomes a Markdown note.
+ */
+export function noteFileName(name: string): string {
+    const trimmed = name.trim();
+    const ext = trimmed.includes('.') ? trimmed.split('.').pop()!.toLowerCase() : '';
+    return (NOTE_EXTENSIONS as readonly string[]).includes(ext) ? trimmed : `${trimmed}.md`;
 }
 
 export function isImageFile(filePath: string): boolean {

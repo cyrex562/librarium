@@ -81,7 +81,7 @@ function flattenTree(nodes: FileNode[]): string[] {
   for (const node of nodes) {
     if (node.is_directory && node.children) {
       result.push(...flattenTree(node.children));
-    } else if (!node.is_directory && node.path.endsWith('.md')) {
+    } else if (!node.is_directory && /\.(md|typ)$/i.test(node.path)) {
       result.push(node.path);
     }
   }

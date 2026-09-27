@@ -26,6 +26,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   It handles the server `.deb`, plain-binary and `cargo xtask deploy`
   layouts. Shipped in the `.deb`; attach it to each release as
   `librarium-upgrade.sh`.
+- Typst notes (#138): `.typ` files show in the file tree with their own icon
+  and open in an editor with Typst syntax highlighting (Formatted mode) or as
+  plain text (Plain mode). They autosave like Markdown notes. Name a new note
+  `something.typ` to create one; a name with no extension is still Markdown.
 
 ### Changed
 
