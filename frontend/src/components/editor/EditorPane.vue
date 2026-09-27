@@ -61,6 +61,7 @@
       <TypstEditor
         v-else-if="isTypst"
         :tab-id="activeTab.id"
+        :vault-id="vaultsStore.activeVaultId ?? ''"
         :content="activeTab.content ?? ''"
         :file-path="activeTab.filePath"
         :mode="normalizedEditorMode"

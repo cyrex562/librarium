@@ -670,6 +670,19 @@ fn ci(args: &[String]) {
         )
     );
 
+    // The server's `typst` feature is on by default, so the tests above never
+    // build the --no-default-features variant (render-typst answers 501).
+    // Keep it compiling.
+    gate!(
+        "server without typst",
+        try_run(
+            Command::new("cargo")
+                .args(["check", "-p", "librarium-server", "--no-default-features"])
+                .current_dir(&root),
+            "cargo check -p librarium-server --no-default-features",
+        )
+    );
+
     // ── Frontend ────────────────────────────────────────────────────────────
     if quick {
         skip!("vitest", "--quick");

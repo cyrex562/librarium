@@ -64,6 +64,15 @@ test.describe('Typst notes', () => {
         await expect.poll(() => files[NOTE], { timeout: 10_000 }).toBe(CONTENT.replace('= Results', '= Results and discussion'));
     });
 
+    test('typing brackets and quotes types exactly what was typed', async ({ page }) => {
+        const files = await setup(page);
+        await page.getByText(NOTE).click();
+        await editor(page).locator('.typ-heading').click();
+        await page.keyboard.press('Control+End');
+        await page.keyboard.type('\n#link("x")[y] {z}', { delay: 20 });
+        await expect.poll(() => files[NOTE], { timeout: 10_000 }).toBe(`${CONTENT}\n#link("x")[y] {z}`);
+    });
+
     test('Plain mode turns highlighting off; Formatted turns it back on', async ({ page }) => {
         await setup(page);
         await page.getByText(NOTE).click();
@@ -110,5 +119,72 @@ test.describe('Typst notes', () => {
         await dialog.getByRole('button', { name: /Create/i }).click();
 
         await expect.poll(() => Object.keys(files)).toContain('ideas.md');
+    });
+
+    test('Preview shows the server-rendered HTML of the current text', async ({ page }) => {
+        await setup(page);
+        const sent: string[] = [];
+        await page.route(/.*\/api\/vaults\/[^/]+\/render-typst$/, async (route) => {
+            const body = route.request().postDataJSON() as { path: string; content: string };
+            sent.push(body.content);
+            expect(body.path).toBe(NOTE);
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    html: '<h2>Results</h2><p>The <strong>main</strong> finding.</p><script>window.__xss = 1</script>',
+                    css: 'math { color: inherit; }',
+                    diagnostics: [],
+                }),
+            });
+        });
+        await page.getByText(NOTE).click();
+        await page.locator('[data-testid="typst-editor"]').getByRole('button', { name: 'Preview' }).click();
+
+        const body = page.locator('[data-testid="typst-preview-body"]');
+        await expect(body.locator('h2')).toHaveText('Results');
+        await expect(body.locator('strong')).toHaveText('main');
+        await expect(editor(page)).toBeHidden();
+        expect(sent[0]).toBe(CONTENT);
+        // Server HTML is sanitized before it's inserted.
+        expect(await body.locator('script').count()).toBe(0);
+        expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
+    });
+
+    test('Preview lists compile errors; clicking one jumps to that line in the editor', async ({ page }) => {
+        const files = await setup(page);
+        await page.route(/.*\/api\/vaults\/[^/]+\/render-typst$/, (route) => route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                html: null,
+                css: '',
+                diagnostics: [{ severity: 'error', message: 'unknown variable: fig', line: 5, column: 26, hints: ['check the spelling'] }],
+            }),
+        }));
+        await page.getByText(NOTE).click();
+        await page.locator('[data-testid="typst-editor"]').getByRole('button', { name: 'Preview' }).click();
+
+        const diag = page.locator('[data-testid="typst-diagnostics"]');
+        await expect(diag).toContainText('unknown variable: fig');
+        await expect(diag).toContainText('hint: check the spelling');
+        await diag.getByRole('button', { name: 'Line 5' }).click();
+
+        // Back in the editor with the caret at line 5, column 26, just before "fig" in "@fig".
+        await expect(editor(page)).toBeVisible();
+        await page.keyboard.type('X');
+        await expect.poll(() => files[NOTE], { timeout: 10_000 }).toContain('see @Xfig.');
+    });
+
+    test('Preview explains when the server has no Typst support', async ({ page }) => {
+        await setup(page);
+        await page.route(/.*\/api\/vaults\/[^/]+\/render-typst$/, (route) => route.fulfill({
+            status: 501,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'built without Typst support' }),
+        }));
+        await page.getByText(NOTE).click();
+        await page.locator('[data-testid="typst-editor"]').getByRole('button', { name: 'Preview' }).click();
+        await expect(page.locator('[data-testid="typst-preview-unavailable"]')).toContainText('built without Typst support');
     });
 });

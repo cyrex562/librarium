@@ -26,6 +26,8 @@ pub mod reindex_service;
 pub mod relation_service;
 pub mod schema_service;
 pub mod template_service;
+#[cfg(feature = "typst")]
+pub mod typst_service;
 
 pub use auth_provider::{
     authenticate_username_password, validate_password_policy, AuthProviderKind,

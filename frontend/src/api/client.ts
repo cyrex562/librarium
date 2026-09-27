@@ -586,6 +586,32 @@ export const apiRenderMarkdownInVault = (
         body: JSON.stringify({ content, current_file: currentFile }),
     });
 
+// ── Typst ─────────────────────────────────────────────────────────────────────
+
+export interface TypstDiagnostic {
+    severity: 'error' | 'warning';
+    message: string;
+    /** 1-based, into the note itself; null for included files / no location. */
+    line: number | null;
+    column: number | null;
+    hints: string[];
+}
+
+export interface TypstRender {
+    /** Body markup, or null when compilation failed. */
+    html: string | null;
+    /** Stylesheet Typst emits with the body (MathML layout). */
+    css: string;
+    diagnostics: TypstDiagnostic[];
+}
+
+/** Compile a Typst note (its current, possibly unsaved text) for Preview. */
+export const apiRenderTypst = (vaultId: string, path: string, content: string): Promise<TypstRender> =>
+    request<TypstRender>(`/api/vaults/${vaultId}/render-typst`, {
+        method: 'POST',
+        body: JSON.stringify({ path, content }),
+    });
+
 // ── Resolve wiki link ─────────────────────────────────────────────────────────
 
 export const apiResolveWikiLink = (
