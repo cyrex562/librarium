@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.23
+**Version:** 0.102.24
 
 ---
 
@@ -136,7 +136,7 @@ shaping only. Notable modules: `auth`, `totp`, `oidc`, `api_keys`, `admin`,
 | `search_service` | Tantivy wrapper: per-vault index, incremental updates, query + snippet highlighting. Lives in `librarium-core` (behind its `search` feature), re-exported here. Index directory is resolved here (`LIBRARIUM_INDEX_DIR`/`CODEX_INDEX_DIR`, default `./data/indices`) and passed in explicitly — the core crate has no stable notion of an environment or current directory. |
 | `reindex_service` | Two-pass entity/relation indexer from frontmatter; single source of truth for entity state (distinct from full-text search). |
 | `markdown_service` | Markdown parsing/rendering (`pulldown-cmark`), link rewriting. Lives in `librarium-core`, re-exported here. |
-| `typst_service` | Compiles Typst notes to HTML for Preview with the `typst` crate (cargo feature `typst`, default on). A vault-scoped `World` reads `#include`/`image()` targets through `FileService::resolve_path`; packages are refused; fonts (Typst's bundled set) and the standard library load once per process. Serves `POST /api/vaults/{id}/render-typst` (a vault *read*), which runs compiles on the blocking pool, at most two at a time, and answers 501 when built without the feature. Server-only: not in `librarium-core`, so the Android thin client has no Typst preview (#146). |
+| `typst_service` | Compiles Typst notes to HTML for Preview with the `typst` crate (cargo feature `typst`, default on). A vault-scoped `World` reads `#include`/`image()` targets through `FileService::resolve_path`; packages are refused; fonts (Typst's bundled set) and the standard library load once per process. Serves `POST /api/vaults/{id}/render-typst` (Preview) and `POST /api/vaults/{id}/export-pdf` (PDF download, #140). Both are vault *reads*. They share one compile queue on the blocking pool, at most two compiles at a time, and answer 501 when built without the feature. PDF export takes the editor buffer, or reads the saved file when called from the file tree. It is `.typ`-only until Markdown→Typst conversion (#141) lands. Server-only: not in `librarium-core`, so the Android thin client has no Typst preview (#146). |
 | `wiki_link_service` | Obsidian `[[wiki link]]` parsing and rewriting. Lives in `librarium-core`, re-exported here. |
 | `frontmatter_service` | YAML frontmatter read/write. Lives in `librarium-core`, re-exported here. |
 | `auth_provider` / `ldap_provider` / `oidc_provider` | Pluggable auth: local password (Argon2), LDAP/AD, OIDC. |

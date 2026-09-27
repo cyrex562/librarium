@@ -60,8 +60,14 @@ blocks, comments, labels and references. Preview renders the note with the
 Typst compiler on the server. If the note has errors, they're listed above
 the last good render; click "Line N" to jump to the problem. `#include` and
 `image()` read other files in the same vault, relative to the note. Typst
-packages (`@preview/…`) aren't available. PDF export, search and links for
-Typst notes are planned (see epic #121).
+packages (`@preview/…`) aren't available.
+
+**Export as PDF**: the PDF button in the Typst editor exports the text as it
+is now, saved or not. You can also right-click a `.typ` file in the file tree
+and choose "Export as PDF", which exports the saved file. If the note has
+errors, the editor switches to Preview to show them. Markdown notes can't be
+exported to PDF yet; that comes with Markdown→Typst conversion. Search and
+links for Typst notes are planned (see epic #121).
 
 ### File operations
 
@@ -77,7 +83,7 @@ Typst notes are planned (see epic #121).
 | Type | Extensions | Support |
 | --- | --- | --- |
 | Markdown | `.md` | Full editing |
-| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted), plain text (Plain), and a rendered Preview with compile errors. Export and search come later. |
+| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted), plain text (Plain), a rendered Preview with compile errors, and PDF export. Search comes later. |
 | Images | `.png .jpg .jpeg .gif .svg .webp` | Viewer with zoom/pan |
 | PDF | `.pdf` | Native viewer, search, metadata |
 | Audio | `.mp3 .wav .ogg` | Playback |

@@ -1,4 +1,5 @@
-//! Compiles Typst notes (`.typ`) to HTML for Preview (#139).
+//! Compiles Typst notes (`.typ`) to HTML for Preview (#139) and to PDF for
+//! export (#140).
 //!
 //! In-process via the `typst` crate (feature `typst`, on by default). The
 //! note's text comes from the request, so Preview shows the unsaved buffer;
@@ -204,6 +205,32 @@ pub fn render_html(vault_path: &str, note_path: &str, content: String) -> TypstR
     }
 }
 
+/// Compile the note at `note_path` to a PDF (#140). `content` is its text.
+/// On failure, returns the compiler's diagnostics (at least one error).
+/// CPU-bound; call it off the async runtime.
+pub fn render_pdf(
+    vault_path: &str,
+    note_path: &str,
+    content: String,
+) -> Result<Vec<u8>, Vec<TypstDiagnostic>> {
+    let world = VaultWorld::new(vault_path, note_path, content).map_err(|message| {
+        vec![TypstDiagnostic {
+            severity: "error",
+            message,
+            line: None,
+            column: None,
+            hints: vec![],
+        }]
+    })?;
+
+    let compiled = typst::compile::<typst_layout::PagedDocument>(&world);
+    let result = compiled
+        .output
+        .and_then(|doc| typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default()));
+    comemo::evict(10);
+    result.map_err(|errors| errors.iter().map(|d| to_diagnostic(&world, d)).collect())
+}
+
 fn to_diagnostic(world: &VaultWorld, diag: &SourceDiagnostic) -> TypstDiagnostic {
     let (line, column) = if diag.span.id() == Some(world.main.id()) {
         world
@@ -334,6 +361,33 @@ mod tests {
             .diagnostics
             .iter()
             .all(|d| !d.message.contains("top secret")));
+    }
+
+    #[test]
+    fn exports_pdf() {
+        let dir = TempDir::new().unwrap();
+        let pdf = render_pdf(
+            dir.path().to_str().unwrap(),
+            "note.typ",
+            "= Report\n\nBody text with $x^2$.\n#pagebreak()\nPage two.".to_string(),
+        )
+        .expect("pdf");
+        assert!(pdf.starts_with(b"%PDF-"), "not a PDF");
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Count 2"), "expected two pages");
+    }
+
+    #[test]
+    fn pdf_export_reports_errors() {
+        let dir = TempDir::new().unwrap();
+        let errors = render_pdf(
+            dir.path().to_str().unwrap(),
+            "note.typ",
+            "ok\n#nope()".to_string(),
+        )
+        .expect_err("should fail");
+        assert_eq!(errors[0].severity, "error");
+        assert_eq!(errors[0].line, Some(2));
     }
 
     #[test]

@@ -7,6 +7,15 @@
       </template>
       <span class="text-caption text-secondary ml-2">Typst</span>
       <v-spacer />
+      <v-btn
+        v-if="canUseTypstRendering"
+        v-bind="btn"
+        icon="mdi-file-pdf-box"
+        title="Export as PDF"
+        data-testid="typst-export-pdf"
+        :loading="exporting"
+        @click="exportPdf"
+      />
       <v-btn-toggle
         :model-value="toggleValue"
         mandatory
@@ -17,7 +26,7 @@
       >
         <v-btn value="raw" size="x-small" title="Plain text editor">Plain</v-btn>
         <v-btn value="formatted_raw" size="x-small" title="Typst text with syntax highlighting">Formatted</v-btn>
-        <v-btn value="fully_rendered" size="x-small" title="Rendered with the Typst compiler">Preview</v-btn>
+        <v-btn v-if="canUseTypstRendering" value="fully_rendered" size="x-small" title="Rendered with the Typst compiler">Preview</v-btn>
       </v-btn-toggle>
     </div>
     <!-- Kept mounted (hidden) during Preview so undo history and caret survive. -->
@@ -51,6 +60,10 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import TypstPreview from './TypstPreview.vue';
+import { ApiError } from '@/api/client';
+import { useFilesStore } from '@/stores/files';
+import { useCapabilities } from '@/composables/useCapabilities';
+import { pdfExportErrorMessage } from '@/utils/pdfExport';
 import { useUndoRedo } from '@/composables/useUndoRedo';
 import { highlightPlainText } from '@/utils/highlight';
 import { renderTypstHighlight } from '@/utils/typst-highlight';
@@ -71,7 +84,11 @@ const emit = defineEmits<{
 }>();
 
 const btn = { size: 'small', variant: 'text' as const, density: 'compact' as const };
-const previewing = computed(() => props.mode === 'fully_rendered');
+const { canUseTypstRendering } = useCapabilities();
+const filesStore = useFilesStore();
+const exporting = ref(false);
+// Preview compiles on the server; in local (thin-client) mode it isn't offered.
+const previewing = computed(() => canUseTypstRendering && props.mode === 'fully_rendered');
 const highlighted = computed(() => props.mode !== 'raw');
 const toggleValue = computed(() => (previewing.value ? 'fully_rendered' : highlighted.value ? 'formatted_raw' : 'raw'));
 
@@ -120,6 +137,26 @@ function callUndo() {
 function callRedo() {
   const next = redo();
   if (next != null) replaceContent(next);
+}
+
+/**
+ * Export the current text (saved or not) as PDF. If the note doesn't
+ * compile, open Preview, which lists the errors with jump-to-line.
+ */
+async function exportPdf() {
+  if (!props.vaultId || !props.filePath || exporting.value) return;
+  exporting.value = true;
+  try {
+    await filesStore.exportAsPdf(props.vaultId, props.filePath, jar?.toString() ?? props.content);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 422) {
+      emit('mode-change', 'fully_rendered');
+    } else {
+      alert(pdfExportErrorMessage(e));
+    }
+  } finally {
+    exporting.value = false;
+  }
 }
 
 /** From a Preview diagnostic: back to the editor, caret at line:column. */

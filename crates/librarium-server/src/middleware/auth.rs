@@ -472,9 +472,8 @@ fn required_vault_role(req: &ServiceRequest) -> Option<(String, RequiredVaultRol
         RequiredVaultRole::Read
     } else if *method == Method::POST {
         match tail[0] {
-            "render" | "render-typst" | "resolve-link" | "resolve-links" | "download-zip" => {
-                RequiredVaultRole::Read
-            }
+            "render" | "render-typst" | "export-pdf" | "resolve-link" | "resolve-links"
+            | "download-zip" => RequiredVaultRole::Read,
             _ => RequiredVaultRole::Write,
         }
     } else {

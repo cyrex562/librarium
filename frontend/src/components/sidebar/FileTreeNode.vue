@@ -119,6 +119,13 @@
           <v-list-item title="Export as ZIP" prepend-icon="mdi-folder-zip-outline" data-testid="ctx-export-zip" @click="exportAsZip" />
           <v-list-item title="Export as tar.gz" prepend-icon="mdi-archive-arrow-down-outline" data-testid="ctx-export-tar" @click="exportAsTar" />
         </template>
+        <v-list-item
+          v-if="isTypstNote && canUseTypstRendering"
+          title="Export as PDF"
+          prepend-icon="mdi-file-pdf-box"
+          data-testid="ctx-export-pdf"
+          @click="exportAsPdf"
+        />
         <v-divider />
         <v-list-item title="Delete" prepend-icon="mdi-delete-outline" base-color="error" data-testid="ctx-delete" @click="onDelete" />
       </v-list>
@@ -184,6 +191,7 @@ import { usePreferencesStore } from '@/stores/preferences';
 import { useMobile } from '@/composables/useMobile';
 import { useCapabilities } from '@/composables/useCapabilities';
 import { noteFileName } from '@/editor/utils';
+import { pdfExportErrorMessage } from '@/utils/pdfExport';
 import { createImportCandidatesFromDataTransfer, hasFilePayload, parentDirectory } from '@/utils/importEntries';
 import { getFileTreeDragItems, getFileTreeDragPayload, setFileTreeDragPayload } from '@/utils/fileTreeDrag';
 
@@ -195,7 +203,8 @@ const tabsStore = useTabsStore();
 const uiStore = useUiStore();
 const prefsStore = usePreferencesStore();
 const { isMobile } = useMobile();
-const { canUseArchiveImportExport } = useCapabilities();
+const { canUseArchiveImportExport, canUseTypstRendering } = useCapabilities();
+const isTypstNote = computed(() => !props.node.is_directory && /\.typ$/i.test(props.node.name));
 
 const expanded = ref(false); // start collapsed
 const hovering = ref(false);
@@ -708,6 +717,16 @@ async function exportAsTar() {
   const vaultId = vaultsStore.activeVaultId;
   if (!vaultId) return;
   await filesStore.downloadAsTar(vaultId, [props.node.path]);
+}
+
+async function exportAsPdf() {
+  const vaultId = vaultsStore.activeVaultId;
+  if (!vaultId) return;
+  try {
+    await filesStore.exportAsPdf(vaultId, props.node.path);
+  } catch (e) {
+    alert(pdfExportErrorMessage(e));
+  }
 }
 </script>
 

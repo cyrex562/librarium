@@ -35,6 +35,8 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   editor's Preview shows the result. Compile errors are listed with their
   line; click one to jump there. `#include` and `image()` read files from the
   vault; packages aren't supported.
+- Export Typst notes as PDF (#140): the PDF button in the Typst editor (exports
+  the current text), or "Export as PDF" on a `.typ` file in the file tree.
 
 ### Changed
 

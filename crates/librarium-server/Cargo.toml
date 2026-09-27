@@ -1,6 +1,6 @@
 [package]
 name = "librarium-server"
-version = "0.102.23"
+version = "0.102.24"
 edition = "2021"
 
 [lib]
@@ -56,9 +56,11 @@ tracing-appender = "0.2"
 anyhow = "1.0"
 thiserror = "2.0"
 
-# Typst compiler (feature "typst"): renders .typ notes for Preview.
+# Typst compiler (feature "typst"): renders .typ notes for Preview and PDF export.
 typst = { version = "0.15.1", optional = true }
 typst-html = { version = "0.15.1", optional = true }
+typst-pdf = { version = "0.15.1", optional = true }
+typst-layout = { version = "0.15.1", optional = true }
 typst-assets = { version = "0.15.1", features = ["fonts"], optional = true }
 comemo = { version = "0.5", optional = true }
 
@@ -133,7 +135,7 @@ fastembed = { version = "4", optional = true }
 # route then answers 501. Costs ~30 MB of release binary (27.7 -> 58 MB; 9.6 MB of it bundled
 # fonts) and ~130 extra crates; see #137 for the measurements.
 default = ["typst"]
-typst = ["dep:typst", "dep:typst-html", "dep:typst-assets", "dep:comemo"]
+typst = ["dep:typst", "dep:typst-html", "dep:typst-pdf", "dep:typst-layout", "dep:typst-assets", "dep:comemo"]
 # Enable local semantic embeddings (downloads/loads an ONNX model at runtime).
 embeddings = ["dep:fastembed"]
 

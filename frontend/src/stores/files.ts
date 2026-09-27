@@ -18,6 +18,7 @@ import {
     apiImportArchive,
     apiDownloadZip,
     apiDownloadTar,
+    apiExportPdf,
     ApiError,
     isLocalTransportActive,
 } from '@/api/client';
@@ -420,6 +421,13 @@ export const useFilesStore = defineStore('files', () => {
         triggerBlobDownload(blob, paths.length === 1 ? `${paths[0].split('/').pop() ?? 'download'}.tar.gz` : `${paths.length}_files.tar.gz`);
     }
 
+    /** Export a Typst note as PDF and trigger a browser download (#140). */
+    async function exportAsPdf(vaultId: string, path: string, content?: string): Promise<void> {
+        const blob = await apiExportPdf(vaultId, path, content);
+        const stem = (path.split('/').pop() ?? 'note').replace(/\.[^.]+$/, '');
+        triggerBlobDownload(blob, `${stem}.pdf`);
+    }
+
     function setSelectionMode(enabled: boolean) {
         selectionMode.value = enabled;
         if (!enabled) clearSelection();
@@ -559,6 +567,7 @@ export const useFilesStore = defineStore('files', () => {
         importCandidates,
         downloadAsZip,
         downloadAsTar,
+        exportAsPdf,
         selectionMode,
         selectedPaths,
         lastSelectionAnchorPath,

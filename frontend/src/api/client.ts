@@ -755,6 +755,27 @@ export const apiDownloadTar = async (vaultId: string, paths: string[]): Promise<
     });
 };
 
+/**
+ * Export a Typst note as PDF (#140). With `content`, the current (possibly
+ * unsaved) text is exported; without it, the saved file. A note with errors
+ * rejects with an ApiError (422) whose body carries `diagnostics`.
+ */
+export const apiExportPdf = async (vaultId: string, path: string, content?: string): Promise<Blob> => {
+    const url = `/api/vaults/${vaultId}/export-pdf`;
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders(url)) },
+        body: JSON.stringify({ path, content }),
+    });
+    if (r.status === 401) await handleUnauthorized(url);
+    if (!r.ok) {
+        let body: { error?: string; diagnostics?: TypstDiagnostic[] } | undefined;
+        try { body = await r.json(); } catch { /* not JSON */ }
+        throw new ApiError(r.status, body?.error ?? 'PDF export failed', body);
+    }
+    return r.blob();
+};
+
 export const apiImportArchive = (
     vaultId: string,
     archiveFile: File,
