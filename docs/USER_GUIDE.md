@@ -48,8 +48,9 @@ Four modes, switchable from the toolbar or `Ctrl/Cmd+1`/`2`/`3`:
   a number shortcut.
 
 Changes save automatically. `Ctrl/Cmd+S` saves immediately rather than
-waiting for the debounce. Type `[[` for wiki-link autocomplete. Drag and drop
-an image into the editor to upload and embed it.
+waiting for the debounce. Brackets and quotes aren't auto-closed: you get
+exactly what you type. To add an image, drop it onto the file tree to import
+it into the vault, then link it with `![alt](path/to/image.png)`.
 
 **Typst notes.** To create one, name a new note with a `.typ` extension
 (for example `paper.typ`). A name with no extension creates a Markdown note.

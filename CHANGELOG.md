@@ -48,6 +48,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 
 ### Fixed
 
+- Markdown editor: typing a bracket or quote no longer adds a second closing
+  one (`[a](b)` saved as `[a](b))]`, and apostrophes doubled) (#155). Also
+  removed two claims from the user guide that didn't match the app: `[[`
+  wiki-link autocomplete, and dropping an image onto the editor.
 - Preview tables: body cells were rendered as header cells and column
   alignment was dropped (#123). Preview now also shows `^^` / `<<` merged
   cells, and an image's alt text goes in its `alt` attribute instead of

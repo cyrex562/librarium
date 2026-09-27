@@ -161,7 +161,10 @@ onMounted(async () => {
   loadFoldStateForCurrentNote();
   // CodeJar is a ~1kB editor; loaded dynamically from vendor dir or npm
   const { CodeJar } = await import('codejar');
-  jar = CodeJar(editorEl.value, highlightForCurrentMode, { tab: '  ' });
+  // addClosing off (#155): CodeJar inserts a closing bracket or quote but
+  // never types over it, so `[a](b)` saved as `[a](b))]`, and every
+  // apostrophe grew a second one.
+  jar = CodeJar(editorEl.value, highlightForCurrentMode, { tab: '  ', addClosing: false });
   jar.updateCode(props.content);
   jar.onUpdate((code: string) => {
     if (ignoreNextChange) { ignoreNextChange = false; return; }
