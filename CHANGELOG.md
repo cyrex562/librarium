@@ -51,6 +51,9 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   `#metadata((…)) <frontmatter>` block, edited in the Frontmatter panel and
   tag chips. Tags appear in the Tags panel, and `librarium_type` makes a Typst
   note an entity.
+- Typst projects (#142): importing a multi-file project keeps `#include`,
+  `#import` and images working. Packages load from the vault's
+  `.typst/packages/` (Typst's layout, never downloaded).
 
 ### Changed
 
@@ -64,6 +67,8 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 
 ### Fixed
 
+- A full reindex no longer puts notes from hidden folders (such as `.trash/`)
+  into search, matching the file tree and the live file watcher.
 - Typing straight after opening a note could be lost: the editor wasn't
   editable until its editing library finished loading, so those keystrokes
   never registered and nothing was saved. It's now ready as soon as it

@@ -270,4 +270,58 @@ async fn viewers_can_render_typst_and_outsiders_cannot() {
     // No access to the vault: refused before anything compiles.
     let resp = test::call_service(&app, render("outsider", "= Secret\n")).await;
     assert_eq!(resp.status(), 403);
+
+    // Importing a multi-file Typst project (#142): a zip with an entry file,
+    // an included chapter, an image and a vault-local package lands as-is,
+    // and the entry note renders with all of it.
+    let mut zip_bytes = Vec::new();
+    {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_bytes));
+        let opts = zip::write::SimpleFileOptions::default();
+        let files: [(&str, &str); 5] = [
+            ("thesis/main.typ", "#import \"@local/util:1.0.0\": shout\n= Thesis\n#include \"chapters/intro.typ\"\n#image(\"img/fig.svg\")\n#shout[done]\n"),
+            ("thesis/chapters/intro.typ", "== Intro\nThe *intro* text."),
+            ("thesis/img/fig.svg", r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>"#),
+            (".typst/packages/local/util/1.0.0/typst.toml", "[package]\nname = \"util\"\nversion = \"1.0.0\"\nentrypoint = \"lib.typ\"\n"),
+            (".typst/packages/local/util/1.0.0/lib.typ", "#let shout(body) = upper(body)"),
+        ];
+        for (name, body) in files {
+            zip.start_file(name, opts).unwrap();
+            zip.write_all(body.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/api/vaults/{vault_id}/import-archive?archive_type=zip"
+            ))
+            .insert_header(bearer("admin"))
+            .insert_header(("content-type", "application/octet-stream"))
+            .set_payload(zip_bytes)
+            .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    assert!(vault_dir.join("thesis/chapters/intro.typ").is_file());
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/vaults/{vault_id}/render-typst"))
+            .insert_header(bearer("viewer"))
+            .set_json(json!({
+                "path": "thesis/main.typ",
+                "content": std::fs::read_to_string(vault_dir.join("thesis/main.typ")).unwrap(),
+            }))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(resp).await;
+    let html = body["html"].as_str().unwrap_or_else(|| panic!("{body}"));
+    assert!(html.contains("<strong>intro</strong>"), "{html}");
+    assert!(html.contains("data:image/svg+xml"), "{html}");
+    assert!(html.contains("DONE"), "{html}");
 }
