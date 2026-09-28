@@ -6,9 +6,10 @@
 //! anything it pulls in (`image("fig.png")`, `#include`, `#import`,
 //! `read(..)`) is read from the vault through `FileService::resolve_path`,
 //! so the usual path-safety rules apply and nothing outside the vault is
-//! reachable. Packages (`@preview/..`) are refused: the server may be
-//! offline, and downloading code on a render request is not something a
-//! note should be able to trigger.
+//! reachable. Packages (`@preview/..`, `@local/..`) are read from the vault
+//! too, at `.typst/packages/<namespace>/<name>/<version>/` (#142), and never
+//! downloaded: the server may be offline, and a note shouldn't be able to
+//! make it fetch code.
 //!
 //! Fonts (Typst's bundled set) and the standard library are loaded once per
 //! process. HTML export is still experimental upstream; page-layout features
@@ -91,13 +92,31 @@ impl VaultWorld {
     }
 
     fn resolve(&self, id: FileId) -> FileResult<PathBuf> {
-        if matches!(id.root(), VirtualRoot::Package(_)) {
-            return Err(FileError::Other(Some(
-                "packages are not available in Librarium; copy the package's files into the vault instead".into(),
-            )));
-        }
-        let rel = id.vpath().get_without_slash();
-        FileService::resolve_path(&self.vault_path, rel).map_err(|_| FileError::AccessDenied)
+        let rel = match id.root() {
+            // Packages come from the vault, never the network (#142):
+            // `<vault>/.typst/packages/<namespace>/<name>/<version>/`, the
+            // same layout as Typst's own package directory, so a package
+            // folder can be copied in as-is.
+            VirtualRoot::Package(spec) => {
+                let root = format!(
+                    ".typst/packages/{}/{}/{}",
+                    spec.namespace, spec.name, spec.version
+                );
+                let dir = FileService::resolve_path(&self.vault_path, &root)
+                    .map_err(|_| FileError::AccessDenied)?;
+                if !dir.is_dir() {
+                    return Err(FileError::Other(Some(
+                        format!(
+                            "package {spec} isn't in this vault; copy it to {root}/ (Librarium doesn't download packages)"
+                        )
+                        .into(),
+                    )));
+                }
+                format!("{root}/{}", id.vpath().get_without_slash())
+            }
+            VirtualRoot::Project => id.vpath().get_without_slash().to_string(),
+        };
+        FileService::resolve_path(&self.vault_path, &rel).map_err(|_| FileError::AccessDenied)
     }
 
     fn read(&self, id: FileId) -> FileResult<Vec<u8>> {
@@ -391,7 +410,32 @@ mod tests {
     }
 
     #[test]
-    fn refuses_packages() {
+    fn packages_come_from_the_vault() {
+        let dir = TempDir::new().unwrap();
+        let pkg = dir.path().join(".typst/packages/local/greet/0.1.0");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(
+            pkg.join("typst.toml"),
+            "[package]\nname = \"greet\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("lib.typ"),
+            "#let hello(name) = strong[Hello, #name!]",
+        )
+        .unwrap();
+
+        let out = render(
+            &dir,
+            "notes/note.typ",
+            "#import \"@local/greet:0.1.0\": hello\n#hello(\"vault\")\n",
+        );
+        let html = out.html.unwrap_or_else(|| panic!("{:?}", out.diagnostics));
+        assert!(html.contains("<strong>Hello, vault!</strong>"), "{html}");
+    }
+
+    #[test]
+    fn a_missing_package_says_where_to_put_it() {
         let dir = TempDir::new().unwrap();
         let out = render(
             &dir,
@@ -402,7 +446,8 @@ mod tests {
         assert!(
             out.diagnostics
                 .iter()
-                .any(|d| d.message.contains("packages are not available")),
+                .any(|d| d.message.contains(".typst/packages/preview/cetz/0.3.0")
+                    && d.message.contains("doesn't download")),
             "{:?}",
             out.diagnostics
         );

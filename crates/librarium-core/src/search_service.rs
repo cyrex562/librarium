@@ -27,10 +27,13 @@ struct EntityMeta {
     extra_text: String,
 }
 
-/// Notes the full-text index covers: Markdown and Typst (#143).
+/// Notes the full-text index covers: Markdown and Typst (#143), outside
+/// hidden folders (`.obsidian/`, `.trash/`, `.typst/packages/`), matching
+/// the watcher and the file tree.
 pub fn is_indexed_note(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    lower.ends_with(".md") || lower.ends_with(".typ")
+    (lower.ends_with(".md") || lower.ends_with(".typ"))
+        && !path.split(['/', '\\']).any(|part| part.starts_with('.'))
 }
 
 fn is_indexed_note_path(path: &Path) -> bool {
@@ -315,6 +318,8 @@ impl SearchIndex {
         for entry in WalkDir::new(vault_path)
             .follow_links(false)
             .into_iter()
+            // Don't descend into hidden folders (.obsidian, .trash, .typst).
+            .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
@@ -843,6 +848,8 @@ impl SearchIndex {
         for entry in WalkDir::new(vault_path)
             .follow_links(false)
             .into_iter()
+            // Don't descend into hidden folders (.obsidian, .trash, .typst).
+            .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
@@ -999,6 +1006,31 @@ mod tests {
     }
 
     #[test]
+    fn hidden_folders_are_not_indexed() {
+        let vault = TempDir::new().unwrap();
+        let pkg = vault.path().join(".typst/packages/local/x/1.0.0");
+        fs::create_dir_all(&pkg).unwrap();
+        fs::write(pkg.join("lib.typ"), "packagetext here").unwrap();
+        fs::write(vault.path().join("note.typ"), "notetext here").unwrap();
+        let index = SearchIndex::new();
+        assert_eq!(
+            index
+                .index_vault("v", vault.path().to_str().unwrap())
+                .unwrap(),
+            1
+        );
+        assert!(index
+            .search("v", "packagetext", 1, 10)
+            .unwrap()
+            .results
+            .is_empty());
+        assert_eq!(
+            index.search("v", "notetext", 1, 10).unwrap().results.len(),
+            1
+        );
+    }
+
+    #[test]
     fn typst_note_updates_index_their_text() {
         let vault = TempDir::new().unwrap();
         let index = SearchIndex::new();
@@ -1035,6 +1067,8 @@ mod tests {
         assert!(is_indexed_note("a/B.TYP"));
         assert!(!is_indexed_note("a/b.txt"));
         assert!(!is_indexed_note("typ"));
+        assert!(!is_indexed_note(".typst/packages/local/x/1.0.0/lib.typ"));
+        assert!(!is_indexed_note("notes/.trash/old.md"));
     }
 
     #[test]

@@ -59,8 +59,21 @@ Formatted colors headings, `*strong*`, `_emphasis_`, `#` code, math, raw
 blocks, comments, labels and references. Preview renders the note with the
 Typst compiler on the server. If the note has errors, they're listed above
 the last good render; click "Line N" to jump to the problem. `#include` and
-`image()` read other files in the same vault, relative to the note. Typst
-packages (`@preview/…`) aren't available.
+`image()` read other files in the same vault, relative to the note.
+
+**Typst packages** are read from the vault, never downloaded. Copy a package
+folder into `.typst/packages/<namespace>/<name>/<version>/` inside the vault
+folder. That's the same layout as Typst's own package directory, so
+`~/.local/share/typst/packages/local/mypkg/0.1.0` becomes
+`.typst/packages/local/mypkg/0.1.0`, and `@preview/…` packages you've
+already downloaded work the same way. Then `#import "@local/mypkg:0.1.0"`
+works. The `.typst` folder is hidden from the file tree and search. If a
+package is missing, Preview says where to put it.
+
+**Importing Typst projects**: import `.typ` files or a whole project folder
+(or a `.zip` of it) with "Import files or folders". Files keep their layout,
+so `#include`, `#import` and images between them keep working, and the
+`.typ` files arrive as Typst notes.
 
 **Export as PDF**: the PDF button in the Typst editor exports the text as it
 is now, saved or not. You can also right-click a `.typ` file in the file tree
