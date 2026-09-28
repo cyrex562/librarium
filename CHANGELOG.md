@@ -57,6 +57,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 - Typst → Markdown (#141): "Convert to Markdown" in the Typst editor and the
   file-tree menu, and a "convert to Markdown" option when importing (#142).
   Anything without a Markdown form is kept in a comment and listed.
+- Typst on desktop and Android (#146): the desktop app includes the full
+  Typst support offline. The Android app edits Typst notes and has search,
+  links, tags and properties for them. Preview, PDF and conversion need a
+  server, so they're hidden there rather than failing.
 
 ### Changed
 

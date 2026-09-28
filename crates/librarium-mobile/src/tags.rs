@@ -108,6 +108,21 @@ mod tests {
         vault
     }
 
+    /// Typst notes' tags come from their metadata block, offline (#146).
+    #[tokio::test]
+    async fn typst_tags_come_from_the_metadata_block() {
+        let vault = TempDir::new().unwrap();
+        std::fs::write(
+            vault.path().join("paper.typ"),
+            "#metadata((tags: (\"physics\",))) <frontmatter>\n\n#let notatag = 1\n= Paper",
+        )
+        .unwrap();
+        let entries = tags_list(vault.path().to_str().unwrap()).await.unwrap();
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert_eq!(entries[0].tag, "physics");
+        assert_eq!(entries[0].files, vec!["paper.typ".to_string()]);
+    }
+
     #[tokio::test]
     async fn tags_list_aggregates_frontmatter_and_inline_tags() {
         let vault = vault_with_tags();

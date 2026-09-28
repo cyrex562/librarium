@@ -91,6 +91,12 @@ equivalent. Wiki links become `#link("librarium://note/…")`, and merged table
 cells carry over. Typst notes show up in search like Markdown notes. Their text is matched,
 not their markup or code.
 
+**Typst on each app.** The desktop app and the server have everything
+above, fully offline. The Android app edits Typst notes, and finds them in
+search, links, tags and properties. It doesn't render Preview, export PDFs or
+convert, because the Typst compiler runs on a server, so those buttons don't
+appear there.
+
 **Tags and properties on Typst notes.** The Frontmatter panel and the tag
 chips in the note header work on Typst notes too. Librarium stores them in
 the note as a Typst metadata call at the top:
