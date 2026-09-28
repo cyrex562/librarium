@@ -158,4 +158,82 @@ async fn typst_notes_are_searchable_through_create_edit_and_rename() {
         .map(|b| b["path"].as_str().unwrap())
         .collect();
     assert_eq!(paths, vec!["index.md"], "{body}");
+
+    // Frontmatter and tags (#145): saving a Typst note with frontmatter writes
+    // a `#metadata(..) <frontmatter>` block; reading gives it back separately.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/api/vaults/{id}/files/tagged.typ"))
+            .set_json(json!({
+                "content": "= Tagged\n\n#let physics = 1\nText.\n",
+                "frontmatter": { "title": "Tagged", "tags": ["physics", "draft"] }
+            }))
+            .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let on_disk = std::fs::read_to_string(vault_dir.join("tagged.typ")).unwrap();
+    assert!(on_disk.starts_with("#metadata((\"title\": \"Tagged\", \"tags\": (\"physics\", \"draft\"))) <frontmatter>\n\n= Tagged"), "{on_disk}");
+
+    let body: Value = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/vaults/{id}/files/tagged.typ"))
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        body["frontmatter"]["tags"],
+        json!(["physics", "draft"]),
+        "{body}"
+    );
+    assert_eq!(body["content"], "= Tagged\n\n#let physics = 1\nText.\n");
+
+    let body: Value = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/api/vaults/{id}/tags"))
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let physics = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["tag"] == "physics")
+        .expect("physics tag");
+    assert_eq!(physics["files"], json!(["tagged.typ"]), "{body}");
+    // `#let physics` is code, not an inline tag; `#link` etc. never become tags.
+    assert!(
+        body.as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["tag"] != "let" && t["tag"] != "link"),
+        "{body}"
+    );
+
+    // Deleting a tag rewrites the metadata block and leaves the code alone.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::delete()
+            .uri(&format!("/api/vaults/{id}/tags/physics"))
+            .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let on_disk = std::fs::read_to_string(vault_dir.join("tagged.typ")).unwrap();
+    assert!(
+        on_disk.starts_with(
+            "#metadata((\"title\": \"Tagged\", \"tags\": (\"draft\",))) <frontmatter>\n\n"
+        ),
+        "{on_disk}"
+    );
+    assert!(on_disk.contains("#let physics = 1"), "{on_disk}");
 }

@@ -250,4 +250,34 @@ test.describe('Typst notes', () => {
         expect((await download).suggestedFilename()).toBe('paper.pdf');
         expect(exported).toBe(NOTE);
     });
+
+    test('frontmatter from the metadata block shows in the Frontmatter panel and tag chips (#145)', async ({ page }) => {
+        const files = await setup(page, {
+            fileFrontmatterByVaultId: { [defaultVault.id]: { [NOTE]: { title: 'Results paper', tags: ['physics', 'draft'] } } },
+        });
+        await page.getByText(NOTE).click();
+        await expect(editor(page)).toBeVisible();
+        // Tags in the document header.
+        await expect(page.locator('.v-chip', { hasText: 'physics' })).toBeVisible();
+        await expect(page.locator('.v-chip', { hasText: 'draft' })).toBeVisible();
+        // The Frontmatter panel, with the note's fields.
+        const { expandFrontmatter } = await import('./helpers/panels');
+        await expandFrontmatter(page);
+        // Keys render as input values, as for Markdown notes.
+        await expect(page.locator('.v-expansion-panel-text input[value="title"]')).toBeVisible();
+        // The editor shows the text only: the block lives in the panel.
+        expect(await editor(page).evaluate((el) => el.textContent)).toBe(CONTENT);
+
+        // Saving sends the frontmatter along with the text (the server writes the block).
+        let saved: { content: string; frontmatter?: Record<string, unknown> } | null = null;
+        await page.route(/.*\/api\/vaults\/[^/]+\/files\/paper\.typ$/, async (route) => {
+            if (route.request().method() === 'PUT') saved = route.request().postDataJSON();
+            await route.fallback();
+        });
+        await editor(page).locator('.typ-heading').click();
+        await page.keyboard.press('End');
+        await page.keyboard.type('!');
+        await expect.poll(() => saved?.frontmatter, { timeout: 10_000 }).toEqual({ title: 'Results paper', tags: ['physics', 'draft'] });
+        expect(files[NOTE]).toContain('= Results!');
+    });
 });

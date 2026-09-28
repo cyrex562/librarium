@@ -171,4 +171,33 @@ test.describe('Typst notes', () => {
     await page.locator('[data-testid="typst-preview-body"]').getByText('the roadmap').click();
     await expect(page.locator('.tab-item', { hasText: 'Roadmap.md' })).toBeVisible({ timeout: 10_000 });
   });
+
+  test('5.6 - A Typst note keeps its frontmatter (metadata block) through edits', async ({ page }) => {
+    await page.locator('button[title="New note"]').click();
+    await page.getByLabel('File name').fill('tagged.typ');
+    await page.locator('button:has-text("Create")').click();
+    await expect(page.locator('.tab-item', { hasText: 'tagged.typ' })).toBeVisible({ timeout: 5000 });
+
+    // Add a tag in the note header: stored in the note's metadata block.
+    await page.getByTitle('Add tag').click();
+    await page.getByPlaceholder('tag name…').fill('physicsxyz');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.v-chip', { hasText: 'physicsxyz' })).toBeVisible();
+
+    const editor = page.locator('[data-testid="typst-editor"] .typst-editor');
+    await editor.click();
+    await page.keyboard.type('= Notes\n\nBody text.');
+    await page.waitForTimeout(3000); // auto-save
+
+    // Reopen: the tag comes back from the file, the text doesn't show the block.
+    await page.locator('.tab-item', { hasText: 'tagged.typ' }).locator('button').click();
+    await page.locator('.file-tree-node', { hasText: 'tagged.typ' }).click();
+    await expect(page.locator('.v-chip', { hasText: 'physicsxyz' })).toBeVisible({ timeout: 10_000 });
+    await expect(editor).toContainText('Body text.');
+    await expect(editor).not.toContainText('#metadata');
+
+    // The tag is listed vault-wide.
+    await page.getByText('TAGS', { exact: true }).click();
+    await expect(page.getByText('physicsxyz').first()).toBeVisible();
+  });
 });

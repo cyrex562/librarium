@@ -35,14 +35,7 @@ async fn list_tags(
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .map(|x| x.eq_ignore_ascii_case("md"))
-                    .unwrap_or(false)
-        })
+        .filter(|e| e.file_type().is_file() && librarium_core::note_links::is_note_file(e.path()))
     {
         let rel_path = entry
             .path()
@@ -52,9 +45,9 @@ async fn list_tags(
             .replace('\\', "/");
 
         if let Ok(raw) = std::fs::read_to_string(entry.path()) {
-            let (fm, body) =
-                frontmatter_service::parse_frontmatter(&raw).unwrap_or((None, raw.clone()));
-            let tags = frontmatter_service::extract_tags(fm.as_ref(), &body);
+            let (fm, body) = frontmatter_service::parse_note_frontmatter(&rel_path, &raw)
+                .unwrap_or((None, raw.clone()));
+            let tags = frontmatter_service::note_tags(&rel_path, fm.as_ref(), &body);
             for tag in tags {
                 tag_map.entry(tag).or_default().push(rel_path.clone());
             }
@@ -236,22 +229,22 @@ fn scan_and_rewrite_tag<P: AsRef<std::path::Path>>(
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .map(|x| x.eq_ignore_ascii_case("md"))
-                    .unwrap_or(false)
-        })
+        .filter(|e| e.file_type().is_file() && librarium_core::note_links::is_note_file(e.path()))
     {
         let Ok(raw) = std::fs::read_to_string(entry.path()) else {
             continue;
         };
+        let rel = entry
+            .path()
+            .strip_prefix(vault_path)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .trim_start_matches(['/', '\\'])
+            .replace('\\', "/");
         let (fm, body) =
-            frontmatter_service::parse_frontmatter(&raw).unwrap_or((None, raw.clone()));
+            frontmatter_service::parse_note_frontmatter(&rel, &raw).unwrap_or((None, raw.clone()));
 
-        if !frontmatter_service::extract_tags(fm.as_ref(), &body)
+        if !frontmatter_service::note_tags(&rel, fm.as_ref(), &body)
             .iter()
             .any(|t| t == tag)
         {
@@ -269,7 +262,12 @@ fn scan_and_rewrite_tag<P: AsRef<std::path::Path>>(
 
         // Drop exact inline `#tag` occurrences outside code (fenced + inline),
         // collapsing the leading whitespace and leaving other tags untouched.
-        let new_body = remove_inline_tag(&body, tag, &inline_re);
+        // (Typst notes have no inline tags: `#word` is code there.)
+        let new_body = if frontmatter_service::is_typst_note(&rel) {
+            body.clone()
+        } else {
+            remove_inline_tag(&body, tag, &inline_re)
+        };
         if new_body != body {
             changed = true;
         }
@@ -280,20 +278,14 @@ fn scan_and_rewrite_tag<P: AsRef<std::path::Path>>(
             continue;
         }
 
-        let rel = entry
-            .path()
-            .strip_prefix(vault_path)
-            .unwrap_or(entry.path())
-            .to_string_lossy()
-            .trim_start_matches(['/', '\\'])
-            .replace('\\', "/");
         affected.push(rel.clone());
 
         if dry_run {
             continue;
         }
 
-        let new_content = frontmatter_service::serialize_frontmatter(new_fm.as_ref(), &new_body)?;
+        let new_content =
+            frontmatter_service::serialize_note_frontmatter(&rel, new_fm.as_ref(), &new_body)?;
         if std::fs::write(entry.path(), new_content).is_ok() {
             files_modified += 1;
             receipts.push((rel, raw));

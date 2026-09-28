@@ -31,14 +31,7 @@ fn scan_tags(vault_path: &str) -> HashMap<String, Vec<String>> {
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .map(|x| x.eq_ignore_ascii_case("md"))
-                    .unwrap_or(false)
-        })
+        .filter(|e| e.file_type().is_file() && librarium_core::note_links::is_note_file(e.path()))
     {
         let rel_path = entry
             .path()
@@ -48,8 +41,9 @@ fn scan_tags(vault_path: &str) -> HashMap<String, Vec<String>> {
             .replace('\\', "/");
 
         if let Ok(raw) = std::fs::read_to_string(entry.path()) {
-            let (fm, body) = frontmatter_service::parse_frontmatter(&raw).unwrap_or((None, raw));
-            let tags = frontmatter_service::extract_tags(fm.as_ref(), &body);
+            let (fm, body) =
+                frontmatter_service::parse_note_frontmatter(&rel_path, &raw).unwrap_or((None, raw));
+            let tags = frontmatter_service::note_tags(&rel_path, fm.as_ref(), &body);
             for tag in tags {
                 tag_map.entry(tag).or_default().push(rel_path.clone());
             }

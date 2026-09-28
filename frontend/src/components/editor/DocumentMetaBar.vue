@@ -41,7 +41,7 @@
       @click:close="renameError = ''"
     >{{ renameError }}</v-alert>
 
-    <!-- Tags row (markdown files only) -->
+    <!-- Tags row (notes: Markdown frontmatter, Typst metadata block) -->
     <div v-if="isMd" class="d-flex align-center flex-wrap" style="min-height: 26px; gap: 4px; margin-top: 4px;">
       <v-icon icon="mdi-tag-multiple-outline" size="14" class="meta-icon" />
       <v-chip

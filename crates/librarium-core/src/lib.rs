@@ -12,5 +12,6 @@ pub mod models;
 pub mod note_links;
 #[cfg(feature = "search")]
 pub mod search_service;
+pub mod typst_frontmatter;
 pub mod typst_text;
 pub mod wiki_link_service;

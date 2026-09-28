@@ -30,7 +30,7 @@ pub async fn frontmatter_read(
             return Err(AppError::NotFound(format!("File not found: {file_path}")));
         }
         let raw = std::fs::read_to_string(&full_path)?;
-        let (frontmatter, _body) = frontmatter_service::parse_frontmatter(&raw)?;
+        let (frontmatter, _body) = frontmatter_service::parse_note_frontmatter(&file_path, &raw)?;
         Ok(frontmatter)
     })
     .await
@@ -54,8 +54,13 @@ pub async fn frontmatter_write(
             return Err(AppError::NotFound(format!("File not found: {file_path}")));
         }
         let raw = std::fs::read_to_string(&full_path)?;
-        let (_old_frontmatter, body) = frontmatter_service::parse_frontmatter(&raw)?;
-        let new_content = frontmatter_service::serialize_frontmatter(frontmatter.as_ref(), &body)?;
+        let (_old_frontmatter, body) =
+            frontmatter_service::parse_note_frontmatter(&file_path, &raw)?;
+        let new_content = frontmatter_service::serialize_note_frontmatter(
+            &file_path,
+            frontmatter.as_ref(),
+            &body,
+        )?;
         std::fs::write(&full_path, &new_content)?;
 
         let modified = full_path
