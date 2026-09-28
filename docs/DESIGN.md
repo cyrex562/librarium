@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.27
+**Version:** 0.102.28
 
 ---
 
@@ -221,6 +221,12 @@ The last good render per note is kept and shown dimmed while the text has
 errors. The Typst editor disables CodeJar's `addClosing`, which inserts
 closing brackets but never types over them. Export, search and links are
 later issues in the epic. The #137 spike's measurements are in that issue.
+
+**Frontmatter for Typst notes** (#145) is a `#metadata((…)) <frontmatter>` block: valid Typst, and what Convert to Typst writes. `librarium-core::typst_frontmatter` parses literal dictionaries (strings, numbers, booleans, `none`, arrays, nested dictionaries) from the `typst-syntax` AST. A block with anything computed in it is left as ordinary code, so nothing is lost.
+
+`frontmatter_service::{parse,serialize}_note_frontmatter` dispatch on `.md`/`.typ`, and `FileService` uses them. So a Typst note reads like a Markdown note: the block is lifted out of `content` into `frontmatter` and written back at the top on save. Read and write round-trip the body exactly.
+
+Tags come from `note_tags`, which for Typst means the `tags` field only, since `#word` is code in Typst. Tag listing and tag removal cover `.typ`; removal rewrites the block and never touches the code. The entity index (reindex, `index_file`, the watcher, rename) reads Typst metadata too, so `librarium_type` makes a Typst note an entity. The Frontmatter panel, tag chips and Entity Relations panel show on Typst tabs, and mobile's frontmatter and tags commands use the same helpers.
 
 **Links between Typst and Markdown notes** (#144). Typst has no wiki links, so the convention (in `librarium-core::note_links`) is a `#link(..)` whose target is a note:
 - `librarium://note/Target`, which resolves like `[[Target]]`. This is what Convert to Typst writes.

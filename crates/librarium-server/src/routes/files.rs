@@ -314,10 +314,12 @@ async fn get_file_metadata(
         .unwrap_or(0);
     let etag = format!("\"{:x}\"", mtime);
 
-    let mut frontmatter_keys = if file_path.ends_with(".md") {
+    let mut frontmatter_keys = if is_indexed_note(&file_path) {
         std::fs::read_to_string(&full_path)
             .ok()
-            .and_then(|raw| crate::services::frontmatter_service::parse_frontmatter(&raw).ok())
+            .and_then(|raw| {
+                crate::services::frontmatter_service::parse_note_frontmatter(&file_path, &raw).ok()
+            })
             .and_then(|(frontmatter, _)| frontmatter)
             .and_then(|fm| fm.as_object().cloned())
             .map(|obj| obj.keys().cloned().collect::<Vec<String>>())
@@ -609,8 +611,8 @@ async fn rename_file(
                 .update_file(&vault_id, &new_path, content.content)?;
         }
     }
-    // Entities live in Markdown frontmatter only.
-    if new_path.ends_with(".md") {
+    // Entities come from note frontmatter (Markdown or Typst, #145).
+    if is_indexed_note(&new_path) {
         let abs_path = format!("{}/{}", vault.path.trim_end_matches('/'), new_path);
         if let Err(e) = ReindexService::index_file(&state.db, &vault_id, &new_path, &abs_path).await
         {

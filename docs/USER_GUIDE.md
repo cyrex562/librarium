@@ -78,6 +78,15 @@ equivalent. Wiki links become `#link("librarium://note/…")`, and merged table
 cells carry over. Typst notes show up in search like Markdown notes. Their text is matched,
 not their markup or code.
 
+**Tags and properties on Typst notes.** The Frontmatter panel and the tag
+chips in the note header work on Typst notes too. Librarium stores them in
+the note as a Typst metadata call at the top:
+`#metadata((title: "Paper", tags: ("physics",))) <frontmatter>`. The editor
+doesn't show that line; the panel does. You can also write the line by hand.
+Tags on a Typst note come only from its `tags` field, because `#word` is code
+in Typst. A `librarium_type` field makes a Typst note an entity, as it does
+for Markdown notes.
+
 **Links in Typst notes.** Link to another note with
 `#link("librarium://note/Note name")[label]` (Convert to Typst writes wiki
 links this way), or with a path to the note file:

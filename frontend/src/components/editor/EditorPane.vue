@@ -12,13 +12,13 @@
       <DocumentMetaBar
         :file-path="activeTab.filePath ?? ''"
         :frontmatter="activeTab.frontmatter ?? {}"
-        :is-md="isMd"
+        :is-md="isMd || isTypst"
         @update:frontmatter="onFrontmatterUpdate"
       />
 
-      <!-- Frontmatter panel above editor -->
+      <!-- Frontmatter panel above editor (Typst notes: the metadata block, #145) -->
       <FrontmatterPanel
-        v-if="isMd"
+        v-if="isMd || isTypst"
         :frontmatter="activeTab.frontmatter ?? {}"
         :tab-id="activeTab.id"
         @update:frontmatter="onFrontmatterUpdate"

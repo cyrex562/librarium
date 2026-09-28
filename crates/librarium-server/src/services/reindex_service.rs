@@ -51,7 +51,7 @@ impl ReindexService {
             };
 
             // Parse frontmatter
-            if let Some(fm) = EntityService::parse_frontmatter(&content) {
+            if let Some(fm) = entity_frontmatter(&rel_path, &content) {
                 // Only upsert if it has a Librarium entity type marker.
                 if fm
                     .get("librarium_type")
@@ -170,7 +170,7 @@ impl ReindexService {
             warn!("index_file: embedding update failed for {rel_path}: {e}");
         }
 
-        if let Some(fm) = EntityService::parse_frontmatter(&content) {
+        if let Some(fm) = entity_frontmatter(rel_path, &content) {
             if fm
                 .get("librarium_type")
                 .or_else(|| fm.get("codex_type"))
@@ -237,11 +237,21 @@ fn collect_recursive<'a>(
                     continue;
                 }
                 collect_recursive(&path, excluded, results).await;
-            } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            } else if librarium_core::note_links::is_note_file(&path) {
                 results.push(path.to_string_lossy().into_owned());
             }
         }
     })
+}
+
+/// A note's frontmatter for the entity index: YAML for Markdown, the
+/// `#metadata(..) <frontmatter>` block for Typst (#145).
+fn entity_frontmatter(rel_path: &str, content: &str) -> Option<serde_json::Value> {
+    if crate::services::frontmatter_service::is_typst_note(rel_path) {
+        librarium_core::typst_frontmatter::parse(content).0
+    } else {
+        EntityService::parse_frontmatter(content)
+    }
 }
 
 #[cfg(test)]

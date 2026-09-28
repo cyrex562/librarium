@@ -47,6 +47,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   path to a note links to another note, and Markdown links to Typst notes
   with `[[paper.typ]]`. Backlinks and Outgoing Links work on Typst notes, and
   links in Typst Preview open the note.
+- Frontmatter, tags and entities for Typst notes (#145): stored as a
+  `#metadata((…)) <frontmatter>` block, edited in the Frontmatter panel and
+  tag chips. Tags appear in the Tags panel, and `librarium_type` makes a Typst
+  note an entity.
 
 ### Changed
 

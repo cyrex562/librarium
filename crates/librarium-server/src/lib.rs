@@ -453,7 +453,9 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
                 }
                 match &change_event.event_type {
                     models::FileChangeType::Created | models::FileChangeType::Modified => {
-                        if change_event.path.ends_with(".md") {
+                        // Entities come from note frontmatter: Markdown YAML or
+                        // a Typst `#metadata(..) <frontmatter>` block (#145).
+                        if services::search_service::is_indexed_note(&change_event.path) {
                             let vault_path =
                                 if let Some(p) = vault_cache.get(&change_event.vault_id) {
                                     Some(p.clone())
@@ -532,9 +534,8 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
                                         content.content,
                                     );
                                 }
-                                // Entities live in Markdown frontmatter only.
                                 let abs_path = format!("{}/{}", vpath.trim_end_matches('/'), to);
-                                if to.ends_with(".md") {
+                                {
                                     if let Err(e) = ReindexService::index_file(
                                         &db_clone,
                                         &change_event.vault_id,

@@ -64,6 +64,44 @@ pub fn serialize_frontmatter(frontmatter: Option<&Value>, content: &str) -> AppR
     }
 }
 
+/// Whether `path` is a Typst note, whose frontmatter is a
+/// `#metadata(..) <frontmatter>` block rather than YAML (#145).
+pub fn is_typst_note(path: &str) -> bool {
+    path.to_ascii_lowercase().ends_with(".typ")
+}
+
+/// Frontmatter and body of a note, Markdown (YAML) or Typst (metadata).
+pub fn parse_note_frontmatter(path: &str, raw: &str) -> AppResult<(Option<Value>, String)> {
+    if is_typst_note(path) {
+        Ok(crate::typst_frontmatter::parse(raw))
+    } else {
+        parse_frontmatter(raw)
+    }
+}
+
+/// Inverse of [`parse_note_frontmatter`].
+pub fn serialize_note_frontmatter(
+    path: &str,
+    frontmatter: Option<&Value>,
+    body: &str,
+) -> AppResult<String> {
+    if is_typst_note(path) {
+        Ok(crate::typst_frontmatter::serialize(frontmatter, body))
+    } else {
+        serialize_frontmatter(frontmatter, body)
+    }
+}
+
+/// A note's tags. Typst notes only have frontmatter tags: `#word` is code in
+/// Typst, not a tag.
+pub fn note_tags(path: &str, frontmatter: Option<&Value>, body: &str) -> Vec<String> {
+    if is_typst_note(path) {
+        extract_tags(frontmatter, "")
+    } else {
+        extract_tags(frontmatter, body)
+    }
+}
+
 /// Extract tags from frontmatter and content
 pub fn extract_tags(frontmatter: Option<&Value>, content: &str) -> Vec<String> {
     let mut tags = Vec::new();

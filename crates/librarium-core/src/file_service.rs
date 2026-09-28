@@ -161,11 +161,12 @@ impl FileService {
             .ok()
             .and_then(system_time_to_datetime)
             .unwrap_or_else(Utc::now);
-        let (frontmatter, content) = if file_path.ends_with(".md") {
-            crate::frontmatter_service::parse_frontmatter(&raw_content)?
-        } else {
-            (None, raw_content)
-        };
+        let (frontmatter, content) =
+            if file_path.ends_with(".md") || crate::frontmatter_service::is_typst_note(file_path) {
+                crate::frontmatter_service::parse_note_frontmatter(file_path, &raw_content)?
+            } else {
+                (None, raw_content)
+            };
 
         Ok(FileContent {
             path: file_path.to_string(),
@@ -257,9 +258,12 @@ impl FileService {
             fs::create_dir_all(parent)?;
         }
 
-        // Serialize frontmatter with content for markdown files
-        let final_content = if file_path.ends_with(".md") {
-            crate::frontmatter_service::serialize_frontmatter(frontmatter, content)?
+        // Serialize frontmatter with the content for notes: YAML for
+        // Markdown, a `#metadata(..) <frontmatter>` block for Typst (#145).
+        let final_content = if file_path.ends_with(".md")
+            || crate::frontmatter_service::is_typst_note(file_path)
+        {
+            crate::frontmatter_service::serialize_note_frontmatter(file_path, frontmatter, content)?
         } else {
             content.to_string()
         };
@@ -928,5 +932,41 @@ mod tests {
         std::fs::write(temp.path().join("existing.md"), "test").unwrap();
         let existing = FileService::resolve_path(vault_path, "existing.md");
         assert!(existing.is_ok());
+    }
+
+    #[test]
+    fn typst_notes_keep_frontmatter_in_a_metadata_block() {
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().to_str().unwrap();
+        let fm = serde_json::json!({"title": "Paper", "tags": ["physics"]});
+
+        FileService::write_file(vault, "paper.typ", "= Paper\n\nBody.\n", None, Some(&fm)).unwrap();
+        let on_disk = std::fs::read_to_string(temp.path().join("paper.typ")).unwrap();
+        assert_eq!(
+            on_disk,
+            "#metadata((\"title\": \"Paper\", \"tags\": (\"physics\",))) <frontmatter>\n\n= Paper\n\nBody.\n"
+        );
+
+        // Read gives the frontmatter separately and the text without the block,
+        // exactly as written.
+        let read = FileService::read_file(vault, "paper.typ").unwrap();
+        assert_eq!(read.frontmatter, Some(fm));
+        assert_eq!(read.content, "= Paper\n\nBody.\n");
+
+        // Other files are still stored verbatim.
+        FileService::write_file(
+            vault,
+            "data.txt",
+            "#metadata((a: 1)) <frontmatter>",
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            FileService::read_file(vault, "data.txt")
+                .unwrap()
+                .frontmatter,
+            None
+        );
     }
 }

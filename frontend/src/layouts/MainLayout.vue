@@ -80,10 +80,11 @@
           <EntityRelationsPanel v-if="canUseEntityGraph" :file-path="tabsStore.activeTab?.filePath ?? ''" />
           <NeighboringFilesPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
         </template>
-        <!-- Typst notes (#144): links and neighbors; outline, entities and ML are Markdown-only. -->
+        <!-- Typst notes (#144, #145): links, entity relations and neighbors; outline and ML are Markdown-only. -->
         <template v-else-if="activeTypstContent !== null">
           <OutgoingLinksPanel :content="activeTypstContent" language="typst" />
           <BacklinksPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
+          <EntityRelationsPanel v-if="canUseEntityGraph" :file-path="tabsStore.activeTab?.filePath ?? ''" />
           <NeighboringFilesPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
         </template>
 

@@ -226,6 +226,44 @@ async fn test_reindex_vault() {
     assert_eq!(entities[0]["entity_type"].as_str(), Some("character"));
 }
 
+/// Typst notes are entities too, via their `#metadata(..) <frontmatter>`
+/// block (#145).
+#[actix_web::test]
+async fn test_reindex_finds_typst_entities() {
+    let temp = TempDir::new().unwrap();
+    let (state, vault_id) = setup(&temp).await;
+    let vault_dir = temp.path().join("vault");
+    std::fs::write(
+        vault_dir.join("bob.typ"),
+        "#metadata((librarium_type: \"character\", librarium_plugin: \"worldbuilding\", librarium_labels: (\"graphable\",), full_name: \"Bob Jones\")) <frontmatter>\n\n= Bob Jones\n",
+    )
+    .unwrap();
+    // Not an entity: no type marker.
+    std::fs::write(
+        vault_dir.join("plain.typ"),
+        "#metadata((title: \"x\")) <frontmatter>\n= x\n",
+    )
+    .unwrap();
+
+    ReindexService::reindex_vault(&state.db, &vault_id, vault_dir.to_str().unwrap())
+        .await
+        .expect("reindex should succeed");
+
+    let app = test::init_service(test_app(state.clone(), entities::configure)).await;
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/vaults/{vault_id}/entities"))
+            .to_request(),
+    )
+    .await;
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    let entities = body["entities"].as_array().expect("entities array");
+    assert_eq!(entities.len(), 1, "{body}");
+    assert_eq!(entities[0]["path"].as_str(), Some("bob.typ"));
+    assert_eq!(entities[0]["entity_type"].as_str(), Some("character"));
+}
+
 #[actix_web::test]
 async fn test_entity_by_path_not_found() {
     let temp = TempDir::new().unwrap();

@@ -844,57 +844,7 @@ fn unescape_typst(escaped: &str) -> String {
     out
 }
 
-fn typst_string(s: &str) -> String {
-    let mut out = String::from("\"");
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
-/// A frontmatter value as a Typst literal.
-fn typst_value(v: &Value) -> String {
-    match v {
-        Value::Null => "none".into(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => {
-            if n.is_f64() {
-                let f = n.as_f64().unwrap_or(0.0);
-                if f.is_finite() {
-                    format!("{f:?}")
-                } else {
-                    "none".into()
-                }
-            } else {
-                n.to_string()
-            }
-        }
-        Value::String(s) => typst_string(s),
-        Value::Array(items) => match items.len() {
-            0 => "()".into(),
-            1 => format!("({},)", typst_value(&items[0])),
-            _ => format!(
-                "({})",
-                items.iter().map(typst_value).collect::<Vec<_>>().join(", ")
-            ),
-        },
-        Value::Object(map) if map.is_empty() => "(:)".into(),
-        Value::Object(map) => format!(
-            "({})",
-            map.iter()
-                .map(|(k, v)| format!("{}: {}", typst_string(k), typst_value(v)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    }
-}
+use librarium_core::typst_frontmatter::{typst_string, typst_value};
 
 fn inline_raw(code: &str) -> String {
     if code.contains('`') || code.contains('\n') {
