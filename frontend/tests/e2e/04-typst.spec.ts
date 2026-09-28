@@ -200,4 +200,33 @@ test.describe('Typst notes', () => {
     await page.getByText('TAGS', { exact: true }).click();
     await expect(page.getByText('physicsxyz').first()).toBeVisible();
   });
+
+  test('5.7 - Importing a Typst file with "convert to Markdown" leaves a Markdown note', async ({ page }) => {
+    await page.locator('button[title="Import files or folders"]').click();
+    await page.setInputFiles('[data-testid="import-files-input"]', [
+      {
+        name: 'imported.typ',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('#metadata((tags: ("imported",))) <frontmatter>\n\n#set page(margin: 1cm)\n= Imported\n\nSome *bold* text and #link("https://example.com")[a link].\n'),
+      },
+    ]);
+    await page.locator('[data-testid="import-convert-typst"] input').check();
+    await page.getByRole('button', { name: 'Import 1' }).click();
+    await expect(page.getByText('Converted 1 Typst file to Markdown.')).toBeVisible({ timeout: 15_000 });
+
+    const report = page.locator('[data-testid="conversion-report"]');
+    await expect(report).toContainText('imported.typ: A `#set` rule');
+    await report.getByRole('button', { name: 'OK' }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+    await expect(page.locator('.file-tree-node', { hasText: 'imported.md' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.file-tree-node', { hasText: 'imported.typ' })).toHaveCount(0);
+    await page.locator('.file-tree-node', { hasText: 'imported.md' }).click();
+    const editor = page.locator('.markdown-editor');
+    await expect(editor).toContainText('Imported');
+    await expect(editor).toContainText('**bold**');
+    await expect(editor).toContainText('[a link](https://example.com)');
+    // The metadata became Markdown frontmatter: its tag shows on the note.
+    await expect(page.locator('.v-chip', { hasText: 'imported' })).toBeVisible();
+  });
 });

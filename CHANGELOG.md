@@ -54,6 +54,9 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 - Typst projects (#142): importing a multi-file project keeps `#include`,
   `#import` and images working. Packages load from the vault's
   `.typst/packages/` (Typst's layout, never downloaded).
+- Typst → Markdown (#141): "Convert to Markdown" in the Typst editor and the
+  file-tree menu, and a "convert to Markdown" option when importing (#142).
+  Anything without a Markdown form is kept in a comment and listed.
 
 ### Changed
 

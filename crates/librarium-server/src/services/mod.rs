@@ -29,6 +29,7 @@ pub mod template_service;
 pub mod typst_convert;
 #[cfg(feature = "typst")]
 pub mod typst_service;
+pub mod typst_to_markdown;
 
 pub use auth_provider::{
     authenticate_username_password, validate_password_policy, AuthProviderKind,

@@ -1,7 +1,7 @@
 <template>
   <v-dialog :model-value="!!report" max-width="560" @update:model-value="(open) => { if (!open) close(); }">
     <v-card v-if="report" data-testid="conversion-report">
-      <v-card-title>Converted to Typst</v-card-title>
+      <v-card-title>Converted to {{ report.format === 'markdown' ? 'Markdown' : 'Typst' }}</v-card-title>
       <v-card-text>
         <p class="mb-3">
           Created <strong>{{ report.target }}</strong> from {{ report.source }}.
@@ -15,7 +15,9 @@
             </v-list-item-title>
           </v-list-item>
         </v-list>
-        <p class="mt-3 text-caption text-secondary">The Markdown note is unchanged.</p>
+        <p class="mt-3 text-caption text-secondary">
+          {{ report.originalsKept ? 'The original is unchanged.' : 'The originals were replaced.' }}
+        </p>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
