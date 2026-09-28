@@ -68,6 +68,7 @@
         style="flex: 1; min-height: 0;"
         @update="onEditorUpdate"
         @mode-change="onModeChange"
+        @convert-markdown="convertCurrentNote(activeTab.filePath ?? '', 'markdown')"
       />
 
       <!-- Structural entity editor -->
@@ -243,11 +244,12 @@ function scheduleTabSave(tabId: string, content: string, frontmatter: Record<str
   });
 }
 
-/** Save pending edits first: conversion reads the Markdown file from disk. */
-async function convertCurrentNote(path: string) {
+/** Save pending edits first: conversion reads the note from disk. */
+async function convertCurrentNote(path: string, to: 'typst' | 'markdown') {
+  if (!path) return;
   const tabId = activeTab.value?.id;
   if (tabId) await editorStore.flushAutoSave(tabId);
-  await noteConversion.convertToTypst(path);
+  await (to === 'typst' ? noteConversion.convertToTypst(path) : noteConversion.convertToMarkdown(path));
 }
 
 function onModeChange(value: EditorMode | null) {
@@ -267,7 +269,7 @@ function onToolbarCommand(cmd: string, payload?: { rows: number; cols: number })
   if (cmd === 'expand_all_folds') { markdownEditorRef.value?.expandAllFolds(); return; }
   const path = activeTab.value?.filePath;
   if (cmd === 'export_pdf') { if (path) void noteConversion.exportPdf(path, activeTab.value?.content ?? ''); return; }
-  if (cmd === 'convert_to_typst') { if (path) void convertCurrentNote(path); return; }
+  if (cmd === 'convert_to_typst') { if (path) void convertCurrentNote(path, 'typst'); return; }
   markdownEditorRef.value?.applyCommand(cmd as any, payload);
 }
 </script>

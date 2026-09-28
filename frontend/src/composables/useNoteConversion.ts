@@ -5,8 +5,8 @@ import { useVaultsStore } from '@/stores/vaults';
 import { pdfExportErrorMessage } from '@/utils/pdfExport';
 
 /**
- * Convert to Typst (#141) and Export as PDF (#140), shared by the file tree's
- * context menu and the Markdown editor's toolbar.
+ * Convert to Typst / to Markdown (#141) and Export as PDF (#140), shared by
+ * the file tree's context menu and the editors' toolbars.
  */
 export function useNoteConversion() {
     const filesStore = useFilesStore();
@@ -22,10 +22,37 @@ export function useNoteConversion() {
             const result = await filesStore.convertToTypst(vaultId, path);
             tabsStore.openTab(tabsStore.activePaneId, result.path, result.path.split('/').pop()!);
             if (result.warnings.length > 0) {
-                uiStore.conversionReport = { source: path, target: result.path, warnings: result.warnings };
+                uiStore.conversionReport = {
+                    source: path,
+                    target: result.path,
+                    format: 'typst',
+                    warnings: result.warnings,
+                    originalsKept: true,
+                };
             }
         } catch (e) {
             alert(`Couldn't convert to Typst: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+
+    /** Create `<note>.md` beside a Typst note (#141), open it, report losses. */
+    async function convertToMarkdown(path: string) {
+        const vaultId = vaultsStore.activeVaultId;
+        if (!vaultId) return;
+        try {
+            const result = await filesStore.convertToMarkdown(vaultId, path);
+            tabsStore.openTab(tabsStore.activePaneId, result.path, result.path.split('/').pop()!);
+            if (result.warnings.length > 0) {
+                uiStore.conversionReport = {
+                    source: path,
+                    target: result.path,
+                    format: 'markdown',
+                    warnings: result.warnings,
+                    originalsKept: true,
+                };
+            }
+        } catch (e) {
+            alert(`Couldn't convert to Markdown: ${e instanceof Error ? e.message : String(e)}`);
         }
     }
 
@@ -40,5 +67,5 @@ export function useNoteConversion() {
         }
     }
 
-    return { convertToTypst, exportPdf };
+    return { convertToTypst, convertToMarkdown, exportPdf };
 }

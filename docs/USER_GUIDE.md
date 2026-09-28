@@ -106,8 +106,19 @@ links this way), or with a path to the note file:
 `#link("other.typ")[label]`, relative to the current note. From a Markdown
 note, link to a Typst note with `[[paper.typ]]` or `[[paper]]`. Typst notes
 have the Outgoing Links, Backlinks and Neighboring Files panels, and links in
-Preview open the note (web links open in a new browser tab). Converting
-Typst back to Markdown is planned (see epic #121).
+Preview open the note (web links open in a new browser tab).
+
+**Converting Typst to Markdown.** In the Typst editor, click the Markdown
+button, or right-click a `.typ` file and choose "Convert to Markdown". It
+creates `note.md` beside the note and opens it. The metadata block becomes
+YAML frontmatter, and `librarium://note/…` links become `[[…]]`. Typst is
+also a programming language, so not everything has a Markdown form:
+- Math stays in Typst syntax between `$` signs.
+- Code such as `#set` and `#let` is kept as an invisible `<!-- typst: … -->`
+  comment.
+
+A dialog lists each such line. When importing, tick "Convert Typst (.typ)
+files to Markdown" to get Markdown notes instead of Typst ones.
 
 ### File operations
 

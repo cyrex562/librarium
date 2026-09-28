@@ -45,7 +45,7 @@ frontend switches on, e.g. TOTP-required responses).
 | `vaults.rs` | Register/list/delete vaults, sharing (users + groups), visibility, ownership transfer |
 | `files.rs` | The bulk of the surface: tree, read/write/delete, rename, directories, upload (including chunked upload-sessions), download (raw/zip/tar), thumbnails, trash, random/daily note, wiki-link resolution |
 | `markdown.rs` | `POST /api/render` and the vault-scoped variant — Markdown → HTML; `POST /api/vaults/{id}/render-typst` — Typst note → `{html, css, diagnostics}`; `POST /api/vaults/{id}/export-pdf` — `{path, content?}` → `application/pdf` download (saved file when `content` is omitted; `.md` is converted to Typst first; 422 `{error, diagnostics}` on compile errors). Both need feature `typst` (501 without it) |
-| `files.rs` (conversion) | `POST /api/vaults/{id}/convert-to-typst` — `{path}` of a `.md` note → creates `<stem>.typ` (or `<stem> (2).typ`, …) beside it; returns `{path, warnings[{line, message}]}`; needs write access |
+| `files.rs` (conversion) | `POST /api/vaults/{id}/convert-to-typst` — `{path, replace?}` of a `.md` note → creates `<stem>.typ` (or `<stem> (2).typ`, …) beside it; `POST /api/vaults/{id}/convert-to-markdown` — the same for a `.typ` note → `.md`. Both return `{path, warnings[{line, message}]}`; `replace: true` deletes the original afterwards; both need write access |
 | `entities.rs` | Structured entities, relations, the knowledge graph, reindexing (builder-style routes, not the `#[get]` macro) |
 | `tags.rs` | Tag listing and backlinks |
 | `bookmarks.rs`, `favorites.rs` | Per-user, per-vault bookmarks and favorites |

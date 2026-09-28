@@ -129,6 +129,13 @@
             @click="convertToTypst(props.node.path)"
           />
           <v-list-item
+            v-if="isTypstNote"
+            title="Convert to Markdown"
+            prepend-icon="mdi-language-markdown-outline"
+            data-testid="ctx-convert-markdown"
+            @click="convertToMarkdown(props.node.path)"
+          />
+          <v-list-item
             title="Export as PDF"
             prepend-icon="mdi-file-pdf-box"
             data-testid="ctx-export-pdf"
@@ -215,7 +222,7 @@ const { isMobile } = useMobile();
 const { canUseArchiveImportExport, canUseTypstRendering } = useCapabilities();
 const isTypstNote = computed(() => !props.node.is_directory && /\.typ$/i.test(props.node.name));
 const isMarkdownNote = computed(() => !props.node.is_directory && /\.md$/i.test(props.node.name));
-const { convertToTypst, exportPdf } = useNoteConversion();
+const { convertToTypst, convertToMarkdown, exportPdf } = useNoteConversion();
 
 const expanded = ref(false); // start collapsed
 const hovering = ref(false);

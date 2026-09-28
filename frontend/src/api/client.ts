@@ -772,6 +772,20 @@ export const apiConvertToTypst = (
     });
 
 /**
+ * Convert a Typst note to a new Markdown note beside it (#141). With
+ * `replace`, the Typst file is removed afterwards.
+ */
+export const apiConvertToMarkdown = (
+    vaultId: string,
+    path: string,
+    replace = false,
+): Promise<{ path: string; warnings: ConversionWarning[] }> =>
+    request(`/api/vaults/${vaultId}/convert-to-markdown`, {
+        method: 'POST',
+        body: JSON.stringify({ path, replace }),
+    });
+
+/**
  * Export a Typst or Markdown note as PDF (#140; Markdown is converted to Typst first). With `content`, the current (possibly
  * unsaved) text is exported; without it, the saved file. A note with errors
  * rejects with an ApiError (422) whose body carries `diagnostics`.

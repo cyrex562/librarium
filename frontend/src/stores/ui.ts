@@ -11,9 +11,15 @@ export interface ConflictState {
 }
 
 export interface ConversionReport {
+    /** What was converted (a note path, or "3 imported Typst files"). */
     source: string;
+    /** What it became (a note path, or a summary). */
     target: string;
+    /** 'typst' or 'markdown': the format converted to. */
+    format: 'typst' | 'markdown';
     warnings: Array<{ line: number | null; message: string }>;
+    /** Whether the originals were kept. */
+    originalsKept: boolean;
 }
 
 export interface ImportDialogOptions {

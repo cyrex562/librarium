@@ -10,6 +10,14 @@
       <v-btn
         v-if="canUseTypstRendering"
         v-bind="btn"
+        icon="mdi-language-markdown-outline"
+        title="Convert to Markdown"
+        data-testid="typst-convert-markdown"
+        @click="emit('convert-markdown')"
+      />
+      <v-btn
+        v-if="canUseTypstRendering"
+        v-bind="btn"
         icon="mdi-file-pdf-box"
         title="Export as PDF"
         data-testid="typst-export-pdf"
@@ -85,6 +93,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   update: [content: string];
   'mode-change': [mode: EditorMode];
+  'convert-markdown': [];
 }>();
 
 const btn = { size: 'small', variant: 'text' as const, density: 'compact' as const };

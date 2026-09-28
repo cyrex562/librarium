@@ -20,6 +20,7 @@ import {
     apiDownloadTar,
     apiExportPdf,
     apiConvertToTypst,
+    apiConvertToMarkdown,
     ApiError,
     isLocalTransportActive,
 } from '@/api/client';
@@ -432,6 +433,13 @@ export const useFilesStore = defineStore('files', () => {
         return result;
     }
 
+    /** Convert a Typst note to a new Markdown note beside it (#141). */
+    async function convertToMarkdown(vaultId: string, path: string, replace = false, reload = true) {
+        const result = await apiConvertToMarkdown(vaultId, path, replace);
+        if (reload) await loadTree(vaultId);
+        return result;
+    }
+
     /** Export a Typst or Markdown note as PDF and trigger a browser download (#140). */
     async function exportAsPdf(vaultId: string, path: string, content?: string): Promise<void> {
         const blob = await apiExportPdf(vaultId, path, content);
@@ -580,6 +588,7 @@ export const useFilesStore = defineStore('files', () => {
         downloadAsTar,
         exportAsPdf,
         convertToTypst,
+        convertToMarkdown,
         selectionMode,
         selectedPaths,
         lastSelectionAnchorPath,

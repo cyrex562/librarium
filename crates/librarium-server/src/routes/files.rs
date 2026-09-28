@@ -378,41 +378,81 @@ async fn create_file(
 }
 
 #[derive(serde::Deserialize)]
-struct ConvertToTypstRequest {
-    /// Vault-relative path of the Markdown note to convert.
+struct ConvertNoteRequest {
+    /// Vault-relative path of the note to convert.
     path: String,
+    /// Delete the original after converting (used by "convert on import").
+    #[serde(default)]
+    replace: bool,
 }
 
-/// Convert a Markdown note to a new Typst note beside it (#141). The
-/// Markdown file is left alone. The new file is `<stem>.typ`, or
-/// `<stem> (2).typ` and so on if that exists. Returns `{path, warnings}`,
-/// where warnings list what couldn't be carried over. Needs write access,
-/// since it creates a file.
+/// Convert a Markdown note to a new Typst note beside it (#141). The new
+/// file is `<stem>.typ`, or `<stem> (2).typ` and so on if that exists; the
+/// Markdown file is kept unless `replace` is set. Returns
+/// `{path, warnings}`, where warnings list what couldn't be carried over.
+/// Needs write access, since it creates a file.
 #[post("/api/vaults/{vault_id}/convert-to-typst")]
 async fn convert_to_typst(
     state: web::Data<AppState>,
     vault_id: web::Path<String>,
-    req: web::Json<ConvertToTypstRequest>,
+    req: web::Json<ConvertNoteRequest>,
 ) -> AppResult<HttpResponse> {
-    let vault_id = vault_id.into_inner();
+    convert_note(
+        state,
+        vault_id.into_inner(),
+        req.into_inner(),
+        ".md",
+        ".typ",
+        crate::services::typst_convert::markdown_to_typst,
+    )
+    .await
+}
+
+/// Convert a Typst note to a new Markdown note beside it (#141): the inverse
+/// of `convert-to-typst`, with the same naming, `replace` and response.
+#[post("/api/vaults/{vault_id}/convert-to-markdown")]
+async fn convert_to_markdown(
+    state: web::Data<AppState>,
+    vault_id: web::Path<String>,
+    req: web::Json<ConvertNoteRequest>,
+) -> AppResult<HttpResponse> {
+    convert_note(
+        state,
+        vault_id.into_inner(),
+        req.into_inner(),
+        ".typ",
+        ".md",
+        crate::services::typst_to_markdown::typst_to_markdown,
+    )
+    .await
+}
+
+async fn convert_note(
+    state: web::Data<AppState>,
+    vault_id: String,
+    req: ConvertNoteRequest,
+    from_ext: &str,
+    to_ext: &str,
+    convert: impl FnOnce(&str) -> crate::services::typst_convert::TypstConversion,
+) -> AppResult<HttpResponse> {
     let vault = state.db.get_vault(&vault_id).await?;
-    if !req.path.to_ascii_lowercase().ends_with(".md") {
-        return Err(AppError::InvalidInput(
-            "Only Markdown (.md) notes can be converted to Typst".to_string(),
-        ));
+    if !req.path.to_ascii_lowercase().ends_with(from_ext) {
+        return Err(AppError::InvalidInput(format!(
+            "Only {from_ext} notes can be converted to {to_ext}"
+        )));
     }
     let source = FileService::resolve_path(&vault.path, &req.path)?;
     if !source.is_file() {
         return Err(AppError::NotFound(format!("File not found: {}", req.path)));
     }
-    let markdown = std::fs::read_to_string(&source)?;
-    let conversion = crate::services::typst_convert::markdown_to_typst(&markdown);
+    let text = std::fs::read_to_string(&source)?;
+    let conversion = convert(&text);
 
-    let stem = &req.path[..req.path.len() - ".md".len()];
-    let mut target = format!("{stem}.typ");
+    let stem = &req.path[..req.path.len() - from_ext.len()];
+    let mut target = format!("{stem}{to_ext}");
     let mut n = 2;
     while FileService::resolve_path(&vault.path, &target)?.exists() {
-        target = format!("{stem} ({n}).typ");
+        target = format!("{stem} ({n}){to_ext}");
         n += 1;
     }
 
@@ -431,6 +471,29 @@ async fn convert_to_typst(
             state.change_log_retention_days,
         )
         .await?;
+
+    if req.replace {
+        FileService::delete_file(&vault.path, &req.path)?;
+        state
+            .db
+            .log_file_change(
+                &vault_id,
+                &req.path,
+                "deleted",
+                None,
+                None,
+                None,
+                state.change_log_retention_days,
+            )
+            .await?;
+        state.search_index.remove_file(&vault_id, &req.path)?;
+        if let Err(e) = ReindexService::remove_file(&state.db, &vault_id, &req.path).await {
+            tracing::warn!(
+                "Entity remove_file failed after converting {}: {e}",
+                req.path
+            );
+        }
+    }
 
     Ok(HttpResponse::Created().json(serde_json::json!({
         "path": target,
@@ -1700,6 +1763,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_thumbnail)
         .service(create_file)
         .service(convert_to_typst)
+        .service(convert_to_markdown)
         .service(update_file)
         .service(delete_file)
         .service(create_directory)

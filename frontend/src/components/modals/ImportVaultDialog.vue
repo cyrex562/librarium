@@ -121,6 +121,17 @@
           class="mb-2"
         />
 
+        <v-checkbox
+          v-if="offerTypstConversion"
+          v-model="convertTypstToMarkdown"
+          label="Convert Typst (.typ) files to Markdown"
+          hint="Each .typ note becomes a .md note; anything that doesn't carry over is listed afterwards."
+          persistent-hint
+          density="compact"
+          class="mb-2"
+          data-testid="import-convert-typst"
+        />
+
         <v-list v-if="entries.length > 0" density="compact" class="import-list mb-3">
           <v-list-item
             v-for="entry in entriesPreview"
@@ -165,6 +176,7 @@ import { computed, ref, watch } from 'vue';
 import { useFilesStore } from '@/stores/files';
 import { useUiStore } from '@/stores/ui';
 import { useVaultsStore } from '@/stores/vaults';
+import { useCapabilities } from '@/composables/useCapabilities';
 import type { FileNode, ImportCandidate, ImportProgress } from '@/api/types';
 import {
   createImportCandidatesFromDataTransfer,
@@ -179,6 +191,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
 const filesStore = useFilesStore();
 const uiStore = useUiStore();
 const vaultsStore = useVaultsStore();
+const capabilities = useCapabilities();
 
 const filesInput = ref<HTMLInputElement | null>(null);
 const folderInput = ref<HTMLInputElement | null>(null);
@@ -191,6 +204,12 @@ const progress = ref<ImportProgress | null>(null);
 const targetPath = ref('');
 const targetSearch = ref('');
 const conflictStrategy = ref<'fail' | 'overwrite' | 'skip' | 'rename_with_timestamp'>('rename_with_timestamp');
+// Convert on import (#142): Typst notes become Markdown notes.
+const convertTypstToMarkdown = ref(false);
+const offerTypstConversion = computed(() =>
+  capabilities.canUseTypstRendering
+  && entries.value.some((e) => /\.(typ|zip|tar|tar\.gz|tgz)$/i.test(e.file.name)),
+);
 let importAbortController: AbortController | null = null;
 
 const conflictOptions = [
@@ -426,6 +445,9 @@ async function startImport() {
     // Don't wait on the WebSocket FileChanged broadcast to reflect a
     // just-completed import — refresh directly so the tree is right away
     // even under WS lag/reconnect delay.
+    if (convertTypstToMarkdown.value) {
+      await convertImportedTypst(vaultId, result.uploaded.map((item) => item.path));
+    }
     if (result.uploaded.length > 0) {
       await filesStore.loadTree(vaultId);
     }
@@ -438,6 +460,37 @@ async function startImport() {
   } finally {
     importing.value = false;
     importAbortController = null;
+  }
+}
+
+/**
+ * Replace each imported Typst note with a Markdown conversion (#142), then
+ * report anything that didn't carry over. Package sources under hidden
+ * folders (`.typst/packages/`) are left alone.
+ */
+async function convertImportedTypst(vaultId: string, paths: string[]) {
+  const typst = paths.filter((p) => /\.typ$/i.test(p) && !p.split('/').some((part) => part.startsWith('.')));
+  if (typst.length === 0) return;
+  const warnings: Array<{ line: number | null; message: string }> = [];
+  let converted = 0;
+  for (const path of typst) {
+    try {
+      const result = await filesStore.convertToMarkdown(vaultId, path, true, false);
+      converted += 1;
+      for (const w of result.warnings) warnings.push({ line: w.line, message: `${path}: ${w.message}` });
+    } catch (e) {
+      warnings.push({ line: null, message: `${path}: couldn't convert (${e instanceof Error ? e.message : String(e)})` });
+    }
+  }
+  success.value += ` Converted ${converted} Typst file${converted === 1 ? '' : 's'} to Markdown.`;
+  if (warnings.length > 0) {
+    uiStore.conversionReport = {
+      source: `${typst.length} imported Typst file${typst.length === 1 ? '' : 's'}`,
+      target: `${converted} Markdown note${converted === 1 ? '' : 's'}`,
+      format: 'markdown',
+      warnings,
+      originalsKept: false,
+    };
   }
 }
 

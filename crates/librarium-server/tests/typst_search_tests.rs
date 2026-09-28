@@ -236,4 +236,45 @@ async fn typst_notes_are_searchable_through_create_edit_and_rename() {
         "{on_disk}"
     );
     assert!(on_disk.contains("#let physics = 1"), "{on_disk}");
+
+    // Typst → Markdown (#141): a new .md beside the note, warnings for what
+    // didn't carry over, and `replace` removes the original.
+    std::fs::write(
+        vault_dir.join("essay.typ"),
+        "#metadata((title: \"Essay\", tags: (\"draft\",))) <frontmatter>\n\n#set page(margin: 1cm)\n= Essay\n\nSee #link(\"librarium://note/Roadmap\")[the roadmap].\n",
+    )
+    .unwrap();
+    let convert = |path: &str, replace: bool| {
+        test::TestRequest::post()
+            .uri(&format!("/api/vaults/{id}/convert-to-markdown"))
+            .set_json(json!({ "path": path, "replace": replace }))
+            .to_request()
+    };
+    let resp = test::call_service(&app, convert("essay.typ", false)).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["path"], "essay.md");
+    assert_eq!(body["warnings"][0]["line"], 3, "{body}");
+    let md = std::fs::read_to_string(vault_dir.join("essay.md")).unwrap();
+    assert!(
+        md.starts_with("---\ntitle: Essay\ntags:\n- draft\n---\n"),
+        "{md}"
+    );
+    assert!(
+        md.contains("# Essay") && md.contains("[[Roadmap|the roadmap]]"),
+        "{md}"
+    );
+    assert!(vault_dir.join("essay.typ").exists());
+
+    let resp = test::call_service(&app, convert("essay.typ", true)).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["path"], "essay (2).md");
+    assert!(
+        !vault_dir.join("essay.typ").exists(),
+        "replace should remove the original"
+    );
+
+    let resp = test::call_service(&app, convert("essay.md", false)).await;
+    assert_eq!(resp.status(), 400);
 }
