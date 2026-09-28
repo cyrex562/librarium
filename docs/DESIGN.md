@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.26
+**Version:** 0.102.27
 
 ---
 
@@ -221,6 +221,18 @@ The last good render per note is kept and shown dimmed while the text has
 errors. The Typst editor disables CodeJar's `addClosing`, which inserts
 closing brackets but never types over them. Export, search and links are
 later issues in the epic. The #137 spike's measurements are in that issue.
+
+**Links between Typst and Markdown notes** (#144). Typst has no wiki links, so the convention (in `librarium-core::note_links`) is a `#link(..)` whose target is a note:
+- `librarium://note/Target`, which resolves like `[[Target]]`. This is what Convert to Typst writes.
+- A path to a `.md`/`.typ` file, relative to the linking note or to the vault root.
+
+Markdown links to Typst notes with `[[paper.typ]]` or `[[paper]]`. `WikiLinkResolver` also tries `dir/name.typ` for an explicit path.
+
+Backlinks: `BacklinkTarget::is_linked_from` is the one backlink test, shared by the server's `/backlinks` route and the mobile client (previously two copies of the same substring scan). It uses the old rules for Markdown sources and extracts `typst_note_links` (typed `typst-syntax` AST) from Typst sources.
+
+Frontend: the Outgoing Links, Backlinks and Neighboring Files panels show on Typst tabs, with extraction in `utils/typstLinks.ts` and following via `composables/useNoteLinks.ts`. Typst Preview's sanitizer additionally allows the `librarium:` scheme. Clicking a note link opens the note; a web link opens in a new tab.
+
+Not covered, for Markdown either: rewriting links on plain rename (only the ML organize flow rewrites wiki links, and only in Markdown), and body links as graph edges (the graph is frontmatter entities).
 
 **Markdown tables** (#122) are handled entirely as source text. `editor/table.ts`
 is a pure-function module — parse a table block into a `ParsedTable`

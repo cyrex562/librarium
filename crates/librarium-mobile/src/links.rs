@@ -83,13 +83,8 @@ pub async fn backlinks(vault_path: &str, target_path: &str) -> AppResult<Vec<Lin
     let vault_path = vault_path.to_string();
     let target_path = target_path.trim().to_string();
     tokio::task::spawn_blocking(move || {
-        let stem = Path::new(&target_path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&target_path);
-        let wiki_stem_lower = format!("[[{}]]", stem.to_lowercase());
-        let path_lower = target_path.to_lowercase();
-        let path_no_ext = target_path.trim_end_matches(".md").to_lowercase();
+        // Same rules as the server's /backlinks route (#144).
+        let target = librarium_core::note_links::BacklinkTarget::new(&target_path);
 
         let mut results = Vec::new();
         for entry in WalkDir::new(&vault_path)
@@ -97,12 +92,7 @@ pub async fn backlinks(vault_path: &str, target_path: &str) -> AppResult<Vec<Lin
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| {
-                e.file_type().is_file()
-                    && e.path()
-                        .extension()
-                        .and_then(|x| x.to_str())
-                        .map(|x| x.eq_ignore_ascii_case("md"))
-                        .unwrap_or(false)
+                e.file_type().is_file() && librarium_core::note_links::is_note_file(e.path())
             })
         {
             let rel_path = entry
@@ -112,16 +102,8 @@ pub async fn backlinks(vault_path: &str, target_path: &str) -> AppResult<Vec<Lin
                 .to_string_lossy()
                 .replace('\\', "/");
 
-            if rel_path.to_lowercase() == path_lower {
-                continue;
-            }
-
             if let Ok(raw) = std::fs::read_to_string(entry.path()) {
-                let lower = raw.to_lowercase();
-                let found = lower.contains(&wiki_stem_lower)
-                    || lower.contains(&format!("({})", path_lower))
-                    || lower.contains(&format!("({})", path_no_ext));
-                if found {
+                if target.is_linked_from(&rel_path, &raw) {
                     results.push(LinkedNote {
                         title: title_of(&rel_path),
                         path: rel_path,

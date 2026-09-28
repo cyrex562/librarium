@@ -43,6 +43,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   as well (#140).
 - Search finds Typst notes (#143), matching their text rather than their
   markup or code.
+- Links for Typst notes (#144): `#link("librarium://note/Name")[…]` or a
+  path to a note links to another note, and Markdown links to Typst notes
+  with `[[paper.typ]]`. Backlinks and Outgoing Links work on Typst notes, and
+  links in Typst Preview open the note.
 
 ### Changed
 

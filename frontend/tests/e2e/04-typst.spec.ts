@@ -143,4 +143,32 @@ test.describe('Typst notes', () => {
     // The match line is the note's text, not its markup.
     await expect(modal.getByText('Saw a quokkaxyz today.')).toBeVisible();
   });
+
+  test('5.5 - Links from a Typst note: backlinks and following them in Preview', async ({ page }) => {
+    const newNote = async (name: string) => {
+      await page.locator('button[title="New note"]').click();
+      await page.getByLabel('File name').fill(name);
+      await page.locator('button:has-text("Create")').click();
+      await expect(page.locator('.tab-item', { hasText: name })).toBeVisible({ timeout: 5000 });
+    };
+
+    await newNote('Roadmap.md');
+    await newNote('links.typ');
+    await page.locator('[data-testid="typst-editor"] .typst-editor').click();
+    await page.keyboard.type('= Links\n\nSee #link("librarium://note/Roadmap")[the roadmap].\n');
+    await page.waitForTimeout(3000); // auto-save
+
+    // Backlink on the Markdown note, found by scanning the Typst note.
+    await page.locator('.tab-item', { hasText: 'Roadmap.md' }).click();
+    const backlinksHeader = page.locator('.backlinks-header');
+    await backlinksHeader.click();
+    await expect(page.locator('.backlinks-panel')).toContainText('links', { timeout: 10_000 });
+
+    // Follow the link from the rendered Typst note.
+    await page.locator('.tab-item', { hasText: 'Roadmap.md' }).locator('button').click(); // close it
+    await page.locator('.tab-item', { hasText: 'links.typ' }).click();
+    await page.locator('[data-testid="typst-editor"]').getByRole('button', { name: 'Preview' }).click();
+    await page.locator('[data-testid="typst-preview-body"]').getByText('the roadmap').click();
+    await expect(page.locator('.tab-item', { hasText: 'Roadmap.md' })).toBeVisible({ timeout: 10_000 });
+  });
 });

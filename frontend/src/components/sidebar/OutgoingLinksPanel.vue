@@ -39,21 +39,38 @@ import { ref, computed } from 'vue';
 import { useTabsStore } from '@/stores/tabs';
 import { useVaultsStore } from '@/stores/vaults';
 import { apiResolveWikiLink } from '@/api/client';
+import { typstLinks, type TypstLink } from '@/utils/typstLinks';
+import { useNoteLinks } from '@/composables/useNoteLinks';
 
-const props = defineProps<{ content: string }>();
+const props = defineProps<{
+  content: string;
+  /** Typst notes use `#link(..)` instead of `[[..]]` (#144). */
+  language?: 'markdown' | 'typst';
+}>();
 
 const expanded = ref(false); // start collapsed
 const tabsStore = useTabsStore();
 const vaultsStore = useVaultsStore();
+const { followTypstLink } = useNoteLinks();
 
 interface OutgoingLink {
   label: string;
   target: string;
   isExternal: boolean;
   isWiki: boolean;
+  typst?: TypstLink;
 }
 
 const links = computed((): OutgoingLink[] => {
+  if (props.language === 'typst') {
+    return typstLinks(props.content).map((l) => ({
+      label: l.label,
+      target: l.target,
+      isExternal: l.kind === 'external',
+      isWiki: l.kind === 'note-name',
+      typst: l,
+    }));
+  }
   const seen = new Set<string>();
   const results: OutgoingLink[] = [];
 
@@ -85,6 +102,10 @@ const links = computed((): OutgoingLink[] => {
 });
 
 async function openLink(link: OutgoingLink) {
+  if (link.typst) {
+    await followTypstLink(link.typst, tabsStore.activeTab?.filePath ?? '');
+    return;
+  }
   if (link.isExternal) {
     window.open(link.target, '_blank', 'noopener,noreferrer');
     return;
