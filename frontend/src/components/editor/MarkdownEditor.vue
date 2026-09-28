@@ -6,6 +6,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
+// Static import (~1 kB): a dynamic import left a window after mount where the
+// editor wasn't yet editable and typing was silently lost.
+import { CodeJar } from 'codejar';
 import { useUndoRedo } from '@/composables/useUndoRedo';
 import { renderFormattedMarkdown, highlightPlainText } from '@/utils/highlight';
 import {
@@ -156,11 +159,9 @@ function expandAllFolds() {
   rerenderWithoutChangingContent();
 }
 
-onMounted(async () => {
+onMounted(() => {
   if (!editorEl.value) return;
   loadFoldStateForCurrentNote();
-  // CodeJar is a ~1kB editor; loaded dynamically from vendor dir or npm
-  const { CodeJar } = await import('codejar');
   // addClosing off (#155): CodeJar inserts a closing bracket or quote but
   // never types over it, so `[a](b)` saved as `[a](b))]`, and every
   // apostrophe grew a second one.

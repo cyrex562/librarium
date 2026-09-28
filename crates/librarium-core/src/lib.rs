@@ -11,4 +11,5 @@ pub mod markdown_service;
 pub mod models;
 #[cfg(feature = "search")]
 pub mod search_service;
+pub mod typst_text;
 pub mod wiki_link_service;

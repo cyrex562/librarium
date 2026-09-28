@@ -27,6 +27,29 @@ struct EntityMeta {
     extra_text: String,
 }
 
+/// Notes the full-text index covers: Markdown and Typst (#143).
+pub fn is_indexed_note(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".md") || lower.ends_with(".typ")
+}
+
+fn is_indexed_note_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("typ"))
+}
+
+/// The text indexed for a note. Markdown is indexed as written; Typst is
+/// reduced to its readable text (`typst_text`), line for line, so match
+/// line numbers still point at the right line of the note.
+pub fn index_body(file_path: &str, content: &str) -> String {
+    if file_path.to_ascii_lowercase().ends_with(".typ") {
+        crate::typst_text::typst_plain_text(content)
+    } else {
+        content.to_string()
+    }
+}
+
 fn extract_entity_meta(content: &str) -> EntityMeta {
     if !content.starts_with("---") {
         return EntityMeta::default();
@@ -300,7 +323,7 @@ impl SearchIndex {
                     continue;
                 }
             }
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
+            if path.is_file() && is_indexed_note_path(path) {
                 // Forward-slash normalized so search keys match the API/watcher
                 // convention on Windows (raw paths would use backslashes).
                 let rel = path
@@ -382,7 +405,7 @@ impl SearchIndex {
                         .add_document(doc!(
                             fields.path => rel.clone(),
                             fields.title => title,
-                            fields.body => content,
+                            fields.body => index_body(rel, &content),
                             fields.entity_type => meta.entity_type.unwrap_or_default(),
                             fields.labels => meta.labels.join(" "),
                         ))
@@ -476,7 +499,7 @@ impl SearchIndex {
                 .add_document(doc!(
                     vi.fields.path => file_path.to_string(),
                     vi.fields.title => title,
-                    vi.fields.body => content.to_string(),
+                    vi.fields.body => index_body(file_path, content),
                     vi.fields.entity_type => meta.entity_type.unwrap_or_default(),
                     vi.fields.labels => meta.labels.join(" "),
                 ))
@@ -528,7 +551,7 @@ impl SearchIndex {
             .add_document(doc!(
                 vi.fields.path => file_path.to_string(),
                 vi.fields.title => title,
-                vi.fields.body => content,
+                vi.fields.body => index_body(file_path, &content),
                 vi.fields.entity_type => meta.entity_type.unwrap_or_default(),
                 vi.fields.labels => meta.labels.join(" "),
             ))
@@ -828,8 +851,9 @@ impl SearchIndex {
                     continue;
                 }
             }
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
-                if let Ok(content) = std::fs::read_to_string(path) {
+            if path.is_file() && is_indexed_note_path(path) {
+                if let Ok(raw) = std::fs::read_to_string(path) {
+                    let content = index_body(&path.to_string_lossy(), &raw);
                     let rel = path
                         .strip_prefix(vault_path)
                         .unwrap_or(path)
@@ -934,6 +958,83 @@ mod tests {
         .unwrap();
 
         temp_dir
+    }
+
+    #[test]
+    fn typst_notes_are_indexed_as_their_text() {
+        let vault = TempDir::new().unwrap();
+        fs::write(
+            vault.path().join("paper.typ"),
+            "#set page(margin: 2cm)\n\n= Findings\n\nThe *quantum* result.\n#let secretvar = 1\n",
+        )
+        .unwrap();
+        let index = SearchIndex::new();
+        assert_eq!(
+            index
+                .index_vault("v", vault.path().to_str().unwrap())
+                .unwrap(),
+            1
+        );
+
+        let results = index.search("v", "quantum", 1, 10).unwrap().results;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "paper.typ");
+        assert_eq!(results[0].title, "paper");
+        let m = &results[0].matches[0];
+        // Same line as in the note, and without the markup.
+        assert_eq!(m.line_number, 5);
+        assert_eq!(m.line_text, "The quantum result.");
+
+        // Code isn't prose.
+        assert!(index
+            .search("v", "margin", 1, 10)
+            .unwrap()
+            .results
+            .is_empty());
+        assert!(index
+            .search("v", "secretvar", 1, 10)
+            .unwrap()
+            .results
+            .is_empty());
+    }
+
+    #[test]
+    fn typst_note_updates_index_their_text() {
+        let vault = TempDir::new().unwrap();
+        let index = SearchIndex::new();
+        index
+            .index_vault("v", vault.path().to_str().unwrap())
+            .unwrap();
+        index
+            .update_file(
+                "v",
+                "notes/new.typ",
+                "= Fresh\n\nA _zebra_ appears.".to_string(),
+            )
+            .unwrap();
+        let results = index.search("v", "zebra", 1, 10).unwrap().results;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches[0].line_text, "A zebra appears.");
+        assert_eq!(results[0].matches[0].line_number, 3);
+
+        index
+            .update_files_batch(
+                "v",
+                &[("b.typ".to_string(), "#strong[giraffe]".to_string())],
+            )
+            .unwrap();
+        assert_eq!(
+            index.search("v", "giraffe", 1, 10).unwrap().results[0].path,
+            "b.typ"
+        );
+    }
+
+    #[test]
+    fn indexed_note_extensions() {
+        assert!(is_indexed_note("a/b.md"));
+        assert!(is_indexed_note("a/B.TYP"));
+        assert!(!is_indexed_note("a/b.txt"));
+        assert!(!is_indexed_note("typ"));
     }
 
     #[test]
