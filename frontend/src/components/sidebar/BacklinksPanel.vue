@@ -67,7 +67,7 @@ watch(
 );
 
 function fileName(path: string): string {
-  return path.split('/').pop()?.replace(/\.md$/, '') ?? path;
+  return path.split('/').pop()?.replace(/\.(md|typ)$/i, '') ?? path;
 }
 
 function openFile(path: string) {

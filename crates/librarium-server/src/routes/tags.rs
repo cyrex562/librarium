@@ -87,16 +87,9 @@ async fn list_backlinks(
     let vault = state.db.get_vault(&vault_id).await?;
     let target_path = query.path.trim();
 
-    // Derive the stem (filename without extension) for wiki-link matching
-    let stem = std::path::Path::new(target_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(target_path);
-
-    // Patterns to search for
-    let wiki_stem_lower = format!("[[{}]]", stem.to_lowercase());
-    let path_lower = target_path.to_lowercase();
-    let path_no_ext = target_path.trim_end_matches(".md").to_lowercase();
+    // Markdown and Typst notes both count (#144); the matching rules are
+    // shared with the mobile client in `librarium_core::note_links`.
+    let target = librarium_core::note_links::BacklinkTarget::new(target_path);
 
     #[derive(Serialize)]
     struct BacklinkEntry {
@@ -110,14 +103,7 @@ async fn list_backlinks(
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.path()
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .map(|x| x.eq_ignore_ascii_case("md"))
-                    .unwrap_or(false)
-        })
+        .filter(|e| e.file_type().is_file() && librarium_core::note_links::is_note_file(e.path()))
     {
         let rel_path = entry
             .path()
@@ -126,18 +112,8 @@ async fn list_backlinks(
             .to_string_lossy()
             .replace('\\', "/");
 
-        // Don't include the file linking to itself
-        if rel_path.to_lowercase() == path_lower {
-            continue;
-        }
-
         if let Ok(raw) = std::fs::read_to_string(entry.path()) {
-            let lower = raw.to_lowercase();
-            // Check for [[stem]] style wiki-link or path-based markdown link
-            let found = lower.contains(&wiki_stem_lower)
-                || lower.contains(&format!("({})", path_lower))
-                || lower.contains(&format!("({})", path_no_ext));
-            if found {
+            if target.is_linked_from(&rel_path, &raw) {
                 let title = std::path::Path::new(&rel_path)
                     .file_stem()
                     .and_then(|s| s.to_str())

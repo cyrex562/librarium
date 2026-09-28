@@ -80,6 +80,12 @@
           <EntityRelationsPanel v-if="canUseEntityGraph" :file-path="tabsStore.activeTab?.filePath ?? ''" />
           <NeighboringFilesPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
         </template>
+        <!-- Typst notes (#144): links and neighbors; outline, entities and ML are Markdown-only. -->
+        <template v-else-if="activeTypstContent !== null">
+          <OutgoingLinksPanel :content="activeTypstContent" language="typst" />
+          <BacklinksPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
+          <NeighboringFilesPanel :file-path="tabsStore.activeTab?.filePath ?? ''" />
+        </template>
 
         <FavoritesPanel />
         <BookmarksPanel />
@@ -207,6 +213,11 @@ watch(
 const activeMdContent = computed<string | null>(() => {
   const tab = tabsStore.activeTab;
   if (!tab?.filePath?.endsWith('.md')) return null;
+  return tab.content ?? null;
+});
+const activeTypstContent = computed<string | null>(() => {
+  const tab = tabsStore.activeTab;
+  if (!tab?.filePath?.toLowerCase().endsWith('.typ')) return null;
   return tab.content ?? null;
 });
 const vaultManagerOpen = ref(false);

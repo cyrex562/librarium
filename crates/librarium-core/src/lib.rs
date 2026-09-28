@@ -9,6 +9,7 @@ pub mod file_service;
 pub mod frontmatter_service;
 pub mod markdown_service;
 pub mod models;
+pub mod note_links;
 #[cfg(feature = "search")]
 pub mod search_service;
 pub mod typst_text;

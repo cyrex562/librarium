@@ -104,8 +104,12 @@ impl WikiLinkResolver {
     fn resolve_explicit_path(vault_path: &str, link_target: &str) -> AppResult<ResolvedLink> {
         let vault = Path::new(vault_path);
 
-        // Try with .md extension first, then without
-        let candidates = vec![format!("{}.md", link_target), link_target.to_string()];
+        // Try a Markdown note, then a Typst note (#144), then the path as written.
+        let candidates = vec![
+            format!("{}.md", link_target),
+            format!("{}.typ", link_target),
+            link_target.to_string(),
+        ];
 
         for candidate in &candidates {
             let full_path = vault.join(candidate);
@@ -588,6 +592,25 @@ mod tests {
         let result = WikiLinkResolver::resolve(vault_path, "folder/SubNote").unwrap();
         assert!(result.exists);
         assert_eq!(result.path, "folder/SubNote.md");
+    }
+
+    #[test]
+    fn resolves_links_to_typst_notes() {
+        let temp = create_test_vault();
+        let vault = temp.path();
+        fs::write(vault.join("folder/paper.typ"), "= Paper").unwrap();
+        let vault_path = vault.to_str().unwrap();
+
+        // By name, with or without the extension, and by path without it.
+        for link in ["paper", "paper.typ", "folder/paper", "folder/paper.typ"] {
+            let result = WikiLinkResolver::resolve(vault_path, link).unwrap();
+            assert!(result.exists, "{link}");
+            assert_eq!(result.path, "folder/paper.typ", "{link}");
+        }
+        // A Markdown note of the same name still wins for an extensionless path.
+        fs::write(vault.join("folder/paper.md"), "# Paper").unwrap();
+        let result = WikiLinkResolver::resolve(vault_path, "folder/paper").unwrap();
+        assert_eq!(result.path, "folder/paper.md");
     }
 
     #[test]

@@ -35,6 +35,7 @@
         class="typst-preview-body"
         :class="{ 'is-stale': stale }"
         data-testid="typst-preview-body"
+        @click="onBodyClick"
         v-html="html"
       />
     </template>
@@ -62,6 +63,8 @@ const lastGood = new Map<string, string>();
 import { onUnmounted, ref, watch } from 'vue';
 import DOMPurify from 'dompurify';
 import { ApiError, apiRenderTypst, type TypstDiagnostic } from '@/api/client';
+import { classifyTypstLink, NOTE_LINK_PREFIX } from '@/utils/typstLinks';
+import { useNoteLinks } from '@/composables/useNoteLinks';
 
 const props = defineProps<{
   vaultId: string;
@@ -78,6 +81,7 @@ const stale = ref(false);
 const diagnostics = ref<TypstDiagnostic[]>([]);
 const unavailable = ref('');
 const bodyEl = ref<HTMLElement | null>(null);
+const { followTypstLink } = useNoteLinks();
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let latest = 0;
@@ -96,6 +100,9 @@ async function render() {
         USE_PROFILES: { html: true, mathMl: true, svg: true },
         ADD_TAGS: ['style'],
         FORCE_BODY: true,
+        // DOMPurify's default URI rule, plus Librarium's note links (#144).
+        ALLOWED_URI_REGEXP:
+          /^(?:(?:(?:f|ht)tps?|mailto|tel|librarium):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
       });
       stale.value = false;
       lastGood.set(cacheKey(), html.value);
@@ -123,6 +130,19 @@ async function render() {
 
 function cacheKey() {
   return `${props.vaultId}:${props.filePath}`;
+}
+
+/** Links in the render: notes open in Librarium, web links in a new tab. */
+function onBodyClick(event: MouseEvent) {
+  const anchor = (event.target as HTMLElement | null)?.closest('a');
+  const href = anchor?.getAttribute('href');
+  if (!anchor || !href) return;
+  if (href.startsWith('#')) return; // in-document label
+  event.preventDefault();
+  const kind = classifyTypstLink(href);
+  if (!kind) return;
+  const target = kind === 'note-name' ? decodeURIComponent(href.slice(NOTE_LINK_PREFIX.length)) : href;
+  void followTypstLink({ target, kind }, props.filePath);
 }
 
 watch(() => [props.vaultId, props.filePath], () => {

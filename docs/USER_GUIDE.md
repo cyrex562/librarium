@@ -76,8 +76,16 @@ exactly, a dialog lists it with line numbers: raw HTML, images linked from the
 web, embedded notes (`![[note]]`), and LaTeX math with no plain-Typst
 equivalent. Wiki links become `#link("librarium://note/…")`, and merged table
 cells carry over. Typst notes show up in search like Markdown notes. Their text is matched,
-not their markup or code. Converting Typst back to Markdown, and links for
-Typst notes, are planned (see epic #121).
+not their markup or code.
+
+**Links in Typst notes.** Link to another note with
+`#link("librarium://note/Note name")[label]` (Convert to Typst writes wiki
+links this way), or with a path to the note file:
+`#link("other.typ")[label]`, relative to the current note. From a Markdown
+note, link to a Typst note with `[[paper.typ]]` or `[[paper]]`. Typst notes
+have the Outgoing Links, Backlinks and Neighboring Files panels, and links in
+Preview open the note (web links open in a new browser tab). Converting
+Typst back to Markdown is planned (see epic #121).
 
 ### File operations
 
