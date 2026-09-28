@@ -3,6 +3,7 @@ use crate::models::{
     CreateFileRequest, CreateUploadSessionRequest, UpdateFileRequest, UploadSessionResponse,
 };
 use crate::routes::vaults::AppState;
+use crate::services::search_service::is_indexed_note;
 use crate::services::{
     file_service::TrashItem, FileService, ImageService, ReindexService, WikiLinkResolver,
 };
@@ -362,8 +363,8 @@ async fn create_file(
         )
         .await?;
 
-    // Update search index if it's a markdown file
-    if req.path.ends_with(".md") {
+    // Update the search index for notes (Markdown and Typst, #143).
+    if is_indexed_note(&req.path) {
         state
             .search_index
             .update_file(&vault_id, &req.path, content.content.clone())?;
@@ -491,8 +492,8 @@ async fn update_file(
         )
         .await?;
 
-    // Update search index if it's a markdown file
-    if file_path.ends_with(".md") {
+    // Update the search index for notes (Markdown and Typst, #143).
+    if is_indexed_note(&file_path) {
         state
             .search_index
             .update_file(&vault_id, &file_path, content.content.clone())?;
@@ -595,18 +596,21 @@ async fn rename_file(
         .await?;
 
     // Update search index and entity state for the rename.
-    if from.ends_with(".md") {
+    if is_indexed_note(from) {
         state.search_index.remove_file(&vault_id, from)?;
     }
     if let Err(e) = ReindexService::remove_file(&state.db, &vault_id, from).await {
         tracing::warn!("Entity remove_file failed after rename of {from}: {e}");
     }
-    if new_path.ends_with(".md") {
+    if is_indexed_note(&new_path) {
         if let Ok(content) = FileService::read_file(&vault.path, &new_path) {
             state
                 .search_index
                 .update_file(&vault_id, &new_path, content.content)?;
         }
+    }
+    // Entities live in Markdown frontmatter only.
+    if new_path.ends_with(".md") {
         let abs_path = format!("{}/{}", vault.path.trim_end_matches('/'), new_path);
         if let Err(e) = ReindexService::index_file(&state.db, &vault_id, &new_path, &abs_path).await
         {
@@ -695,7 +699,7 @@ async fn upload_files(
 
         // Defer indexing: queue markdown content for a single batched commit
         // after all files in this request are written.
-        if final_path_str.ends_with(".md") {
+        if is_indexed_note(&final_path_str) {
             if let Ok(content) = FileService::read_file(&vault.path, &final_path_str) {
                 md_batch.push((final_path_str.clone(), content.content));
             }
@@ -1538,7 +1542,7 @@ async fn import_archive(
     // commit (single fsync) instead of one per file (LIB: bulk-upload perf).
     let md_batch: Vec<(String, String)> = extracted
         .iter()
-        .filter(|p| p.ends_with(".md"))
+        .filter(|p| is_indexed_note(p))
         .filter_map(|p| {
             FileService::read_file(&vault.path, p)
                 .ok()

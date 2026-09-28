@@ -120,4 +120,27 @@ test.describe('Typst notes', () => {
     await expect(page.locator('[data-testid="typst-preview-body"] h2')).toHaveText('Plan', { timeout: 15_000 });
     await expect(page.locator('[data-testid="typst-preview-body"] strong')).toHaveText('PDF export');
   });
+
+  test('5.4 - Typst notes are found by full-text search', async ({ page }) => {
+    await page.locator('button[title="New note"]').click();
+    await page.getByLabel('File name').fill('field-notes.typ');
+    await page.locator('button:has-text("Create")').click();
+    await expect(page.locator('.tab-item', { hasText: 'field-notes.typ' })).toBeVisible({ timeout: 5000 });
+    const editor = page.locator('[data-testid="typst-editor"] .typst-editor');
+    // No wait for the editor to be ready: typing straight after the note
+    // opens used to be lost (CodeJar was loaded asynchronously).
+    await editor.click();
+    await page.keyboard.type('#set page(margin: 1cm)\n= Sightings\n\nSaw a *quokkaxyz* today.\n');
+    await expect(page.getByText('Saved')).toBeVisible({ timeout: 10_000 });
+    // Auto-save debounce (2 s) must have fired before searching.
+    await page.waitForTimeout(3000);
+
+    await page.locator('button[title="Search (Ctrl+Shift+F)"]').click();
+    await page.getByRole('textbox', { name: 'Search', exact: true }).fill('quokkaxyz');
+    await page.keyboard.press('Enter');
+    const modal = page.locator('.v-dialog:visible').first();
+    await expect(modal.getByText('field-notes.typ').first()).toBeVisible({ timeout: 10_000 });
+    // The match line is the note's text, not its markup.
+    await expect(modal.getByText('Saw a quokkaxyz today.')).toBeVisible();
+  });
 });

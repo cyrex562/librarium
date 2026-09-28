@@ -1,6 +1,6 @@
 [package]
 name = "librarium-core"
-version = "0.102.25"
+version = "0.102.26"
 edition = "2021"
 
 [dependencies]
@@ -17,6 +17,8 @@ zip = "2.2"
 walkdir = "2.5"
 sha2 = "0.10"
 pulldown-cmark = "0.12"
+# Typst parser only (no compiler): plain text of .typ notes for search (#143).
+typst-syntax = "0.15.1"
 # Syntax highlighting for rendered code blocks. `default-fancy` swaps the
 # default regex backend (`onig`, wrapping the C library Oniguruma) for the
 # pure-Rust `fancy-regex` — `onig`/`onig_sys` was the other of the two

@@ -59,6 +59,10 @@
  * highlighted editor.
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+// Imported statically so the editor is editable the moment it mounts: with a
+// dynamic import, keystrokes typed right after the note opened landed on a
+// plain <div> and were lost (no edit, no save).
+import { CodeJar } from 'codejar';
 import TypstPreview from './TypstPreview.vue';
 import { ApiError } from '@/api/client';
 import { useFilesStore } from '@/stores/files';
@@ -189,9 +193,8 @@ function onKeydown(e: KeyboardEvent) {
 const onFocus = () => { isEditorFocused = true; };
 const onBlur = () => { isEditorFocused = false; };
 
-onMounted(async () => {
+onMounted(() => {
   if (!editorEl.value) return;
-  const { CodeJar } = await import('codejar');
   // addClosing off: CodeJar inserts a closing bracket or quote but never types
   // over it, so typing `f(x)` would leave `f(x))`.
   jar = CodeJar(editorEl.value, highlight, { tab: '  ', history: false, addClosing: false });

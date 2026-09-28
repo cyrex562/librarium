@@ -41,6 +41,8 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
   the Markdown editor's ⋯ menu) creates a `.typ` copy of a note and lists
   anything that didn't carry over. Markdown notes can now be exported to PDF
   as well (#140).
+- Search finds Typst notes (#143), matching their text rather than their
+  markup or code.
 
 ### Changed
 
@@ -54,6 +56,10 @@ Tracking starts at 0.102.2 — earlier history is in `git log`.
 
 ### Fixed
 
+- Typing straight after opening a note could be lost: the editor wasn't
+  editable until its editing library finished loading, so those keystrokes
+  never registered and nothing was saved. It's now ready as soon as it
+  appears.
 - Markdown editor: typing a bracket or quote no longer adds a second closing
   one (`[a](b)` saved as `[a](b))]`, and apostrophes doubled) (#155). Also
   removed two claims from the user guide that didn't match the app: `[[`

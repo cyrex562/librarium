@@ -75,7 +75,8 @@ Markdown note unchanged, and opens it. If anything couldn't be carried over
 exactly, a dialog lists it with line numbers: raw HTML, images linked from the
 web, embedded notes (`![[note]]`), and LaTeX math with no plain-Typst
 equivalent. Wiki links become `#link("librarium://note/…")`, and merged table
-cells carry over. Converting Typst back to Markdown, and search and links for
+cells carry over. Typst notes show up in search like Markdown notes. Their text is matched,
+not their markup or code. Converting Typst back to Markdown, and links for
 Typst notes, are planned (see epic #121).
 
 ### File operations
@@ -92,7 +93,7 @@ Typst notes, are planned (see epic #121).
 | Type | Extensions | Support |
 | --- | --- | --- |
 | Markdown | `.md` | Full editing |
-| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted), plain text (Plain), a rendered Preview with compile errors, and PDF export. Search comes later. |
+| Typst | `.typ` | Editing with Typst syntax highlighting (Formatted), plain text (Plain), a rendered Preview with compile errors, PDF export, and full-text search. |
 | Images | `.png .jpg .jpeg .gif .svg .webp` | Viewer with zoom/pan |
 | PDF | `.pdf` | Native viewer, search, metadata |
 | Audio | `.mp3 .wav .ogg` | Playback |

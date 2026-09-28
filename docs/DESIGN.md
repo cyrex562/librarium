@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.25
+**Version:** 0.102.26
 
 ---
 
@@ -133,7 +133,7 @@ shaping only. Notable modules: `auth`, `totp`, `oidc`, `api_keys`, `admin`,
 | Service | Responsibility |
 | --- | --- |
 | `file_service` | All disk I/O. **Owns path-traversal protection** (canonicalize + containment checks), conflict detection, trash/backup on conflict, move/rename. Lives in `librarium-core`, re-exported here. |
-| `search_service` | Tantivy wrapper: per-vault index, incremental updates, query + snippet highlighting. Lives in `librarium-core` (behind its `search` feature), re-exported here. Index directory is resolved here (`LIBRARIUM_INDEX_DIR`/`CODEX_INDEX_DIR`, default `./data/indices`) and passed in explicitly — the core crate has no stable notion of an environment or current directory. |
+| `search_service` | Tantivy wrapper: per-vault index, incremental updates, query + snippet highlighting. Indexes notes, meaning `.md` and `.typ` (`is_indexed_note`; the server's index call sites and the watcher use the same check). Typst is indexed as its readable text, via `typst_text::typst_plain_text` (`typst-syntax`, parser only). It keeps prose, headings, raw and math, and drops markup, code and comments. It keeps every line, so match line numbers still point at the note's lines. Broken code mid-edit falls back to raw text rather than dropping the rest of the note (#143). Entity reindexing stays Markdown-only. Lives in `librarium-core` (behind its `search` feature), re-exported here. Index directory is resolved here (`LIBRARIUM_INDEX_DIR`/`CODEX_INDEX_DIR`, default `./data/indices`) and passed in explicitly — the core crate has no stable notion of an environment or current directory. |
 | `reindex_service` | Two-pass entity/relation indexer from frontmatter; single source of truth for entity state (distinct from full-text search). |
 | `markdown_service` | Markdown parsing/rendering (`pulldown-cmark`), link rewriting. Lives in `librarium-core`, re-exported here. |
 | `typst_convert` | Markdown → Typst (#141), native over `pulldown-cmark`, with no pandoc. It maps frontmatter to `#metadata(..) <frontmatter>` (and `title` to `#set document`), wiki links to `#link("librarium://note/…")`, `![[img]]` to `#image`, `^^`/`<<` merged cells to `table.cell(rowspan/colspan)`, `==x==` to `#highlight`, and footnotes to `#footnote`. LaTeX math goes through `mitex`, which is accepted only when the result uses plain Typst math names, since its helpers live in a Typst package Librarium doesn't load; otherwise the formula is kept as LaTeX code. Returns warnings (with Markdown line numbers) for whatever didn't carry over: raw HTML, remote images, note embeds, unconvertible math. A test converts the repo's own docs and an edge-case note and compiles each result. Not feature-gated: conversion itself needs no compiler. |

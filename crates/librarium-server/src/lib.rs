@@ -383,7 +383,8 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
             }
 
             // ── 1. Batch-read markdown content and group by vault ─────────────
-            // We collect (vault_id, path, content) for Created/Modified .md files
+            // We collect (vault_id, path, content) for Created/Modified notes
+            // (.md and .typ, #143)
             // so we can do one Tantivy commit per vault instead of one per file.
             let mut vault_cache: HashMap<String, String> = HashMap::new(); // vault_id → vault.path
             let mut batch_by_vault: HashMap<String, Vec<(String, String)>> = HashMap::new();
@@ -391,7 +392,7 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
             for event in &events {
                 match &event.event_type {
                     models::FileChangeType::Created | models::FileChangeType::Modified
-                        if event.path.ends_with(".md") =>
+                        if services::search_service::is_indexed_note(&event.path) =>
                     {
                         let vault_path = if let Some(p) = vault_cache.get(&event.vault_id) {
                             Some(p.clone())
@@ -509,7 +510,7 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
                         {
                             warn!("Entity remove_file (rename from) failed for {from}: {e}");
                         }
-                        if to.ends_with(".md") {
+                        if services::search_service::is_indexed_note(to) {
                             let vault_path =
                                 if let Some(p) = vault_cache.get(&change_event.vault_id) {
                                     Some(p.clone())
@@ -531,16 +532,19 @@ pub async fn run(config: AppConfig) -> anyhow::Result<()> {
                                         content.content,
                                     );
                                 }
+                                // Entities live in Markdown frontmatter only.
                                 let abs_path = format!("{}/{}", vpath.trim_end_matches('/'), to);
-                                if let Err(e) = ReindexService::index_file(
-                                    &db_clone,
-                                    &change_event.vault_id,
-                                    to,
-                                    &abs_path,
-                                )
-                                .await
-                                {
-                                    warn!("Entity index_file (rename to) failed for {to}: {e}");
+                                if to.ends_with(".md") {
+                                    if let Err(e) = ReindexService::index_file(
+                                        &db_clone,
+                                        &change_event.vault_id,
+                                        to,
+                                        &abs_path,
+                                    )
+                                    .await
+                                    {
+                                        warn!("Entity index_file (rename to) failed for {to}: {e}");
+                                    }
                                 }
                             }
                         }
