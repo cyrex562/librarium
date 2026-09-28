@@ -9,7 +9,7 @@
 > [`docs/archive/`](archive/). Treat archived files as background, not as a
 > description of the current system.
 
-**Version:** 0.102.30
+**Version:** 0.102.31
 
 ---
 
@@ -222,6 +222,19 @@ The last good render per note is kept and shown dimmed while the text has
 errors. The Typst editor disables CodeJar's `addClosing`, which inserts
 closing brackets but never types over them. Export, search and links are
 later issues in the epic. The #137 spike's measurements are in that issue.
+
+**Typst across platforms** (#146):
+
+| | Desktop | Docker | Android thin client |
+|---|---|---|---|
+| Editing and highlighting | ✅ | ✅ | ✅ |
+| Search, links, backlinks, tags, frontmatter (`librarium-core`, parser only) | ✅ | ✅ | ✅ |
+| Preview, PDF export, Markdown↔Typst conversion (compiler) | ✅ | ✅ | hidden by the `canUseTypstRendering` capability, not broken |
+
+- **Desktop** embeds `librarium-server` with its default features, so it has the compiler. Its release binary is 64 MB, about 30 MB of which is the compiler and fonts; the server grows from 27.7 MB to 58 MB.
+- **Docker** builds the same server binary.
+- **Android** links only `typst-syntax`, a parser; the compiler never ships in the APK.
+- **Offline:** everything works offline. Fonts are embedded, and packages come from the vault's `.typst/packages/`. Nothing is fetched.
 
 **Frontmatter for Typst notes** (#145) is a `#metadata((…)) <frontmatter>` block: valid Typst, and what Convert to Typst writes. `librarium-core::typst_frontmatter` parses literal dictionaries (strings, numbers, booleans, `none`, arrays, nested dictionaries) from the `typst-syntax` AST. A block with anything computed in it is left as ordinary code, so nothing is lost.
 

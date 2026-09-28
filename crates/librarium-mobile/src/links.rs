@@ -172,6 +172,31 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    /// Typst notes work offline on the thin client too (#146): links in a
+    /// Typst note count as backlinks, and `[[paper]]` resolves to paper.typ.
+    #[tokio::test]
+    async fn typst_backlinks_and_resolution_work_offline() {
+        let vault = TempDir::new().unwrap();
+        std::fs::write(vault.path().join("Roadmap.md"), "# Roadmap").unwrap();
+        std::fs::write(
+            vault.path().join("plan.typ"),
+            "See #link(\"librarium://note/Roadmap\")[it].",
+        )
+        .unwrap();
+        std::fs::write(vault.path().join("paper.typ"), "= Paper").unwrap();
+        let root = vault.path().to_str().unwrap();
+
+        let back = backlinks(root, "Roadmap.md").await.unwrap();
+        assert_eq!(
+            back.iter().map(|n| n.path.as_str()).collect::<Vec<_>>(),
+            vec!["plan.typ"]
+        );
+
+        let resolved = resolve_wiki_link(root, "paper", None).await.unwrap();
+        assert!(resolved.exists);
+        assert_eq!(resolved.path, "paper.typ");
+    }
+
     #[tokio::test]
     async fn resolve_wiki_link_finds_existing_note() {
         let vault = TempDir::new().unwrap();
